@@ -50,11 +50,11 @@ function handleWebhookVerification(url, res) {
   const challenge = url.searchParams.get("hub.challenge");
 
   if (mode === "subscribe" && token === config.whatsappVerifyToken) {
-    res.writeHead(200).end(challenge);
+    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }).end(challenge);
     return;
   }
 
-  res.writeHead(403).end("forbidden");
+  res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
 }
 
 function handleGoogleOAuthCallback(url, res) {
