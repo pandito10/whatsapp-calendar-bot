@@ -1,0 +1,17 @@
+{
+  "name": "whatsapp-calendar-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "google:auth-url": "node scripts/google-auth-url.js",
+    "google:token": "node scripts/google-token.js",
+    "test:google": "node scripts/test-google.js",
+    "test:openai": "node scripts/test-openai.js",
+    "test:ai": "node scripts/test-openai.js"
+  }
+}

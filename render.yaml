@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: whatsapp-calendar-bot
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_BUSINESS_ACCOUNT_ID
+        sync: false
+      - key: DOCTOR_WHATSAPP_NUMBER
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REFRESH_TOKEN
+        sync: false
+      - key: GOOGLE_CALENDAR_ID
+        value: primary
+      - key: AI_PROVIDER
+        value: local
+      - key: CLINIC_TIMEZONE
+        value: America/Mexico_City
+      - key: CLINIC_NAME
+        value: Consultorio Ginecologico
+      - key: APPOINTMENT_MINUTES
+        value: 40
+      - key: WORK_DAYS
+        value: 1,2,3,4,5
+      - key: WORK_START
+        value: 09:00
+      - key: WORK_END
+        value: 18:00
