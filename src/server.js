@@ -347,6 +347,10 @@ async function getInboxConversations() {
 }
 
 function renderInboxPage(list, selected) {
+  const stats = buildInboxStats(list);
+  const selectedStatus = selected ? getConversationStatus(selected) : undefined;
+  const selectedName = selected ? getConversationDisplayName(selected) : "";
+  const appointmentCard = selected?.appointment ? renderAppointmentCard(selected.appointment) : "";
   const conversationLinks =
     list.length === 0
       ? `<div class="empty-state">Todavia no hay conversaciones.</div>`
@@ -354,14 +358,21 @@ function renderInboxPage(list, selected) {
           .map((conversation) => {
             const last = conversation.messages.at(-1);
             const active = selected?.phoneNumber === conversation.phoneNumber ? " active" : "";
+            const status = getConversationStatus(conversation);
+            const title = getConversationDisplayName(conversation);
             return `<a class="thread${active}" href="/inbox?phone=${encodeURIComponent(conversation.phoneNumber)}">
               <div class="avatar">${escapeHtml(conversation.phoneNumber.slice(-2))}</div>
               <div class="thread-copy">
                 <div class="thread-top">
-                  <strong>${escapeHtml(formatPhoneForInbox(conversation.phoneNumber))}</strong>
+                  <strong>${escapeHtml(title)}</strong>
                   <span>${formatInboxDate(conversation.updatedAt)}</span>
                 </div>
+                <div class="thread-sub">${escapeHtml(formatPhoneForInbox(conversation.phoneNumber))}</div>
                 <p>${escapeHtml(last?.body ?? "")}</p>
+                <div class="thread-tags">
+                  <span class="tag ${status.className}">${status.label}</span>
+                  ${conversation.appointment?.slotStart ? `<span class="tag">${formatAppointmentShort(conversation.appointment.slotStart)}</span>` : ""}
+                </div>
               </div>
             </a>`;
           })
@@ -464,6 +475,7 @@ function renderInboxPage(list, selected) {
       font-size: 13px;
       font-weight: 650;
     }
+    .status a { color: inherit; }
     main {
       display: grid;
       grid-template-columns: minmax(300px, 360px) 1fr;
@@ -492,6 +504,22 @@ function renderInboxPage(list, selected) {
       font-size: 12px;
       margin-top: 4px;
     }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      padding: 14px;
+      border-bottom: 1px solid #edf1f6;
+    }
+    .stat {
+      min-width: 0;
+      padding: 10px;
+      border-radius: 12px;
+      background: var(--soft);
+      border: 1px solid #e7edf4;
+    }
+    .stat strong { display: block; font-size: 18px; line-height: 1; }
+    .stat span { display: block; color: var(--muted); font-size: 11px; margin-top: 5px; }
     .thread {
       display: flex;
       gap: 12px;
@@ -553,6 +581,32 @@ function renderInboxPage(list, selected) {
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .thread-sub {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+    .thread-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      color: #475569;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 750;
+    }
+    .tag.confirmed { color: #166534; background: #dcfce7; border-color: #bbf7d0; }
+    .tag.followup { color: #854d0e; background: #fef3c7; border-color: #fde68a; }
+    .tag.open { color: #075985; background: #e0f2fe; border-color: #bae6fd; }
     .chat {
       display: flex;
       flex-direction: column;
@@ -582,6 +636,39 @@ function renderInboxPage(list, selected) {
       border-radius: 999px;
       font-size: 12px;
       font-weight: 700;
+    }
+    .chat-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .appointment-card {
+      margin: 18px 24px 0;
+      padding: 14px 16px;
+      border-radius: 14px;
+      background: #ecfdf5;
+      border: 1px solid #bbf7d0;
+      color: #064e3b;
+    }
+    .appointment-card strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    .appointment-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 14px;
+      font-size: 13px;
+    }
+    .appointment-grid span {
+      color: #047857;
+      display: block;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
     }
     .messages {
       padding: 24px;
@@ -652,7 +739,10 @@ function renderInboxPage(list, selected) {
       .status { display: none; }
       main { grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 72px); padding: 12px; }
       aside { max-height: 34vh; }
+      .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .messages { padding: 16px; }
+      .appointment-card { margin: 12px 16px 0; }
+      .appointment-grid { grid-template-columns: 1fr; }
       .chat { min-height: 58vh; }
       .bubble { max-width: 92%; }
     }
@@ -667,7 +757,7 @@ function renderInboxPage(list, selected) {
         <div class="subtitle">Conversaciones del consultorio</div>
       </div>
     </div>
-    <div class="status">${list.length} conversaciones · actualiza cada 20s · <a href="/inbox/logout">salir</a></div>
+    <div class="status">${list.length} conversaciones · ${stats.confirmed} citas · ${stats.followup} seguimiento · <a href="/inbox/logout">salir</a></div>
   </header>
   <main>
     <aside>
@@ -675,21 +765,89 @@ function renderInboxPage(list, selected) {
         <strong>Pacientes</strong>
         <span>Ultimos mensajes recibidos</span>
       </div>
+      <div class="stats">
+        <div class="stat"><strong>${stats.total}</strong><span>Total</span></div>
+        <div class="stat"><strong>${stats.confirmed}</strong><span>Agendadas</span></div>
+        <div class="stat"><strong>${stats.followup}</strong><span>Seguimiento</span></div>
+      </div>
       ${conversationLinks}
     </aside>
     <section class="chat">
       <div class="chat-title">
         <div>
-          <strong>${selected ? escapeHtml(formatPhoneForInbox(selected.phoneNumber)) : "Sin conversacion seleccionada"}</strong>
-          <span>${selected ? `Ultima actividad: ${formatInboxDate(selected.updatedAt)}` : "Cuando llegue un mensaje aparecera aqui."}</span>
+          <strong>${selected ? escapeHtml(selectedName) : "Sin conversacion seleccionada"}</strong>
+          <span>${selected ? `${formatPhoneForInbox(selected.phoneNumber)} · Ultima actividad: ${formatInboxDate(selected.updatedAt)}` : "Cuando llegue un mensaje aparecera aqui."}</span>
         </div>
-        ${selected ? `<div class="chip">${selected.messages.length} mensajes</div>` : ""}
+        ${
+          selected
+            ? `<div class="chat-actions"><div class="chip">${selected.messages.length} mensajes</div><div class="tag ${selectedStatus.className}">${selectedStatus.label}</div></div>`
+            : ""
+        }
       </div>
+      ${appointmentCard}
       <div class="messages">${messages}</div>
     </section>
   </main>
 </body>
 </html>`;
+}
+
+function buildInboxStats(list) {
+  return list.reduce(
+    (stats, conversation) => {
+      const status = getConversationStatus(conversation);
+      stats.total += 1;
+      if (status.key === "confirmed") stats.confirmed += 1;
+      if (status.key === "followup") stats.followup += 1;
+      if (status.key === "open") stats.open += 1;
+      return stats;
+    },
+    { total: 0, confirmed: 0, followup: 0, open: 0 }
+  );
+}
+
+function getConversationStatus(conversation) {
+  if (conversation.appointment?.status === "confirmed") {
+    return { key: "confirmed", label: "Cita agendada", className: "confirmed" };
+  }
+
+  const last = conversation.messages.at(-1);
+  if (last?.sender === "patient") {
+    return { key: "followup", label: "Responder / seguimiento", className: "followup" };
+  }
+
+  return { key: "open", label: "En atencion", className: "open" };
+}
+
+function getConversationDisplayName(conversation) {
+  return conversation.appointment?.patientName || extractNameFromMessages(conversation.messages) || formatPhoneForInbox(conversation.phoneNumber);
+}
+
+function extractNameFromMessages(messages) {
+  const appointmentNotice = [...messages]
+    .reverse()
+    .find((message) => message.sender === "bot" && message.body.includes("Nueva cita por WhatsApp:"));
+  const fromNotice = appointmentNotice?.body.match(/Paciente:\s*([^\n]+)/i)?.[1]?.trim();
+  if (fromNotice) return fromNotice;
+
+  const thanks = [...messages]
+    .reverse()
+    .find((message) => message.sender === "bot" && message.body.match(/Gracias,\s*([^.\n]+)/i));
+  return thanks?.body.match(/Gracias,\s*([^.\n]+)/i)?.[1]?.trim();
+}
+
+function renderAppointmentCard(appointment) {
+  return `<div class="appointment-card">
+    <strong>✅ Cita registrada</strong>
+    <div class="appointment-grid">
+      <div><span>Paciente</span>${escapeHtml(appointment.patientName ?? "Sin nombre")}</div>
+      <div><span>Fecha</span>${escapeHtml(formatAppointmentFull(appointment.slotStart))}</div>
+      <div><span>Correo</span>${escapeHtml(appointment.patientEmail ?? "No capturado")}</div>
+      <div><span>Tipo</span>${escapeHtml(appointment.paymentType ?? "No capturado")}</div>
+      <div><span>Primera vez</span>${escapeHtml(appointment.firstVisit ?? "No capturado")}</div>
+      <div><span>Estado</span>${escapeHtml(appointment.status ?? "confirmed")}</div>
+    </div>
+  </div>`;
 }
 
 function formatPhoneForInbox(phoneNumber) {
@@ -707,6 +865,25 @@ function formatInboxDate(value) {
   if (!value) return "";
   return new Intl.DateTimeFormat("es-MX", {
     dateStyle: "short",
+    timeStyle: "short",
+    timeZone: config.clinicTimezone
+  }).format(new Date(value));
+}
+
+function formatAppointmentShort(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("es-MX", {
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: config.clinicTimezone
+  }).format(new Date(value));
+}
+
+function formatAppointmentFull(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("es-MX", {
+    dateStyle: "full",
     timeStyle: "short",
     timeZone: config.clinicTimezone
   }).format(new Date(value));

@@ -47,12 +47,18 @@ export async function loadConversations() {
       .map(encodeURIComponent)
       .join(",")})&order=created_at.asc`
   );
+  const citas = await supabaseFetch(
+    `/rest/v1/citas?select=phone_number,patient_name,patient_email,slot_start,slot_end,status,first_visit,payment_type,reason,created_at&phone_number=in.(${phoneNumbers
+      .map(encodeURIComponent)
+      .join(",")})&order=created_at.desc`
+  );
   const byPhone = new Map();
   for (const conversation of conversations) {
     byPhone.set(conversation.phone_number, {
       phoneNumber: conversation.phone_number,
       updatedAt: conversation.updated_at,
-      messages: []
+      messages: [],
+      appointment: undefined
     });
   }
 
@@ -65,6 +71,22 @@ export async function loadConversations() {
       timestamp: message.created_at
     });
     conversation.messages = conversation.messages.slice(-maxMessagesPerConversation);
+  }
+
+  for (const cita of citas) {
+    const conversation = byPhone.get(cita.phone_number);
+    if (!conversation || conversation.appointment) continue;
+    conversation.appointment = {
+      patientName: cita.patient_name,
+      patientEmail: cita.patient_email,
+      slotStart: cita.slot_start,
+      slotEnd: cita.slot_end,
+      status: cita.status,
+      firstVisit: cita.first_visit,
+      paymentType: cita.payment_type,
+      reason: cita.reason,
+      createdAt: cita.created_at
+    };
   }
 
   return [...byPhone.values()];
