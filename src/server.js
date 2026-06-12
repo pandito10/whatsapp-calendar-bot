@@ -2,15 +2,21 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { URL } from "node:url";
 import { understandMessage } from "./ai.js";
-import { createAppointment, findAvailableSlots, isSlotAvailable } from "./calendar.js";
+import { cancelAppointment, createAppointment, findAvailableSlots, isSlotAvailable } from "./calendar.js";
 import { config } from "./config.js";
 import {
+  cancelCita,
   deleteSession,
+  getLatestConfirmedCitaByPhone,
   getSession,
   isDatabaseEnabled,
+  loadDueReminders,
   loadConversations,
+  markReminderFailed,
+  markReminderSent,
   saveCita,
   saveConversationMessage,
+  scheduleReminder,
   setSession
 } from "./db.js";
 import { sendWhatsAppText } from "./whatsapp.js";
@@ -105,6 +111,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(config.port, () => {
   console.log(`WhatsApp calendar bot listening on port ${config.port}`);
+  startReminderWorker();
 });
 
 function handleWebhookVerification(url, res) {
@@ -918,6 +925,11 @@ async function handleIncomingText(from, text) {
   await recordConversationMessage(from, "patient", text);
   await notifyIncomingPatientMessage(from, text);
 
+  if (isCancellationRequest(normalized)) {
+    await handleCancellationRequest(from);
+    return;
+  }
+
   if (isResetCommand(normalized)) {
     await deletePatientSession(from);
     await replyToPatient(from, answerFaq("hola"));
@@ -1007,7 +1019,8 @@ async function handleIncomingText(from, text) {
       paymentType: session.paymentType,
       reason: session.reason
     });
-    await saveConfirmedCita(from, session, slot, event);
+    const cita = await saveConfirmedCita(from, session, slot, event);
+    await scheduleAppointmentReminder(from, session, slot, cita);
     await deletePatientSession(from);
 
     await replyToPatient(
@@ -1220,10 +1233,19 @@ async function deletePatientSession(phoneNumber) {
 }
 
 async function saveConfirmedCita(phoneNumber, session, slot, event) {
-  if (!isDatabaseEnabled()) return;
+  const fallback = {
+    id: undefined,
+    phoneNumber,
+    slotStart: slot.start,
+    slotEnd: slot.end,
+    status: "confirmed"
+  };
+
+  if (!isDatabaseEnabled()) return fallback;
 
   try {
-    await saveCita({
+    return (
+      (await saveCita({
       phoneNumber,
       patientName: session.name,
       patientEmail: session.email,
@@ -1233,9 +1255,105 @@ async function saveConfirmedCita(phoneNumber, session, slot, event) {
       firstVisit: session.firstVisit,
       paymentType: session.paymentType,
       reason: session.reason
-    });
+      })) ?? fallback
+    );
   } catch (error) {
     console.warn("Could not save cita to Supabase:", error.message);
+    return fallback;
+  }
+}
+
+async function handleCancellationRequest(from) {
+  let cita;
+  try {
+    cita = await getLatestConfirmedCitaByPhone(from);
+  } catch (error) {
+    console.warn("Could not load cita for cancellation:", error.message);
+  }
+
+  if (!cita) {
+    await deletePatientSession(from);
+    await replyToPatient(
+      from,
+      "No encontre una cita confirmada para cancelar por aqui. Por favor contacta directamente al consultorio para revisarlo."
+    );
+    return;
+  }
+
+  try {
+    await cancelAppointment(cita.googleEventId);
+    await cancelCita(cita.id);
+    await deletePatientSession(from);
+    await replyToPatient(from, `✅ Listo, cancele tu cita del ${formatAppointmentFull(cita.slotStart)}.`);
+    await safeSendWhatsAppText(
+      config.doctorWhatsappNumber,
+      `🛑 Cita cancelada por WhatsApp:\nPaciente: ${cita.patientName ?? "Paciente"}\nFecha: ${formatAppointmentFull(cita.slotStart)}\nTelefono: ${from}`
+    );
+  } catch (error) {
+    logSafeError("Could not cancel appointment", error);
+    await replyToPatient(
+      from,
+      "No pude cancelar la cita automaticamente. Por favor contacta directamente al consultorio para confirmar la cancelacion."
+    );
+  }
+}
+
+async function scheduleAppointmentReminder(phoneNumber, session, slot, cita) {
+  const remindAt = new Date(new Date(slot.start).getTime() - 24 * 60 * 60 * 1000);
+  if (remindAt <= new Date()) return;
+
+  try {
+    await scheduleReminder({
+      citaId: cita?.id,
+      phoneNumber: config.doctorWhatsappNumber,
+      reminderType: "admin_24h",
+      remindAt: remindAt.toISOString(),
+      payload: {
+        patientPhone: phoneNumber,
+        patientName: session.name,
+        slotLabel: slot.label,
+        slotStart: slot.start
+      }
+    });
+  } catch (error) {
+    console.warn("Could not schedule appointment reminder:", error.message);
+  }
+}
+
+function startReminderWorker() {
+  if (!config.enableReminderWorker) return;
+
+  void processDueReminders();
+  setInterval(() => {
+    void processDueReminders();
+  }, Math.max(15_000, config.reminderWorkerIntervalMs)).unref?.();
+}
+
+async function processDueReminders() {
+  try {
+    const reminders = await loadDueReminders();
+    for (const reminder of reminders) {
+      try {
+        await sendReminder(reminder);
+        await markReminderSent(reminder.id);
+      } catch (error) {
+        logSafeError(`Could not send reminder ${reminder.id}`, error);
+        await markReminderFailed(reminder.id, error.message);
+      }
+    }
+  } catch (error) {
+    console.warn("Reminder worker skipped cycle:", error.message);
+  }
+}
+
+async function sendReminder(reminder) {
+  if (reminder.reminderType === "admin_24h") {
+    await sendWhatsAppText(
+      reminder.phoneNumber,
+      `⏰ Recordatorio de cita mañana:\nPaciente: ${reminder.payload.patientName ?? "Paciente"}\nFecha: ${
+        reminder.payload.slotLabel ?? formatAppointmentFull(reminder.payload.slotStart)
+      }\nTelefono: ${reminder.payload.patientPhone ?? "No capturado"}`
+    );
   }
 }
 
@@ -1304,11 +1422,19 @@ function isGreetingQuestion(text) {
 }
 
 function isResetCommand(text) {
-  return /^(?:menu|menú|cancelar|reiniciar|empezar de nuevo|volver al menu|volver al menú)$/.test(text);
+  return /^(?:menu|menú|reiniciar|empezar de nuevo|volver al menu|volver al menú)$/.test(text);
 }
 
 function isConversationClosing(text) {
   return /^(?:gracias|muchas gracias|ok gracias|okay gracias|listo gracias|perfecto gracias|esta bien gracias|sale gracias|va gracias|ya gracias|no gracias|por ahora no|seria todo|eso es todo|listo|ok|okay|va|sale|perfecto)$/.test(text);
+}
+
+function isCancellationRequest(text) {
+  return (
+    /^(?:cancelar|cancela|cancelacion|cancelación)$/.test(text) ||
+    (/\b(?:cancelar|cancela|cancelacion|cancelación|anular|eliminar)\b/.test(text) &&
+      /\b(?:cita|consulta|agenda|reservacion|reservación)\b/.test(text))
+  );
 }
 
 function isMorningQuestion(text) {

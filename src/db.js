@@ -47,11 +47,12 @@ export async function loadConversations() {
       .map(encodeURIComponent)
       .join(",")})&order=created_at.asc`
   );
-  const citas = await supabaseFetch(
-    `/rest/v1/citas?select=phone_number,patient_name,patient_email,slot_start,slot_end,status,first_visit,payment_type,reason,created_at&phone_number=in.(${phoneNumbers
-      .map(encodeURIComponent)
-      .join(",")})&order=created_at.desc`
-  );
+  const citas =
+    (await safeSupabaseFetch(
+      `/rest/v1/citas?select=phone_number,patient_name,patient_email,slot_start,slot_end,status,first_visit,payment_type,reason,created_at&phone_number=in.(${phoneNumbers
+        .map(encodeURIComponent)
+        .join(",")})&order=created_at.desc`
+    )) ?? [];
   const byPhone = new Map();
   for (const conversation of conversations) {
     byPhone.set(conversation.phone_number, {
@@ -136,10 +137,13 @@ export async function deleteSession(phoneNumber) {
 }
 
 export async function saveCita(citaData) {
-  if (!isDatabaseEnabled()) return;
+  if (!isDatabaseEnabled()) return null;
 
-  await supabaseFetch("/rest/v1/citas", {
+  const rows = await supabaseFetch("/rest/v1/citas?select=id,phone_number,slot_start,slot_end,status", {
     method: "POST",
+    headers: {
+      Prefer: "return=representation"
+    },
     body: JSON.stringify({
       phone_number: citaData.phoneNumber,
       patient_name: citaData.patientName,
@@ -153,6 +157,125 @@ export async function saveCita(citaData) {
       reason: citaData.reason
     })
   });
+
+  const row = rows?.[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    phoneNumber: row.phone_number,
+    slotStart: row.slot_start,
+    slotEnd: row.slot_end,
+    status: row.status
+  };
+}
+
+export async function getLatestConfirmedCitaByPhone(phoneNumber) {
+  if (!isDatabaseEnabled()) return null;
+
+  const rows = await supabaseFetch(
+    `/rest/v1/citas?select=id,phone_number,patient_name,patient_email,google_event_id,slot_start,slot_end,status&phone_number=eq.${encodeURIComponent(
+      phoneNumber
+    )}&status=eq.confirmed&order=slot_start.desc&limit=1`
+  );
+  const row = rows?.[0];
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    phoneNumber: row.phone_number,
+    patientName: row.patient_name,
+    patientEmail: row.patient_email,
+    googleEventId: row.google_event_id,
+    slotStart: row.slot_start,
+    slotEnd: row.slot_end,
+    status: row.status
+  };
+}
+
+export async function cancelCita(citaId) {
+  if (!isDatabaseEnabled() || !citaId) return;
+
+  await supabaseFetch(`/rest/v1/citas?id=eq.${encodeURIComponent(citaId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "cancelled" })
+  });
+
+  await supabaseFetch(`/rest/v1/appointment_reminders?cita_id=eq.${encodeURIComponent(citaId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "cancelled" })
+  });
+}
+
+export async function scheduleReminder(reminderData) {
+  if (!isDatabaseEnabled()) return;
+
+  await supabaseFetch("/rest/v1/appointment_reminders?on_conflict=cita_id,reminder_type", {
+    method: "POST",
+    headers: {
+      Prefer: "resolution=merge-duplicates"
+    },
+    body: JSON.stringify({
+      cita_id: reminderData.citaId,
+      phone_number: reminderData.phoneNumber,
+      reminder_type: reminderData.reminderType ?? "admin_24h",
+      remind_at: reminderData.remindAt,
+      status: "pending",
+      payload: reminderData.payload ?? {}
+    })
+  });
+}
+
+export async function loadDueReminders(limit = 10) {
+  if (!isDatabaseEnabled()) return [];
+
+  return (
+    (await safeSupabaseFetch(
+      `/rest/v1/appointment_reminders?select=id,cita_id,phone_number,reminder_type,remind_at,payload,status&status=eq.pending&remind_at=lte.${encodeURIComponent(
+        new Date().toISOString()
+      )}&order=remind_at.asc&limit=${limit}`
+    )) ?? []
+  ).map((row) => ({
+    id: row.id,
+    citaId: row.cita_id,
+    phoneNumber: row.phone_number,
+    reminderType: row.reminder_type,
+    remindAt: row.remind_at,
+    payload: row.payload ?? {},
+    status: row.status
+  }));
+}
+
+export async function markReminderSent(reminderId) {
+  if (!isDatabaseEnabled() || !reminderId) return;
+
+  await supabaseFetch(`/rest/v1/appointment_reminders?id=eq.${encodeURIComponent(reminderId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      status: "sent",
+      sent_at: new Date().toISOString()
+    })
+  });
+}
+
+export async function markReminderFailed(reminderId, errorMessage) {
+  if (!isDatabaseEnabled() || !reminderId) return;
+
+  await supabaseFetch(`/rest/v1/appointment_reminders?id=eq.${encodeURIComponent(reminderId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      status: "failed",
+      error_message: String(errorMessage ?? "").slice(0, 500)
+    })
+  });
+}
+
+async function safeSupabaseFetch(path, options = {}) {
+  try {
+    return await supabaseFetch(path, options);
+  } catch (error) {
+    console.warn("Supabase optional request failed:", error.message);
+    return undefined;
+  }
 }
 
 async function supabaseFetch(path, options = {}) {

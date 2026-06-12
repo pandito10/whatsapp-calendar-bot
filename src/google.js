@@ -7,8 +7,9 @@ const googleAuthAlertIntervalMs = 30 * 60 * 1000;
 
 export async function googleRequest(path, options = {}) {
   const token = await getAccessToken();
+  const { ignoreNotFound, ...fetchOptions } = options;
   const response = await fetch(`https://www.googleapis.com${path}`, {
-    ...options,
+    ...fetchOptions,
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
@@ -17,10 +18,13 @@ export async function googleRequest(path, options = {}) {
   });
 
   if (!response.ok) {
+    if (ignoreNotFound && (response.status === 404 || response.status === 410)) return undefined;
     throw new Error(`Google API failed: ${response.status} ${await response.text()}`);
   }
 
-  return response.json();
+  if (response.status === 204) return undefined;
+  const text = await response.text();
+  return text ? JSON.parse(text) : undefined;
 }
 
 async function getAccessToken() {

@@ -56,7 +56,7 @@ El link viejo con `?token=...` solo debe usarse para entrar una vez; despues red
 
 - Configura `INBOX_PASSWORD` con una clave larga y diferente al verify token de Meta.
 - Configura `WHATSAPP_APP_SECRET` desde Meta Developers.
-- Cuando `WHATSAPP_APP_SECRET` ya este funcionando, cambia `REQUIRE_WEBHOOK_SIGNATURE=true` en Render para bloquear webhooks sin firma valida.
+- Mantén `REQUIRE_WEBHOOK_SIGNATURE=true` en produccion. Si `WHATSAPP_APP_SECRET` no esta configurado, el servidor arranca pero rechaza webhooks POST por seguridad.
 - No pongas `SUPABASE_SERVICE_ROLE_KEY`, tokens de Meta ni secretos de Google en frontend o capturas publicas.
 - El servidor limita requests por minuto, rechaza cuerpos grandes y agrega headers basicos de seguridad.
 - Para datos medicos/personales, comparte acceso al inbox solo con personal autorizado.

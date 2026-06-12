@@ -2,7 +2,7 @@ services:
   - type: web
     name: whatsapp-calendar-bot
     runtime: node
-    plan: free
+    plan: starter
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /health
@@ -21,7 +21,7 @@ services:
       - key: WHATSAPP_APP_SECRET
         sync: false
       - key: REQUIRE_WEBHOOK_SIGNATURE
-        value: "false"
+        value: "true"
       - key: DOCTOR_WHATSAPP_NUMBER
         sync: false
       - key: INBOX_PASSWORD
@@ -31,9 +31,13 @@ services:
       - key: MAX_REQUEST_BYTES
         value: "256000"
       - key: WEBHOOK_RATE_LIMIT_PER_MINUTE
-        value: "120"
+        value: "600"
       - key: INBOX_RATE_LIMIT_PER_MINUTE
         value: "60"
+      - key: ENABLE_REMINDER_WORKER
+        value: "true"
+      - key: REMINDER_WORKER_INTERVAL_MS
+        value: "60000"
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY

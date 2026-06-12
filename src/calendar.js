@@ -73,6 +73,17 @@ export async function createAppointment(slot, patient) {
   });
 }
 
+export async function cancelAppointment(googleEventId) {
+  if (!googleEventId) return;
+
+  const calendarId = encodeURIComponent(config.googleCalendarId);
+  const eventId = encodeURIComponent(googleEventId);
+  await googleRequest(`/calendar/v3/calendars/${calendarId}/events/${eventId}?sendUpdates=all`, {
+    method: "DELETE",
+    ignoreNotFound: true
+  });
+}
+
 function buildPatientDetails(patient) {
   return [
     "Cita creada por WhatsApp",
