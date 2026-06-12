@@ -786,7 +786,7 @@ function answerFaq(text) {
   }
 
   if (isMorningQuestion(text)) {
-    return "🌙 No, solo atendemos por la tarde de 5:00 a 9:00 pm.";
+    return "🌙 No, solo atendemos por la tarde de 4:40 p.m. a 8:00 p.m.";
   }
 
   if (isSaturdayQuestion(text)) {

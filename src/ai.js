@@ -15,11 +15,16 @@ export async function understandMessage(message, session) {
     return understandLocally(message, session, today);
   }
 
-  if (config.aiProvider === "gemini") {
-    return understandWithGemini(systemPrompt, message, session);
-  }
+  try {
+    if (config.aiProvider === "gemini") {
+      return await understandWithGemini(systemPrompt, message, session);
+    }
 
-  return understandWithOpenAI(systemPrompt, message, session);
+    return await understandWithOpenAI(systemPrompt, message, session);
+  } catch (error) {
+    console.warn(`AI provider ${config.aiProvider} failed; using local parser fallback:`, error.message);
+    return understandLocally(message, session, today);
+  }
 }
 
 async function understandWithOpenAI(systemPrompt, message, session) {

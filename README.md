@@ -7,7 +7,7 @@ MVP para que un consultorio agende citas automaticamente por WhatsApp y cree eve
 - Recibe mensajes de WhatsApp Cloud API por webhook.
 - Pregunta nombre y fecha deseada.
 - Consulta disponibilidad en Google Calendar.
-- Ofrece 3 horarios de 40 minutos.
+- Ofrece hasta 6 horarios de 40 minutos.
 - Agenda automaticamente cuando el paciente elige.
 - Notifica a la doctora por WhatsApp.
 
@@ -60,11 +60,15 @@ GEMINI_API_KEY=...
 GEMINI_MODEL=gemini-2.5-flash-lite
 ```
 
-3. Prueba que la IA entienda mensajes:
+3. En Render agrega esas mismas variables de entorno y redeploya.
+
+4. Prueba que la IA entienda mensajes:
 
 ```bash
 npm run test:ai -- "Hola, soy Ana y quiero una cita mañana"
 ```
+
+Si Gemini falla o se queda sin saldo, el bot usa el extractor local como respaldo para no dejar de contestar.
 
 ## Conectar OpenAI opcional
 
