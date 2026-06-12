@@ -764,8 +764,6 @@ function shouldForwardConversation(phoneNumber) {
 }
 
 async function recordConversationMessage(phoneNumber, sender, body) {
-  if (phoneNumber === config.doctorWhatsappNumber) return;
-
   const existing = conversations.get(phoneNumber) ?? {
     phoneNumber,
     updatedAt: undefined,
