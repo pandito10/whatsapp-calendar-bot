@@ -126,7 +126,7 @@ export async function loadConversations() {
 export async function getConversationState(phoneNumber) {
   if (!isDatabaseEnabled()) return null;
 
-  const rows = await supabaseFetch(
+  const rows = await safeSupabaseFetch(
     `/rest/v1/conversations?select=phone_number,assigned_to,bot_paused,bot_paused_at,last_human_reply_at&phone_number=eq.${encodeURIComponent(
       phoneNumber
     )}&limit=1`
