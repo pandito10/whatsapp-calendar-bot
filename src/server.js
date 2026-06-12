@@ -18,8 +18,11 @@ import {
   markReminderSent,
   markConversationHumanReply,
   rememberProcessedWhatsAppMessage,
+  loadKnowledgeSuggestions,
+  reviewKnowledgeSuggestion,
   saveCita,
   saveConversationMessage,
+  saveKnowledgeSuggestion,
   scheduleReminder,
   setConversationHumanMode,
   setSession
@@ -136,6 +139,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/inbox/release") {
       await handleInboxRelease(req, url, res);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/inbox/knowledge/review") {
+      await handleKnowledgeReview(req, url, res);
       return;
     }
 
@@ -307,8 +315,9 @@ async function handleInbox(req, url, res) {
   const selectedPhone = url.searchParams.get("phone");
   const list = await getInboxConversations();
   const selected = selectedPhone ? conversations.get(selectedPhone) : list[0];
+  const knowledgeSuggestions = await loadKnowledgeSuggestions("pending", 8);
 
-  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderInboxPage(list, selected, req, url));
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderInboxPage(list, selected, req, url, knowledgeSuggestions));
 }
 
 async function handleInboxSend(req, url, res) {
@@ -335,12 +344,32 @@ async function handleInboxSend(req, url, res) {
     await sendWhatsAppText(phone, message);
     await recordConversationMessage(phone, "human", message, { source: "inbox" });
     await markConversationHumanReply(phone);
+    await saveHumanKnowledgeSuggestion(phone, message);
     console.log(`Inbox human reply sent to ${maskPhone(phone)}`);
     await redirectInbox(res, phone);
   } catch (error) {
     logSafeError(`Could not send inbox reply to ${maskPhone(phone)}`, error);
     await redirectInbox(res, phone, "No se pudo enviar el mensaje por WhatsApp.");
   }
+}
+
+async function handleKnowledgeReview(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) return;
+  const form = await readForm(req);
+  if (!isValidCsrf(req, form.get("csrf"))) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const id = form.get("id");
+  const status = form.get("status");
+  if (!id || !["approved", "rejected"].includes(status)) {
+    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" }).end("invalid review");
+    return;
+  }
+
+  await reviewKnowledgeSuggestion(id, status);
+  await redirectInbox(res, form.get("phone") ?? "");
 }
 
 async function handleInboxTakeover(req, url, res) {
@@ -567,7 +596,7 @@ async function getInboxConversations() {
   return [...conversations.values()].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
 
-function renderInboxPage(list, selected, req, url) {
+function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
   const csrf = createSessionCsrfToken(req);
   const q = normalizeText(url.searchParams.get("q") ?? "");
   const filter = url.searchParams.get("filter") ?? "all";
@@ -583,6 +612,7 @@ function renderInboxPage(list, selected, req, url) {
   const selectedPhone = selected?.phoneNumber ?? "";
   const lastPatientMessage = selected?.messages ? [...selected.messages].reverse().find((message) => message.sender === "patient") : undefined;
   const needsTemplateNotice = lastPatientMessage ? Date.now() - new Date(lastPatientMessage.timestamp).getTime() > 24 * 60 * 60 * 1000 : false;
+  const knowledgePanel = renderKnowledgePanel(knowledgeSuggestions, csrf, selectedPhone);
   const conversationLinks =
     filteredList.length === 0
       ? `<div class="empty-state">Todavia no hay conversaciones.</div>`
@@ -995,6 +1025,45 @@ function renderInboxPage(list, selected, req, url) {
       align-items: center;
       justify-content: space-between;
     }
+    .knowledge {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-top: 1px solid #edf1f6;
+    }
+    .knowledge h2 {
+      font-size: 13px;
+      margin: 0 0 8px;
+    }
+    .knowledge-card {
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      background: #ffffff;
+      margin-bottom: 8px;
+    }
+    .knowledge-card p {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      margin: 0 0 6px;
+      overflow-wrap: anywhere;
+    }
+    .knowledge-card strong {
+      display: block;
+      font-size: 12px;
+      line-height: 1.35;
+      margin-bottom: 8px;
+      overflow-wrap: anywhere;
+    }
+    .knowledge-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .knowledge-actions button {
+      padding: 7px 9px;
+      font-size: 12px;
+    }
     .conversation-tools {
       display: flex;
       flex-wrap: wrap;
@@ -1090,6 +1159,7 @@ function renderInboxPage(list, selected, req, url) {
         </div>
       </form>
       ${conversationLinks}
+      ${knowledgePanel}
     </aside>
     <section class="chat">
       <div class="chat-title">
@@ -1154,6 +1224,53 @@ function buildInboxStats(list) {
     },
     { total: 0, confirmed: 0, followup: 0, open: 0 }
   );
+}
+
+function renderKnowledgePanel(suggestions, csrf, selectedPhone) {
+  const cards =
+    suggestions.length === 0
+      ? `<div class="empty-state">Sin respuestas pendientes por aprobar.</div>`
+      : suggestions
+          .map(
+            (suggestion) => `<div class="knowledge-card">
+              <p>${escapeHtml(suggestion.question ?? "Pregunta no capturada")}</p>
+              <strong>${escapeHtml(suggestion.answer)}</strong>
+              <div class="knowledge-actions">
+                <form method="post" action="/inbox/knowledge/review">
+                  <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                  <input name="id" type="hidden" value="${escapeHtml(suggestion.id)}">
+                  <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                  <button name="status" value="approved" type="submit">Aprobar</button>
+                </form>
+                <form method="post" action="/inbox/knowledge/review">
+                  <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                  <input name="id" type="hidden" value="${escapeHtml(suggestion.id)}">
+                  <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                  <button class="button-secondary" name="status" value="rejected" type="submit">Rechazar</button>
+                </form>
+              </div>
+            </div>`
+          )
+          .join("");
+
+  return `<div class="knowledge">
+    <h2>Aprendizaje supervisado</h2>
+    ${cards}
+  </div>`;
+}
+
+async function saveHumanKnowledgeSuggestion(phoneNumber, answer) {
+  const conversation = conversations.get(phoneNumber);
+  const lastPatientQuestion = conversation?.messages
+    ? [...conversation.messages].reverse().find((message) => message.sender === "patient")?.body
+    : undefined;
+  if (!lastPatientQuestion || answer.length < 8) return;
+
+  await saveKnowledgeSuggestion({
+    question: lastPatientQuestion.slice(0, 1000),
+    answer: answer.slice(0, 2000),
+    sourcePhone: phoneNumber
+  });
 }
 
 function filterInboxConversations(list, q, filter) {
@@ -1349,6 +1466,14 @@ async function handleIncomingText(from, text) {
   if (faqAnswer && !existing) {
     await replyToPatient(from, faqAnswer);
     return;
+  }
+
+  if (!existing) {
+    const learnedAnswer = await answerFromApprovedKnowledge(normalized);
+    if (learnedAnswer) {
+      await replyToPatient(from, learnedAnswer);
+      return;
+    }
   }
 
   let parsed;
@@ -1819,6 +1944,35 @@ function answerFaq(text) {
   }
 
   return undefined;
+}
+
+async function answerFromApprovedKnowledge(normalizedText) {
+  if (!normalizedText || isAppointmentLikeQuestion(normalizedText)) return undefined;
+
+  try {
+    const suggestions = await loadKnowledgeSuggestions("approved", 50);
+    const match = suggestions.find((suggestion) => knowledgeMatches(normalizedText, suggestion.question));
+    return match?.answer;
+  } catch (error) {
+    console.warn("Could not load approved knowledge:", error.message);
+    return undefined;
+  }
+}
+
+function knowledgeMatches(text, question) {
+  const words = meaningfulWords(normalizeText(question ?? ""));
+  if (words.length === 0) return false;
+  const hits = words.filter((word) => text.includes(word)).length;
+  return hits >= Math.min(2, words.length);
+}
+
+function meaningfulWords(text) {
+  const stopWords = new Set(["hola", "buenas", "que", "como", "para", "con", "una", "uno", "los", "las", "del", "por", "favor", "tengo", "quiero"]);
+  return [...new Set(text.split(" ").filter((word) => word.length >= 4 && !stopWords.has(word)))].slice(0, 8);
+}
+
+function isAppointmentLikeQuestion(text) {
+  return /\b(?:cita|agendar|agenda|horario|disponible|disponibilidad|cancelar|reagendar)\b/.test(text);
 }
 
 function isLocationQuestion(text) {

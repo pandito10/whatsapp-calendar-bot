@@ -176,6 +176,52 @@ export async function markConversationHumanReply(phoneNumber) {
   });
 }
 
+export async function saveKnowledgeSuggestion({ question, answer, sourcePhone }) {
+  if (!isDatabaseEnabled() || !answer) return;
+
+  await safeSupabaseFetch("/rest/v1/knowledge_suggestions", {
+    method: "POST",
+    body: JSON.stringify({
+      question,
+      answer,
+      source_phone: sourcePhone,
+      status: "pending"
+    })
+  });
+}
+
+export async function loadKnowledgeSuggestions(status = "pending", limit = 20) {
+  if (!isDatabaseEnabled()) return [];
+
+  const rows =
+    (await safeSupabaseFetch(
+      `/rest/v1/knowledge_suggestions?select=id,question,answer,source_phone,status,created_at&status=eq.${encodeURIComponent(
+        status
+      )}&order=created_at.desc&limit=${limit}`
+    )) ?? [];
+
+  return rows.map((row) => ({
+    id: row.id,
+    question: row.question,
+    answer: row.answer,
+    sourcePhone: row.source_phone,
+    status: row.status,
+    createdAt: row.created_at
+  }));
+}
+
+export async function reviewKnowledgeSuggestion(id, status) {
+  if (!isDatabaseEnabled() || !id || !["approved", "rejected"].includes(status)) return;
+
+  await supabaseFetch(`/rest/v1/knowledge_suggestions?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      status,
+      reviewed_at: new Date().toISOString()
+    })
+  });
+}
+
 export async function rememberProcessedWhatsAppMessage(messageId, fromPhone) {
   if (!isDatabaseEnabled() || !messageId) return false;
 

@@ -90,8 +90,17 @@ El inbox permite:
 - Tomar una conversacion para pausar el bot.
 - Devolver la conversacion al bot.
 - Ver aviso cuando la ultima interaccion del paciente fue hace mas de 24 horas.
+- Revisar respuestas humanas como sugerencias de aprendizaje supervisado.
 
 Las acciones del inbox requieren sesion y CSRF. Los mensajes humanos se envian por WhatsApp desde backend y se guardan solo despues de respuesta exitosa de la API.
+
+## Aprendizaje supervisado
+
+Cuando el personal responde desde el inbox, el sistema guarda una sugerencia con la ultima pregunta del paciente y la respuesta humana.
+La sugerencia queda en estado `pending`: el bot no la usa automaticamente.
+Desde el inbox se puede aprobar o rechazar. Solo las respuestas `approved` pueden usarse para contestar preguntas parecidas.
+
+Esto evita que el bot aprenda datos privados, errores humanos o informacion medica no revisada.
 
 ## IA gratis para empezar
 
