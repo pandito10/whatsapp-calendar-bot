@@ -6,6 +6,8 @@ import { config } from "./config.js";
 import { sendWhatsAppText } from "./whatsapp.js";
 
 const sessions = new Map();
+const processedMessages = new Map();
+const processedMessageTtlMs = 24 * 60 * 60 * 1000;
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -85,7 +87,17 @@ async function handleWhatsAppWebhook(body) {
   const messages = body?.entry?.[0]?.changes?.[0]?.value?.messages ?? [];
   for (const message of messages) {
     if (message.type !== "text") continue;
-    await handleIncomingText(message.from, message.text.body);
+    if (alreadyProcessed(message.id)) continue;
+
+    try {
+      await handleIncomingText(message.from, message.text.body);
+    } catch (error) {
+      console.error(`Failed handling WhatsApp message ${message.id ?? "without-id"} from ${message.from}:`, error);
+      await safeSendWhatsAppText(
+        message.from,
+        "Perdon, tuve un problema revisando la agenda. Por favor intenta de nuevo en un momento o escribe directamente al consultorio."
+      );
+    }
   }
 }
 
@@ -202,6 +214,27 @@ async function offerAvailableSlots(from, session) {
       .map((slot, index) => `${index + 1}. ${slot.label}`)
       .join("\n")}\n\nResponde con 1, 2 o 3 para confirmar.`
   );
+}
+
+function alreadyProcessed(messageId) {
+  if (!messageId) return false;
+
+  const now = Date.now();
+  for (const [id, timestamp] of processedMessages) {
+    if (now - timestamp > processedMessageTtlMs) processedMessages.delete(id);
+  }
+
+  if (processedMessages.has(messageId)) return true;
+  processedMessages.set(messageId, now);
+  return false;
+}
+
+async function safeSendWhatsAppText(to, body) {
+  try {
+    await sendWhatsAppText(to, body);
+  } catch (error) {
+    console.error(`Failed sending fallback WhatsApp message to ${to}:`, error);
+  }
 }
 
 function todayISO() {
