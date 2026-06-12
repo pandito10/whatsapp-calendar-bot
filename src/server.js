@@ -142,6 +142,12 @@ async function handleIncomingText(from, text) {
   const lower = text.trim().toLowerCase();
   const normalized = normalizeText(text);
 
+  if (isResetCommand(normalized)) {
+    sessions.delete(from);
+    await sendWhatsAppText(from, answerFaq("hola"));
+    return;
+  }
+
   if (from === config.doctorWhatsappNumber && /^(?:agenda|mi agenda|ver agenda)$/.test(lower)) {
     await sendWhatsAppText(from, "📅 Por ahora te aviso cada cita nueva por aqui. El resumen diario lo agregamos en la siguiente version.");
     return;
@@ -384,6 +390,10 @@ function isLocationQuestion(text) {
 
 function isGreetingQuestion(text) {
   return /^(?:hola|ola|buenas|buenos dias|buen dia|buenas tardes|buenas noches|hey|hello|hi|que tal|que onda)$/.test(text);
+}
+
+function isResetCommand(text) {
+  return /^(?:menu|menú|cancelar|reiniciar|empezar de nuevo|volver al menu|volver al menú)$/.test(text);
 }
 
 function isMorningQuestion(text) {
