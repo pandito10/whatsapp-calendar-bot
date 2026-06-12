@@ -21,7 +21,7 @@ services:
       - key: WHATSAPP_APP_SECRET
         sync: false
       - key: REQUIRE_WEBHOOK_SIGNATURE
-        value: "true"
+        value: "false"
       - key: DOCTOR_WHATSAPP_NUMBER
         sync: false
       - key: INBOX_PASSWORD
