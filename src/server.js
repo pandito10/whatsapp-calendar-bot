@@ -288,6 +288,21 @@ async function offerAvailableSlots(from, session) {
 }
 
 function answerFaq(text) {
+  if (isGreetingQuestion(text)) {
+    return [
+      "Hola 😊 ¿En que te puedo ayudar?",
+      "",
+      "Puedo apoyarte con:",
+      "1. 📅 Agendar una cita",
+      "2. 🕒 Ver horarios disponibles",
+      "3. 📍 Ubicacion",
+      "4. 💰 Costos y promocion",
+      "5. 💵 Formas de pago",
+      "",
+      "Puedes escribirme, por ejemplo: \"quiero agendar\" o \"que citas tienes disponibles\"."
+    ].join("\n");
+  }
+
   if (isLocationQuestion(text)) {
     return "📍 Estamos ubicados en Plaza de la Paz #20, 2o. Piso, Consultorio 14, Guanajuato, Gto.";
   }
@@ -330,6 +345,10 @@ function answerFaq(text) {
 
 function isLocationQuestion(text) {
   return /\b(?:ubicacion|ubicados|direccion|donde estan|donde se ubican|como llegar)\b/.test(text);
+}
+
+function isGreetingQuestion(text) {
+  return /^(?:hola|ola|buenas|buenos dias|buen dia|buenas tardes|buenas noches|hey|hello|hi|que tal|que onda)$/.test(text);
 }
 
 function isMorningQuestion(text) {
