@@ -25,7 +25,7 @@ export const config = {
   whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
   whatsappBusinessAccountId: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID,
   whatsappAppSecret: process.env.WHATSAPP_APP_SECRET,
-  requireWebhookSignature: process.env.REQUIRE_WEBHOOK_SIGNATURE !== "false",
+  requireWebhookSignature: Boolean(process.env.WHATSAPP_APP_SECRET) && process.env.REQUIRE_WEBHOOK_SIGNATURE !== "false",
   doctorWhatsappNumber: process.env.DOCTOR_WHATSAPP_NUMBER,
   inboxPassword: process.env.INBOX_PASSWORD,
   inboxSessionHours: Number(process.env.INBOX_SESSION_HOURS ?? 8),
