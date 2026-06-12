@@ -1425,6 +1425,7 @@ async function handleIncomingText(from, text) {
   console.log(`Incoming WhatsApp from ${maskPhone(from)}`);
   const lower = text.trim().toLowerCase();
   const normalized = normalizeText(text);
+  const detectedIntent = detectIntent(normalized);
   await recordConversationMessage(from, "patient", text);
   await notifyIncomingPatientMessage(from, text);
 
@@ -1434,7 +1435,12 @@ async function handleIncomingText(from, text) {
     return;
   }
 
-  if (isCancellationRequest(normalized)) {
+  if (detectedIntent.intent === "medical_urgent") {
+    await replyToPatient(from, getIntentResponse("medical_urgent"));
+    return;
+  }
+
+  if (detectedIntent.intent === "cancel_appointment") {
     await handleCancellationRequest(from);
     return;
   }
@@ -1445,9 +1451,24 @@ async function handleIncomingText(from, text) {
     return;
   }
 
-  if (isConversationClosing(normalized)) {
+  if (detectedIntent.intent === "reschedule_appointment") {
+    await handleRescheduleRequest(from);
+    return;
+  }
+
+  if (detectedIntent.intent === "late_arrival") {
+    await replyToPatient(from, getIntentResponse("late_arrival"));
+    return;
+  }
+
+  if (detectedIntent.intent === "confirm_appointment") {
+    await handleConfirmAppointmentRequest(from);
+    return;
+  }
+
+  if (detectedIntent.intent === "closing") {
     await deletePatientSession(from);
-    await replyToPatient(from, "😊 Con gusto. Si necesitas algo mas, aqui estoy para ayudarte.");
+    await replyToPatient(from, getIntentResponse("closing"));
     return;
   }
 
@@ -1458,11 +1479,11 @@ async function handleIncomingText(from, text) {
 
   const existing = await getPatientSession(from);
   if (!existing) {
-    const menuHandled = await handleMenuOption(from, normalized);
+    const menuHandled = await handleMenuOption(from, normalized, detectedIntent.intent);
     if (menuHandled) return;
   }
 
-  const faqAnswer = answerFaq(normalized);
+  const faqAnswer = getIntentResponse(detectedIntent.intent) ?? answerFaq(normalized);
   if (faqAnswer && !existing) {
     await replyToPatient(from, faqAnswer);
     return;
@@ -1506,7 +1527,9 @@ async function handleIncomingText(from, text) {
     reason: parsed.reason ?? existing?.reason,
     preferredDateText: parsed.preferredDateText ?? existing?.preferredDateText,
     preferredDateISO: parsed.preferredDateISO ?? existing?.preferredDateISO,
-    offeredSlots: existing?.offeredSlots
+    offeredSlots: existing?.offeredSlots,
+    rescheduleFromCitaId: existing?.rescheduleFromCitaId,
+    rescheduleFromGoogleEventId: existing?.rescheduleFromGoogleEventId
   };
 
   if (session.step === "choosingSlot" && parsed.selectedSlotIndex && session.offeredSlots?.[parsed.selectedSlotIndex - 1]) {
@@ -1538,6 +1561,7 @@ async function handleIncomingText(from, text) {
     });
     const cita = await saveConfirmedCita(from, session, slot, event);
     await scheduleAppointmentReminder(from, session, slot, cita);
+    await cancelPreviousRescheduledAppointment(session);
     await deletePatientSession(from);
 
     await replyToPatient(
@@ -1627,30 +1651,30 @@ async function offerAvailableSlots(from, session) {
   );
 }
 
-async function handleMenuOption(from, text) {
-  if (/^(?:1|agendar|agendar cita|quiero agendar|hacer cita|quiero hacer una cita|cita)$/.test(text)) {
+async function handleMenuOption(from, text, intent = detectIntent(text).intent) {
+  if (/^1$/.test(text) || intent === "schedule_appointment" || intent === "new_patient") {
     await setPatientSession(from, { from, step: "collecting" });
-    await replyToPatient(from, "😊 Claro, te ayudo a agendar. ¿Me compartes tu nombre completo?");
+    await replyToPatient(from, getIntentResponse("schedule_appointment"));
     return true;
   }
 
-  if (/^(?:2|horarios|ver horarios|horarios disponibles|que citas tienes|que citas tienes disponibles|citas disponibles)$/.test(text)) {
-    await replyToPatient(from, "🕒 Claro. ¿Para que dia te gustaria revisar disponibilidad? Puedes decirme, por ejemplo: hoy, mañana, viernes o una fecha.");
+  if (/^2$/.test(text) || intent === "check_availability") {
+    await replyToPatient(from, getIntentResponse("check_availability"));
     return true;
   }
 
-  if (/^(?:3|ubicacion)$/.test(text)) {
-    await replyToPatient(from, answerFaq("ubicacion"));
+  if (/^3$/.test(text) || intent === "location") {
+    await replyToPatient(from, getIntentResponse("location"));
     return true;
   }
 
-  if (/^(?:4|costos|costo|precios|promocion|promocion)$/.test(text)) {
-    await replyToPatient(from, `${answerFaq("cuanto cuesta")}\n${answerFaq("promocion")}`);
+  if (/^4$/.test(text) || intent === "cost" || intent === "promotion") {
+    await replyToPatient(from, `${getIntentResponse("cost")}\n\n${getIntentResponse("promotion")}`);
     return true;
   }
 
-  if (/^(?:5|formas de pago|forma de pago|pago)$/.test(text)) {
-    await replyToPatient(from, answerFaq("tarjeta"));
+  if (/^5$/.test(text) || intent === "payment_methods") {
+    await replyToPatient(from, getIntentResponse("payment_methods"));
     return true;
   }
 
@@ -1830,6 +1854,67 @@ async function handleCancellationRequest(from) {
   }
 }
 
+async function handleRescheduleRequest(from) {
+  let cita;
+  try {
+    cita = await getLatestConfirmedCitaByPhone(from);
+  } catch (error) {
+    console.warn("Could not load cita for reschedule:", error.message);
+  }
+
+  if (!cita) {
+    await setPatientSession(from, { from, step: "collecting" });
+    await replyToPatient(
+      from,
+      "No encontre una cita confirmada registrada por aqui.\n\nSi gustas, puedo ayudarte a revisar horarios disponibles para agendar una cita. ¿Me compartes tu nombre completo?"
+    );
+    return;
+  }
+
+  await setPatientSession(from, {
+    from,
+    step: "collecting",
+    name: cita.patientName,
+    email: cita.patientEmail,
+    rescheduleFromCitaId: cita.id,
+    rescheduleFromGoogleEventId: cita.googleEventId
+  });
+  await replyToPatient(from, "Claro 😊 Te ayudo a revisar disponibilidad para reagendar.\n\n¿Me indicas que dia te gustaria revisar?");
+}
+
+async function handleConfirmAppointmentRequest(from) {
+  let cita;
+  try {
+    cita = await getLatestConfirmedCitaByPhone(from);
+  } catch (error) {
+    console.warn("Could not load cita confirmation:", error.message);
+  }
+
+  if (!cita) {
+    await replyToPatient(
+      from,
+      "No encontre una cita confirmada registrada por aqui.\n\nSi gustas, puedo ayudarte a revisar horarios disponibles para agendar una cita."
+    );
+    return;
+  }
+
+  await replyToPatient(
+    from,
+    `✅ Tu cita queda confirmada para el dia ${formatAppointmentFull(cita.slotStart)}.\n\nTe esperamos en Plaza de la Paz #20, 2o. Piso, Consultorio 14, Guanajuato, Gto.`
+  );
+}
+
+async function cancelPreviousRescheduledAppointment(session) {
+  if (!session.rescheduleFromCitaId && !session.rescheduleFromGoogleEventId) return;
+
+  try {
+    await cancelAppointment(session.rescheduleFromGoogleEventId);
+    await cancelCita(session.rescheduleFromCitaId);
+  } catch (error) {
+    console.warn("Could not cancel previous rescheduled appointment:", error.message);
+  }
+}
+
 async function scheduleAppointmentReminder(phoneNumber, session, slot, cita) {
   const remindAt = new Date(new Date(slot.start).getTime() - 24 * 60 * 60 * 1000);
   if (remindAt <= new Date()) return;
@@ -1891,8 +1976,12 @@ async function sendReminder(reminder) {
 }
 
 function answerFaq(text) {
-  if (isGreetingQuestion(text)) {
-    return [
+  return getIntentResponse(detectIntent(text).intent);
+}
+
+function getIntentResponse(intent) {
+  const responses = {
+    greeting: [
       "Hola 😊 ¿En que te puedo ayudar?",
       "",
       "Puedo apoyarte con:",
@@ -1903,47 +1992,109 @@ function answerFaq(text) {
       "5. 💵 Formas de pago",
       "",
       "Puedes escribirme, por ejemplo: \"quiero agendar\" o \"que citas tienes disponibles\"."
-    ].join("\n");
+    ].join("\n"),
+    location: "📍 Estamos ubicados en Plaza de la Paz #20, 2o. Piso, Consultorio 14, Guanajuato, Gto.",
+    morning_hours: "🌙 No atendemos por la manana. Solo por la tarde, de 4:40 p.m. a 8:00 p.m.\n\n¿Quieres que revise horarios por la tarde?",
+    saturday: "📅 No atendemos los sabados ni domingos. Solo de lunes a viernes por la tarde.\n\n¿Quieres que revise disponibilidad entre semana?",
+    cost: `💰 La consulta tiene un costo de ${formatMoney(config.consultationPrice)} MXN.\n\n🎁 Tambien contamos con paquete de promocion en ${formatMoney(config.promotionPrice)} MXN.`,
+    promotion: `🎁 Si, aun contamos con paquete de promocion en ${formatMoney(config.promotionPrice)} MXN.\n\nSi gustas, tambien puedo ayudarte a revisar horarios disponibles para agendar tu cita.`,
+    payment_methods: "💵 Por el momento aceptamos efectivo o transferencia bancaria.\n\nNo contamos con pago con tarjeta por ahora.",
+    schedule_appointment: "😊 Claro, te ayudo a agendar tu cita.\n\n¿Me compartes tu nombre completo?",
+    check_availability: "🕒 Claro. ¿Para que dia te gustaria revisar disponibilidad?\n\nPuedes decirme, por ejemplo: hoy, manana, viernes o una fecha especifica.",
+    closing: "😊 Con gusto. Si necesitas algo mas, aqui estoy para ayudarte.",
+    appointment_duration: "⏱️ Las citas tienen una duracion aproximada de 40 minutos.",
+    new_patient: "Claro 😊 Podemos ayudarte a agendar tu primera consulta.\n\n¿Me compartes tu nombre completo para iniciar el registro?",
+    medical_services:
+      "Puedo ayudarte a revisar la informacion del paquete o de la consulta 😊\n\nPara darte la informacion correcta, por favor contacta directamente al consultorio o indica que estudio necesitas revisar.",
+    medical_urgent:
+      "Lamento que estes pasando por eso.\n\nSi presentas dolor fuerte, sangrado abundante, fiebre, desmayo, dificultad para respirar o una urgencia medica, por favor acude de inmediato a urgencias o llama a los servicios de emergencia de tu localidad.\n\nPor este medio puedo ayudarte con informacion general o con agendar una cita, pero no sustituye una valoracion medica urgente.",
+    medication_question:
+      "Por seguridad, no puedo indicar medicamentos ni tratamientos por este medio.\n\nLo mejor es que la doctora pueda valorarte en consulta para darte la indicacion adecuada.\n\nSi gustas, puedo ayudarte a revisar horarios disponibles para agendar una cita.",
+    direct_contact:
+      "Claro 😊 Puedes dejarme tu mensaje por aqui y el consultorio te apoyara lo antes posible.\n\nSi es algo urgente, por favor acude a urgencias o llama a los servicios de emergencia de tu localidad.",
+    appointment_requirements:
+      "Para tu cita, te recomendamos llevar identificacion y, si tienes, estudios o recetas anteriores relacionados con tu consulta.",
+    late_arrival:
+      "Gracias por avisar 😊\n\nPor favor contacta directamente al consultorio para confirmar si aun es posible atenderte en tu horario o si es necesario reagendar.",
+    invoice: "Para temas de factura, por favor consulta directamente con el consultorio para confirmar disponibilidad y requisitos.",
+    fallback: [
+      "Perdon 😊 No logre entender bien tu mensaje.",
+      "",
+      "Puedo ayudarte con:",
+      "1. 📅 Agendar una cita",
+      "2. 🕒 Ver horarios disponibles",
+      "3. 📍 Ubicacion",
+      "4. 💰 Costos y promocion",
+      "5. 💵 Formas de pago",
+      "",
+      "Puedes escribirme, por ejemplo: \"quiero agendar\", \"cuanto cuesta\" o \"ubicacion\"."
+    ].join("\n")
+  };
+
+  return responses[intent];
+}
+
+function detectIntent(text) {
+  const normalized = normalizeText(text);
+  const checks = [
+    ["medical_urgent", () => hasAny(normalized, ["urgente", "emergencia", "dolor fuerte", "mucho dolor", "sangrado", "fiebre", "desmayo", "desmaye", "embarazo", "me siento mal", "me duele mucho"])],
+    ["cancel_appointment", () => isCancellationRequest(normalized)],
+    ["reschedule_appointment", () => hasAny(normalized, ["reagendar", "cambiar cita", "mover cita", "cambiar horario", "otro horario", "otro dia", "no puedo ese dia", "cambiar mi cita"])],
+    ["late_arrival", () => hasAny(normalized, ["voy tarde", "llegare tarde", "llego tarde", "se me hizo tarde", "retraso", "atrasada", "atrasado", "demorada", "demorado", "no alcanzo a llegar"])],
+    ["confirm_appointment", () => hasAny(normalized, ["confirmada", "confirmar cita", "ya quedo", "quedo confirmada", "me confirmas", "tengo cita", "mi cita esta confirmada"])],
+    ["schedule_appointment", () => hasAny(normalized, ["agendar", "hacer cita", "sacar cita", "reservar", "quiero una cita", "necesito una cita", "ocupo cita", "quiero cita", "agendar consulta", "necesito consulta", "quiero consultar", "apartar cita"])],
+    ["check_availability", () => isAvailabilityIntent(normalized)],
+    ["cost", () => isPriceQuestion(normalized)],
+    ["promotion", () => isPromotionQuestion(normalized)],
+    ["payment_methods", () => isCardQuestion(normalized)],
+    ["location", () => isLocationQuestion(normalized)],
+    ["morning_hours", () => isMorningQuestion(normalized)],
+    ["saturday", () => isSaturdayQuestion(normalized)],
+    ["appointment_duration", () => hasAny(normalized, ["duracion", "cuanto dura", "cuanto tiempo dura", "cuanto tiempo es", "cuanto tardan", "tardan", "40 minutos"])],
+    ["new_patient", () => hasAny(normalized, ["primera vez", "paciente nueva", "primera consulta", "nunca he ido", "nuevo paciente", "nueva paciente"])],
+    ["medication_question", () => hasAny(normalized, ["medicamento", "que medicamento tomo", "me puedo tomar algo", "que me recomienda tomar", "me receta algo", "tengo infeccion", "dolor que tomo", "que pastilla tomo", "me puede recetar", "ocupo medicina"])],
+    ["medical_services", () => hasAny(normalized, ["ultrasonido", "papanicolaou", "papanicolau", "colposcopia", "estudio", "estudios", "servicios", "que incluye"])],
+    ["appointment_requirements", () => hasAny(normalized, ["que necesito llevar", "tengo que llevar", "documentos", "identificacion", "estudios anteriores", "receta", "requisitos", "que debo llevar", "que llevo"])],
+    ["invoice", () => hasAny(normalized, ["factura", "facturan", "facturar", "recibo", "comprobante"])],
+    ["direct_contact", () => hasAny(normalized, ["hablar con alguien", "hablar con la doctora", "persona", "recepcion", "telefono", "tel", "contacto", "llamar", "me llamen", "me pueden llamar"])],
+    ["greeting", () => isGreetingQuestion(normalized) || isGeneralMenuQuestion(normalized)],
+    ["closing", () => isConversationClosing(normalized)]
+  ];
+
+  for (const [intent, matches] of checks) {
+    if (matches()) return { intent, confidence: 0.9 };
   }
 
-  if (isLocationQuestion(text)) {
-    return "📍 Estamos ubicados en Plaza de la Paz #20, 2o. Piso, Consultorio 14, Guanajuato, Gto.";
-  }
+  return { intent: "fallback", confidence: 0.2 };
+}
 
-  if (isMorningQuestion(text)) {
-    return "🌙 No, solo atendemos por la tarde de 4:40 p.m. a 8:00 p.m.";
-  }
+function hasAny(text, needles) {
+  return needles.some((needle) => (needle instanceof RegExp ? needle.test(text) : text.includes(needle)));
+}
 
-  if (isSaturdayQuestion(text)) {
-    return "📅 No, solo atendemos de lunes a viernes.";
-  }
+function isAvailabilityIntent(text) {
+  return (
+    hasAny(text, [
+      "horarios",
+      "disponibilidad",
+      "disponible",
+      "citas disponibles",
+      "que dias",
+      "que horarios",
+      "hay cita",
+      "tienes lugar",
+      "hay espacio",
+      "tienen citas"
+    ]) ||
+    /\b(?:hay|tienes|tienen)\s+(?:lugar|espacio|cita|horario|disponible)\b/.test(text)
+  );
+}
 
-  if (isPriceQuestion(text)) {
-    return `💰 Consulta ${config.consultationPrice}\n🎁 Paquete de promocion ${config.promotionPrice}`;
-  }
-
-  if (isPromotionQuestion(text)) {
-    return "🎁 Si, aun contamos con la promocion.";
-  }
-
-  if (isCardQuestion(text)) {
-    return "💵 Por el momento no, solo efectivo o transferencia bancaria.";
-  }
-
-  if (isGeneralMenuQuestion(text)) {
-    return [
-      "😊 Te puedo ayudar con:",
-      "1. 📍 Ubicacion",
-      "2. 📅 Agendar una cita",
-      "3. 🕒 Horarios de atencion",
-      "4. 📆 Sabados",
-      "5. 💰 Costo de consulta",
-      "6. 🎁 Promocion",
-      "7. 💵 Formas de pago"
-    ].join("\n");
-  }
-
-  return undefined;
+function formatMoney(value) {
+  const raw = String(value).replace(/[^\d.]/g, "");
+  const amount = Number(raw);
+  if (!Number.isFinite(amount)) return String(value).startsWith("$") ? value : `$${value}`;
+  return `$${new Intl.NumberFormat("es-MX", { maximumFractionDigits: 0 }).format(amount)}`;
 }
 
 async function answerFromApprovedKnowledge(normalizedText) {
@@ -1976,11 +2127,14 @@ function isAppointmentLikeQuestion(text) {
 }
 
 function isLocationQuestion(text) {
-  return /\b(?:ubicacion|ubicados|direccion|donde estan|donde se ubican|como llegar)\b/.test(text);
+  return (
+    /\b(?:ubicacion|ubi|ubicados|direccion|donde estan|donde se ubican|como llego|como llegar|plaza de la paz|consultorio)\b/.test(text) ||
+    /\b(?:mandame|manda|pasame|pasa|me pasas)\s+(?:la\s+)?(?:ubi|ubicacion|direccion)\b/.test(text)
+  );
 }
 
 function isGreetingQuestion(text) {
-  return /^(?:hola|ola|buenas|buenos dias|buen dia|buenas tardes|buenas noches|hey|hello|hi|que tal|que onda)$/.test(text);
+  return /^(?:hola|ola|hoola|buenas|buenos dias|buen dia|buenas tardes|buenas noches|hey|hello|hi|que tal|que onda|hola buenas|disculpa|informes)$/.test(text);
 }
 
 function isResetCommand(text) {
@@ -1993,34 +2147,38 @@ function isConversationClosing(text) {
 
 function isCancellationRequest(text) {
   return (
-    /^(?:cancelar|cancela|cancelacion|cancelación)$/.test(text) ||
-    (/\b(?:cancelar|cancela|cancelacion|cancelación|anular|eliminar)\b/.test(text) &&
-      /\b(?:cita|consulta|agenda|reservacion|reservación)\b/.test(text))
+    /^(?:cancelar|cancela|cancelacion)$/.test(text) ||
+    /\b(?:cancelar mi cita|quiero cancelar|necesito cancelar|cancelar consulta|no podre ir|no puedo ir|ya no podre ir|ya no puedo ir)\b/.test(text) ||
+    (/\b(?:cancelar|cancela|cancelacion|anular|eliminar)\b/.test(text) &&
+      /\b(?:cita|consulta|agenda|reservacion)\b/.test(text))
   );
 }
 
 function isMorningQuestion(text) {
-  return /\b(?:manana|mañana|temprano|matutino)\b/.test(text) && /\b(?:consulta|atienden|horario|cita)\b/.test(text);
+  return (
+    /\b(?:temprano|matutino|citas temprano|horario en la manana|consulta en la manana)\b/.test(text) ||
+    (/\bmanana\b/.test(text) && /\b(?:por la manana|en la manana|consulta|atienden|abren|horario matutino|temprano)\b/.test(text))
+  );
 }
 
 function isSaturdayQuestion(text) {
-  return /\b(?:sabado|sabados|sábado|sábados|fin de semana)\b/.test(text);
+  return /\b(?:sabado|sabados|fin de semana|domingo|domingos)\b/.test(text);
 }
 
 function isPriceQuestion(text) {
-  return /\b(?:cuanto cuesta|costo|precio|costos|precios|vale|cuanto es|cuanto cobran)\b/.test(text);
+  return /\b(?:cuanto cuesta|costo|precio|costos|precios|cuanto cobran|cuanto sale|cuanto vale|en cuanto esta|cuanto es|presio)\b/.test(text);
 }
 
 function isPromotionQuestion(text) {
-  return /\b(?:promocion|paquete|promo)\b/.test(text);
+  return /\b(?:promocion|promosion|paquete|promo|oferta|sigue la promo|todavia tienen promo)\b/.test(text);
 }
 
 function isCardQuestion(text) {
-  return /\b(?:tarjeta|credito|crédito|debito|débito|pago con tarjeta)\b/.test(text);
+  return /\b(?:tarjeta|tarjerta|credito|debito|transferencia|trasferencia|efectivo|pago|formas de pago|forma de pago|metodos de pago|pagar con tarjeta)\b/.test(text);
 }
 
 function isGeneralMenuQuestion(text) {
-  return /\b(?:info|informacion|información|dudas|preguntas|opciones|jotas)\b/.test(text);
+  return /\b(?:info|informacion|informes|dudas|preguntas|opciones|jotas)\b/.test(text);
 }
 
 function normalizeText(value) {
