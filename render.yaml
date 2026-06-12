@@ -18,7 +18,11 @@ services:
         sync: false
       - key: WHATSAPP_BUSINESS_ACCOUNT_ID
         sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
       - key: DOCTOR_WHATSAPP_NUMBER
+        sync: false
+      - key: INBOX_PASSWORD
         sync: false
       - key: SUPABASE_URL
         sync: false

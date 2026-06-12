@@ -4,7 +4,15 @@ import { URL } from "node:url";
 import { understandMessage } from "./ai.js";
 import { createAppointment, findAvailableSlots } from "./calendar.js";
 import { config } from "./config.js";
-import { isDatabaseEnabled, loadConversations, saveConversationMessage } from "./db.js";
+import {
+  deleteSession,
+  getSession,
+  isDatabaseEnabled,
+  loadConversations,
+  saveCita,
+  saveConversationMessage,
+  setSession
+} from "./db.js";
 import { sendWhatsAppText } from "./whatsapp.js";
 
 const sessions = new Map();
@@ -12,6 +20,7 @@ const processedMessages = new Map();
 const processedMessageTtlMs = 24 * 60 * 60 * 1000;
 const conversations = new Map();
 const maxMessagesPerConversation = 100;
+let appSecretWarningShown = false;
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -23,7 +32,13 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && url.pathname === "/webhook") {
-      const body = await readJson(req);
+      const rawBody = await readRawBody(req);
+      if (!isValidWebhookSignature(req, rawBody)) {
+        res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+        return;
+      }
+
+      const body = JSON.parse(rawBody.toString("utf8"));
       res.writeHead(200).end("ok");
       await handleWhatsAppWebhook(body);
       return;
@@ -98,8 +113,7 @@ function handleGoogleOAuthCallback(url, res) {
 }
 
 function handleDebugConfig(url, res) {
-  if (url.searchParams.get("token") !== config.whatsappVerifyToken) {
-    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+  if (!hasInboxAccess(url, res)) {
     return;
   }
 
@@ -125,8 +139,7 @@ function handleDebugConfig(url, res) {
 }
 
 async function handleInbox(url, res) {
-  if (url.searchParams.get("token") !== config.whatsappVerifyToken) {
-    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+  if (!hasInboxAccess(url, res)) {
     return;
   }
 
@@ -135,6 +148,22 @@ async function handleInbox(url, res) {
   const selected = selectedPhone ? conversations.get(selectedPhone) : list[0];
 
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderInboxPage(list, selected, url.searchParams.get("token")));
+}
+
+function hasInboxAccess(url, res) {
+  if (!config.inboxPassword) {
+    res
+      .writeHead(403, { "Content-Type": "text/plain; charset=utf-8" })
+      .end("Configura INBOX_PASSWORD en las variables de entorno para acceder al inbox");
+    return false;
+  }
+
+  if (url.searchParams.get("token") !== config.inboxPassword) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return false;
+  }
+
+  return true;
 }
 
 async function getInboxConversations() {
@@ -552,7 +581,7 @@ async function handleIncomingText(from, text) {
   await notifyIncomingPatientMessage(from, text);
 
   if (isResetCommand(normalized)) {
-    sessions.delete(from);
+    await deletePatientSession(from);
     await replyToPatient(from, answerFaq("hola"));
     return;
   }
@@ -562,7 +591,7 @@ async function handleIncomingText(from, text) {
     return;
   }
 
-  const existing = sessions.get(from);
+  const existing = await getPatientSession(from);
   if (!existing) {
     const menuHandled = await handleMenuOption(from, normalized);
     if (menuHandled) return;
@@ -610,7 +639,7 @@ async function handleIncomingText(from, text) {
   if (session.step === "choosingSlot" && parsed.selectedSlotIndex && session.offeredSlots?.[parsed.selectedSlotIndex - 1]) {
     const slot = session.offeredSlots[parsed.selectedSlotIndex - 1];
     const name = session.name ?? "Paciente";
-    await createAppointment(slot, {
+    const event = await createAppointment(slot, {
       name,
       phone: from,
       email: session.email,
@@ -618,7 +647,8 @@ async function handleIncomingText(from, text) {
       paymentType: session.paymentType,
       reason: session.reason
     });
-    sessions.delete(from);
+    await saveConfirmedCita(from, session, slot, event);
+    await deletePatientSession(from);
 
     await replyToPatient(
       from,
@@ -632,25 +662,25 @@ async function handleIncomingText(from, text) {
   }
 
   if (!session.name) {
-    sessions.set(from, session);
+    await setPatientSession(from, session);
     await replyToPatient(from, "😊 Claro, te ayudo a agendar. ¿Me compartes tu nombre completo?");
     return;
   }
 
   if (!session.email) {
-    sessions.set(from, { ...session, step: "collectingEmail" });
+    await setPatientSession(from, { ...session, step: "collectingEmail" });
     await replyToPatient(from, `📩 Gracias, ${session.name}. ¿Me compartes tu correo electronico para enviarte la confirmacion de Google Calendar?`);
     return;
   }
 
   if (!session.firstVisit) {
-    sessions.set(from, { ...session, step: "collectingFirstVisit" });
+    await setPatientSession(from, { ...session, step: "collectingFirstVisit" });
     await replyToPatient(from, "📝 ¿Es tu primera vez con nosotros? Responde si o no.");
     return;
   }
 
   if (!session.paymentType) {
-    sessions.set(from, { ...session, step: "collectingPaymentType" });
+    await setPatientSession(from, { ...session, step: "collectingPaymentType" });
     await replyToPatient(from, "💳 ¿Tu consulta es particular o por parte de alguna red medica/aseguradora?");
     return;
   }
@@ -665,7 +695,7 @@ async function handleIncomingText(from, text) {
   }
 
   if (!session.preferredDateText) {
-    sessions.set(from, session);
+    await setPatientSession(from, session);
     await replyToPatient(from, `📅 Gracias, ${session.name}. ¿Que dia te gustaria la cita?`);
     return;
   }
@@ -688,12 +718,12 @@ async function offerAvailableSlots(from, session) {
     throw error;
   }
   if (slots.length === 0) {
-    sessions.set(from, { ...session, preferredDateText: undefined });
+    await setPatientSession(from, { ...session, preferredDateText: undefined });
     await replyToPatient(from, "😕 No encontre horarios disponibles en esos dias. ¿Quieres que revise otra fecha?");
     return;
   }
 
-  sessions.set(from, {
+  await setPatientSession(from, {
     ...session,
     step: "choosingSlot",
     offeredSlots: slots
@@ -709,7 +739,7 @@ async function offerAvailableSlots(from, session) {
 
 async function handleMenuOption(from, text) {
   if (/^(?:1|agendar|agendar cita|quiero agendar|hacer cita|quiero hacer una cita|cita)$/.test(text)) {
-    sessions.set(from, { from, step: "collecting" });
+    await setPatientSession(from, { from, step: "collecting" });
     await replyToPatient(from, "😊 Claro, te ayudo a agendar. ¿Me compartes tu nombre completo?");
     return true;
   }
@@ -786,6 +816,66 @@ async function recordConversationMessage(phoneNumber, sender, body) {
     await saveConversationMessage(phoneNumber, sender, body);
   } catch (error) {
     console.warn("Could not save conversation to Supabase:", error.message);
+  }
+}
+
+async function getPatientSession(phoneNumber) {
+  const cached = sessions.get(phoneNumber);
+  if (cached) return cached;
+
+  if (!isDatabaseEnabled()) return undefined;
+  try {
+    const saved = await getSession(phoneNumber);
+    if (saved) {
+      sessions.set(phoneNumber, saved);
+      return saved;
+    }
+  } catch (error) {
+    console.warn("Could not load session from Supabase; using memory fallback:", error.message);
+  }
+
+  return undefined;
+}
+
+async function setPatientSession(phoneNumber, session) {
+  sessions.set(phoneNumber, session);
+
+  if (!isDatabaseEnabled()) return;
+  try {
+    await setSession(phoneNumber, session);
+  } catch (error) {
+    console.warn("Could not save session to Supabase:", error.message);
+  }
+}
+
+async function deletePatientSession(phoneNumber) {
+  sessions.delete(phoneNumber);
+
+  if (!isDatabaseEnabled()) return;
+  try {
+    await deleteSession(phoneNumber);
+  } catch (error) {
+    console.warn("Could not delete session from Supabase:", error.message);
+  }
+}
+
+async function saveConfirmedCita(phoneNumber, session, slot, event) {
+  if (!isDatabaseEnabled()) return;
+
+  try {
+    await saveCita({
+      phoneNumber,
+      patientName: session.name,
+      patientEmail: session.email,
+      googleEventId: event?.id,
+      slotStart: slot.start,
+      slotEnd: slot.end,
+      firstVisit: session.firstVisit,
+      paymentType: session.paymentType,
+      reason: session.reason
+    });
+  } catch (error) {
+    console.warn("Could not save cita to Supabase:", error.message);
   }
 }
 
@@ -921,10 +1011,32 @@ function todayISO() {
   }).format(new Date());
 }
 
-async function readJson(req) {
+function isValidWebhookSignature(req, rawBody) {
+  if (!config.whatsappAppSecret) {
+    if (!appSecretWarningShown) {
+      console.warn("WHATSAPP_APP_SECRET is not configured; skipping WhatsApp webhook signature validation.");
+      appSecretWarningShown = true;
+    }
+    return true;
+  }
+
+  const signature = req.headers["x-hub-signature-256"];
+  if (!signature || !signature.startsWith("sha256=")) return false;
+
+  const expected = crypto.createHmac("sha256", config.whatsappAppSecret).update(rawBody).digest("hex");
+  const actual = signature.slice("sha256=".length);
+
+  const expectedBuffer = Buffer.from(expected, "hex");
+  const actualBuffer = Buffer.from(actual, "hex");
+  if (expectedBuffer.length !== actualBuffer.length) return false;
+
+  return crypto.timingSafeEqual(expectedBuffer, actualBuffer);
+}
+
+async function readRawBody(req) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  return Buffer.concat(chunks);
 }
 
 function escapeHtml(value) {

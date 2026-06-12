@@ -37,6 +37,12 @@ https://TU-DOMINIO/webhook
 
 El verify token debe ser el mismo valor que `WHATSAPP_VERIFY_TOKEN`.
 
+El inbox y `/debug/config` usan una credencial separada:
+
+```text
+INBOX_PASSWORD=una-clave-distinta-al-verify-token
+```
+
 ## IA gratis para empezar
 
 El bot puede funcionar sin pagar IA usando:

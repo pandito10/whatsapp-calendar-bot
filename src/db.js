@@ -70,6 +70,69 @@ export async function loadConversations() {
   return [...byPhone.values()];
 }
 
+export async function getSession(phoneNumber) {
+  if (!isDatabaseEnabled()) return null;
+
+  const rows = await supabaseFetch(
+    `/rest/v1/sessions?select=phone_number,step,data,updated_at&phone_number=eq.${encodeURIComponent(phoneNumber)}&limit=1`
+  );
+  const row = rows?.[0];
+  if (!row) return null;
+
+  return {
+    from: row.phone_number,
+    step: row.step,
+    ...(row.data ?? {}),
+    updatedAt: row.updated_at
+  };
+}
+
+export async function setSession(phoneNumber, sessionData) {
+  if (!isDatabaseEnabled()) return;
+
+  const { from, step = "collecting", updatedAt, ...data } = sessionData;
+  await supabaseFetch("/rest/v1/sessions?on_conflict=phone_number", {
+    method: "POST",
+    headers: {
+      Prefer: "resolution=merge-duplicates"
+    },
+    body: JSON.stringify({
+      phone_number: phoneNumber,
+      step,
+      data,
+      updated_at: new Date().toISOString()
+    })
+  });
+}
+
+export async function deleteSession(phoneNumber) {
+  if (!isDatabaseEnabled()) return;
+
+  await supabaseFetch(`/rest/v1/sessions?phone_number=eq.${encodeURIComponent(phoneNumber)}`, {
+    method: "DELETE"
+  });
+}
+
+export async function saveCita(citaData) {
+  if (!isDatabaseEnabled()) return;
+
+  await supabaseFetch("/rest/v1/citas", {
+    method: "POST",
+    body: JSON.stringify({
+      phone_number: citaData.phoneNumber,
+      patient_name: citaData.patientName,
+      patient_email: citaData.patientEmail,
+      google_event_id: citaData.googleEventId,
+      slot_start: citaData.slotStart,
+      slot_end: citaData.slotEnd,
+      status: citaData.status ?? "confirmed",
+      first_visit: citaData.firstVisit,
+      payment_type: citaData.paymentType,
+      reason: citaData.reason
+    })
+  });
+}
+
 async function supabaseFetch(path, options = {}) {
   const response = await fetch(`${config.supabaseUrl.replace(/\/$/, "")}${path}`, {
     ...options,
