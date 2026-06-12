@@ -141,15 +141,16 @@ async function handleIncomingText(from, text) {
   console.log(`Incoming WhatsApp from ${from}: ${text}`);
   const lower = text.trim().toLowerCase();
   const normalized = normalizeText(text);
+  await notifyIncomingPatientMessage(from, text);
 
   if (isResetCommand(normalized)) {
     sessions.delete(from);
-    await sendWhatsAppText(from, answerFaq("hola"));
+    await replyToPatient(from, answerFaq("hola"));
     return;
   }
 
   if (from === config.doctorWhatsappNumber && /^(?:agenda|mi agenda|ver agenda)$/.test(lower)) {
-    await sendWhatsAppText(from, "📅 Por ahora te aviso cada cita nueva por aqui. El resumen diario lo agregamos en la siguiente version.");
+    await replyToPatient(from, "📅 Por ahora te aviso cada cita nueva por aqui. El resumen diario lo agregamos en la siguiente version.");
     return;
   }
 
@@ -161,7 +162,7 @@ async function handleIncomingText(from, text) {
 
   const faqAnswer = answerFaq(normalized);
   if (faqAnswer && !existing) {
-    await sendWhatsAppText(from, faqAnswer);
+    await replyToPatient(from, faqAnswer);
     return;
   }
 
@@ -170,14 +171,14 @@ async function handleIncomingText(from, text) {
     parsed = await understandMessage(text, existing);
   } catch (error) {
     if (error.message?.includes("Missing OpenAI") || error.message?.includes("Missing Gemini")) {
-      await sendWhatsAppText(
+      await replyToPatient(
         from,
         "Ya estoy conectado al WhatsApp del consultorio. Falta activar la IA y Google Calendar para poder agendar citas automaticamente."
       );
       return;
     }
     if (error.message?.includes("insufficient_quota")) {
-      await sendWhatsAppText(
+      await replyToPatient(
         from,
         "Ya estoy conectado a WhatsApp, pero la IA configurada no tiene saldo. Podemos usar Gemini con una llave gratuita/barata para entender y agendar citas automaticamente."
       );
@@ -211,7 +212,7 @@ async function handleIncomingText(from, text) {
     });
     sessions.delete(from);
 
-    await sendWhatsAppText(
+    await replyToPatient(
       from,
       `✅ Listo, ${name}. Tu cita quedo agendada para ${slot.label}.\n\n📍 Ubicacion: ${config.clinicAddress}${session.email ? "\n\n📩 Google Calendar tambien enviara la confirmacion a tu correo." : ""}\n\n⚠️ Si tienes dolor intenso, sangrado abundante o una urgencia, por favor acude a urgencias o contacta directamente al consultorio.`
     );
@@ -224,25 +225,25 @@ async function handleIncomingText(from, text) {
 
   if (!session.name) {
     sessions.set(from, session);
-    await sendWhatsAppText(from, "😊 Claro, te ayudo a agendar. ¿Me compartes tu nombre completo?");
+    await replyToPatient(from, "😊 Claro, te ayudo a agendar. ¿Me compartes tu nombre completo?");
     return;
   }
 
   if (!session.email) {
     sessions.set(from, { ...session, step: "collectingEmail" });
-    await sendWhatsAppText(from, `📩 Gracias, ${session.name}. ¿Me compartes tu correo electronico para enviarte la confirmacion de Google Calendar?`);
+    await replyToPatient(from, `📩 Gracias, ${session.name}. ¿Me compartes tu correo electronico para enviarte la confirmacion de Google Calendar?`);
     return;
   }
 
   if (!session.firstVisit) {
     sessions.set(from, { ...session, step: "collectingFirstVisit" });
-    await sendWhatsAppText(from, "📝 ¿Es tu primera vez con nosotros? Responde si o no.");
+    await replyToPatient(from, "📝 ¿Es tu primera vez con nosotros? Responde si o no.");
     return;
   }
 
   if (!session.paymentType) {
     sessions.set(from, { ...session, step: "collectingPaymentType" });
-    await sendWhatsAppText(from, "💳 ¿Tu consulta es particular o por parte de alguna red medica/aseguradora?");
+    await replyToPatient(from, "💳 ¿Tu consulta es particular o por parte de alguna red medica/aseguradora?");
     return;
   }
 
@@ -257,7 +258,7 @@ async function handleIncomingText(from, text) {
 
   if (!session.preferredDateText) {
     sessions.set(from, session);
-    await sendWhatsAppText(from, `📅 Gracias, ${session.name}. ¿Que dia te gustaria la cita?`);
+    await replyToPatient(from, `📅 Gracias, ${session.name}. ¿Que dia te gustaria la cita?`);
     return;
   }
 
@@ -270,7 +271,7 @@ async function offerAvailableSlots(from, session) {
     slots = await findAvailableSlots(session.preferredDateText, session.preferredDateISO);
   } catch (error) {
     if (error.message?.includes("Missing Google Calendar")) {
-      await sendWhatsAppText(
+      await replyToPatient(
         from,
         "📅 Ya entendi tu solicitud, pero falta conectar Google Calendar para revisar horarios y agendar la cita."
       );
@@ -280,7 +281,7 @@ async function offerAvailableSlots(from, session) {
   }
   if (slots.length === 0) {
     sessions.set(from, { ...session, preferredDateText: undefined });
-    await sendWhatsAppText(from, "😕 No encontre horarios disponibles en esos dias. ¿Quieres que revise otra fecha?");
+    await replyToPatient(from, "😕 No encontre horarios disponibles en esos dias. ¿Quieres que revise otra fecha?");
     return;
   }
 
@@ -290,7 +291,7 @@ async function offerAvailableSlots(from, session) {
     offeredSlots: slots
   });
 
-  await sendWhatsAppText(
+  await replyToPatient(
     from,
     `🕒 Tengo estos horarios disponibles:\n${slots
       .map((slot, index) => `${index + 1}. ${slot.label}`)
@@ -301,31 +302,56 @@ async function offerAvailableSlots(from, session) {
 async function handleMenuOption(from, text) {
   if (/^(?:1|agendar|agendar cita|quiero agendar|hacer cita|quiero hacer una cita|cita)$/.test(text)) {
     sessions.set(from, { from, step: "collecting" });
-    await sendWhatsAppText(from, "😊 Claro, te ayudo a agendar. ¿Me compartes tu nombre completo?");
+    await replyToPatient(from, "😊 Claro, te ayudo a agendar. ¿Me compartes tu nombre completo?");
     return true;
   }
 
   if (/^(?:2|horarios|ver horarios|horarios disponibles|que citas tienes|que citas tienes disponibles|citas disponibles)$/.test(text)) {
-    await sendWhatsAppText(from, "🕒 Claro. ¿Para que dia te gustaria revisar disponibilidad? Puedes decirme, por ejemplo: hoy, mañana, viernes o una fecha.");
+    await replyToPatient(from, "🕒 Claro. ¿Para que dia te gustaria revisar disponibilidad? Puedes decirme, por ejemplo: hoy, mañana, viernes o una fecha.");
     return true;
   }
 
   if (/^(?:3|ubicacion)$/.test(text)) {
-    await sendWhatsAppText(from, answerFaq("ubicacion"));
+    await replyToPatient(from, answerFaq("ubicacion"));
     return true;
   }
 
   if (/^(?:4|costos|costo|precios|promocion|promocion)$/.test(text)) {
-    await sendWhatsAppText(from, `${answerFaq("cuanto cuesta")}\n${answerFaq("promocion")}`);
+    await replyToPatient(from, `${answerFaq("cuanto cuesta")}\n${answerFaq("promocion")}`);
     return true;
   }
 
   if (/^(?:5|formas de pago|forma de pago|pago)$/.test(text)) {
-    await sendWhatsAppText(from, answerFaq("tarjeta"));
+    await replyToPatient(from, answerFaq("tarjeta"));
     return true;
   }
 
   return false;
+}
+
+async function replyToPatient(to, body) {
+  await sendWhatsAppText(to, body);
+  await notifyBotReply(to, body);
+}
+
+async function notifyIncomingPatientMessage(from, body) {
+  if (!shouldForwardConversation(from)) return;
+  await safeSendWhatsAppText(
+    config.doctorWhatsappNumber,
+    `💬 Mensaje de paciente\nTelefono: ${from}\n\n${body}`
+  );
+}
+
+async function notifyBotReply(to, body) {
+  if (!shouldForwardConversation(to)) return;
+  await safeSendWhatsAppText(
+    config.doctorWhatsappNumber,
+    `🤖 Bot respondio a ${to}\n\n${body}`
+  );
+}
+
+function shouldForwardConversation(phoneNumber) {
+  return config.forwardConversationCopies && phoneNumber !== config.doctorWhatsappNumber;
 }
 
 function answerFaq(text) {

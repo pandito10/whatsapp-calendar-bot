@@ -23,6 +23,7 @@ export const config = {
   whatsappAccessToken: process.env.WHATSAPP_ACCESS_TOKEN,
   whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
   doctorWhatsappNumber: process.env.DOCTOR_WHATSAPP_NUMBER,
+  forwardConversationCopies: process.env.FORWARD_CONVERSATION_COPIES !== "false",
   googleClientId: process.env.GOOGLE_CLIENT_ID,
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
   googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN,
