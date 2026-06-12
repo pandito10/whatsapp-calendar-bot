@@ -35,6 +35,12 @@ En Meta, configura el webhook:
 https://TU-DOMINIO/webhook
 ```
 
+Si configuras `WEBHOOK_PATH_SECRET`, usa esta Callback URL:
+
+```text
+https://TU-DOMINIO/webhook/TU_SECRETO_LARGO
+```
+
 El verify token debe ser el mismo valor que `WHATSAPP_VERIFY_TOKEN`.
 
 El inbox y `/debug/config` usan una credencial separada:
@@ -54,12 +60,38 @@ El link viejo con `?token=...` solo debe usarse para entrar una vez; despues red
 
 ## Seguridad recomendada
 
-- Configura `INBOX_PASSWORD` con una clave larga y diferente al verify token de Meta.
-- Configura `WHATSAPP_APP_SECRET` desde Meta Developers.
-- Mantén `REQUIRE_WEBHOOK_SIGNATURE=true` en produccion. Si `WHATSAPP_APP_SECRET` no esta configurado, el servidor arranca pero rechaza webhooks POST por seguridad.
+- Configura `INBOX_PASSWORD` con una clave larga y diferente al verify token de Meta. En produccion es mejor usar `INBOX_PASSWORD_HASH=sha256:...`.
+- Configura `COOKIE_SECRET` con al menos 32 caracteres.
+- Configura `WHATSAPP_APP_SECRET` desde Meta Developers y usa `REQUIRE_WEBHOOK_SIGNATURE=true`.
+- Modo temporal sin App Secret: usa `ALLOW_UNSIGNED_WEBHOOKS=true`, idealmente con `WEBHOOK_PATH_SECRET` y `UNSIGNED_WEBHOOK_EXPIRES_AT`.
+- Modo final seguro:
+
+```text
+WHATSAPP_APP_SECRET=...
+REQUIRE_WEBHOOK_SIGNATURE=true
+ALLOW_UNSIGNED_WEBHOOKS=false
+WEBHOOK_PATH_SECRET=un-secreto-largo-de-24-o-mas-caracteres
+```
+
+- El webhook valida `object`, `entry`, `changes`, `phone_number_id`, y opcionalmente `WHATSAPP_BUSINESS_ACCOUNT_ID` y `WHATSAPP_DISPLAY_PHONE_NUMBER`.
 - No pongas `SUPABASE_SERVICE_ROLE_KEY`, tokens de Meta ni secretos de Google en frontend o capturas publicas.
 - El servidor limita requests por minuto, rechaza cuerpos grandes y agrega headers basicos de seguridad.
 - Para datos medicos/personales, comparte acceso al inbox solo con personal autorizado.
+- Este canal es solo para agendar, cancelar y resolver dudas generales. No sustituye consulta medica.
+
+## Inbox operativo
+
+El inbox permite:
+
+- Ver conversaciones.
+- Buscar por nombre o telefono.
+- Filtrar por pendientes, cita agendada o modo humano.
+- Responder desde `/inbox` como humano.
+- Tomar una conversacion para pausar el bot.
+- Devolver la conversacion al bot.
+- Ver aviso cuando la ultima interaccion del paciente fue hace mas de 24 horas.
+
+Las acciones del inbox requieren sesion y CSRF. Los mensajes humanos se envian por WhatsApp desde backend y se guardan solo despues de respuesta exitosa de la API.
 
 ## IA gratis para empezar
 
@@ -178,6 +210,22 @@ SUPABASE_SERVICE_ROLE_KEY=TU_SERVICE_ROLE_KEY
 El bot seguira funcionando aunque Supabase falle; en ese caso usa memoria temporal como respaldo.
 
 El schema tambien agrega un indice unico para evitar dos citas confirmadas con el mismo `slot_start`.
+
+## Checklist antes de produccion
+
+- App Secret activo.
+- `REQUIRE_WEBHOOK_SIGNATURE=true`.
+- `ALLOW_UNSIGNED_WEBHOOKS=false`.
+- `WEBHOOK_PATH_SECRET` configurado y Callback URL actualizada en Meta.
+- `WHATSAPP_PHONE_NUMBER_ID` validado.
+- `WHATSAPP_BUSINESS_ACCOUNT_ID` configurado.
+- `COOKIE_SECRET` fuerte.
+- `INBOX_PASSWORD_HASH` o password fuerte.
+- Supabase con backups.
+- `supabase/schema.sql` ejecutado.
+- Logs sin datos sensibles completos.
+- Aviso de privacidad listo.
+- RLS/multi-tenant antes de vender a varios consultorios.
 
 ## Nota medica
 

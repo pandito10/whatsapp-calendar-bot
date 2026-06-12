@@ -6,7 +6,9 @@ import { cancelAppointment, createAppointment, findAvailableSlots, isSlotAvailab
 import { config } from "./config.js";
 import {
   cancelCita,
+  cleanupProcessedWhatsAppMessages,
   deleteSession,
+  getConversationState,
   getLatestConfirmedCitaByPhone,
   getSession,
   isDatabaseEnabled,
@@ -14,9 +16,12 @@ import {
   loadConversations,
   markReminderFailed,
   markReminderSent,
+  markConversationHumanReply,
+  rememberProcessedWhatsAppMessage,
   saveCita,
   saveConversationMessage,
   scheduleReminder,
+  setConversationHumanMode,
   setSession
 } from "./db.js";
 import { sendWhatsAppText } from "./whatsapp.js";
@@ -39,12 +44,31 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === "GET" && url.pathname === "/webhook") {
+    if (req.method === "GET" && isWebhookPostPath(url.pathname)) {
+      if (!isValidWebhookPath(url.pathname)) {
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" }).end("not found");
+        return;
+      }
       handleWebhookVerification(url, res);
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/webhook") {
+    if (req.method !== "GET" && url.pathname === "/webhook") {
+      if (req.method !== "POST") {
+        res.writeHead(405, { "Content-Type": "text/plain; charset=utf-8" }).end("method not allowed");
+        return;
+      }
+    }
+
+    if (req.method === "POST" && isWebhookPostPath(url.pathname)) {
+      if (!isValidWebhookPath(url.pathname)) {
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" }).end("not found");
+        return;
+      }
+      if (!isJsonRequest(req)) {
+        res.writeHead(415, { "Content-Type": "text/plain; charset=utf-8" }).end("unsupported media type");
+        return;
+      }
       const rawBody = await readRawBody(req);
       if (!isValidWebhookSignature(req, rawBody)) {
         res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
@@ -56,6 +80,12 @@ const server = http.createServer(async (req, res) => {
         body = JSON.parse(rawBody.toString("utf8"));
       } catch {
         res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" }).end("invalid json");
+        return;
+      }
+      const validation = validateWhatsAppPayload(body);
+      if (!validation.ok) {
+        console.warn(`Rejected WhatsApp webhook payload: ${validation.reason}`);
+        res.writeHead(validation.status ?? 400, { "Content-Type": "text/plain; charset=utf-8" }).end(validation.publicMessage ?? "invalid payload");
         return;
       }
       res.writeHead(200).end("ok");
@@ -74,7 +104,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/inbox/login") {
-      handleInboxLoginPage(res);
+      handleInboxLoginPage(req, res);
       return;
     }
 
@@ -94,6 +124,21 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/inbox/send") {
+      await handleInboxSend(req, url, res);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/inbox/takeover") {
+      await handleInboxTakeover(req, url, res);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/inbox/release") {
+      await handleInboxRelease(req, url, res);
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/oauth/google/callback") {
       handleGoogleOAuthCallback(url, res);
       return;
@@ -110,9 +155,43 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(config.port, () => {
+  warnAboutSecurityMode();
   console.log(`WhatsApp calendar bot listening on port ${config.port}`);
   startReminderWorker();
 });
+
+function warnAboutSecurityMode() {
+  if (config.webhookPathSecret && config.webhookPathSecret.length < 24) {
+    const message = "WEBHOOK_PATH_SECRET should be at least 24 characters.";
+    if (config.nodeEnv === "production") console.warn(`WARNING: ${message}`);
+  }
+
+  if (!config.whatsappAppSecret && config.allowUnsignedWebhooks) {
+    console.warn("WARNING: WhatsApp webhook is running in unsigned temporary mode. Configure WHATSAPP_APP_SECRET as soon as Meta allows it.");
+  }
+
+  if (!config.cookieSecret || config.cookieSecret.length < 32) {
+    console.warn("WARNING: COOKIE_SECRET is missing or shorter than 32 characters. Configure a strong COOKIE_SECRET in production.");
+  }
+
+  if (!config.inboxPasswordHash && (!config.inboxPassword || config.inboxPassword.length < 16)) {
+    console.warn("WARNING: INBOX_PASSWORD is missing or weak. Use INBOX_PASSWORD_HASH or a strong password in production.");
+  }
+}
+
+function isWebhookPostPath(pathname) {
+  return pathname === "/webhook" || pathname.startsWith("/webhook/");
+}
+
+function isValidWebhookPath(pathname) {
+  if (!config.webhookPathSecret) return pathname === "/webhook";
+  return pathname === `/webhook/${encodeURIComponent(config.webhookPathSecret)}` || pathname === `/webhook/${config.webhookPathSecret}`;
+}
+
+function isJsonRequest(req) {
+  const contentType = req.headers["content-type"];
+  return typeof contentType === "string" && contentType.toLowerCase().includes("application/json");
+}
 
 function handleWebhookVerification(url, res) {
   const mode = url.searchParams.get("hub.mode");
@@ -151,6 +230,47 @@ function handleGoogleOAuthCallback(url, res) {
   `);
 }
 
+function validateWhatsAppPayload(body) {
+  if (body?.object !== "whatsapp_business_account") {
+    return { ok: false, reason: "invalid object", status: 400, publicMessage: "invalid payload" };
+  }
+
+  if (!Array.isArray(body.entry)) {
+    return { ok: false, reason: "entry is not array", status: 400, publicMessage: "invalid payload" };
+  }
+
+  let hasProcessableChange = false;
+  for (const entry of body.entry) {
+    if (config.whatsappBusinessAccountId && entry?.id !== config.whatsappBusinessAccountId) {
+      return { ok: false, reason: "unexpected business account id", status: 403, publicMessage: "forbidden" };
+    }
+
+    if (!Array.isArray(entry?.changes)) {
+      return { ok: false, reason: "changes is not array", status: 400, publicMessage: "invalid payload" };
+    }
+
+    for (const change of entry.changes) {
+      if (change?.field !== "messages") continue;
+      hasProcessableChange = true;
+
+      const metadata = change.value?.metadata;
+      if (metadata?.phone_number_id !== config.whatsappPhoneNumberId) {
+        return { ok: false, reason: "unexpected phone_number_id", status: 403, publicMessage: "forbidden" };
+      }
+
+      if (
+        config.whatsappDisplayPhoneNumber &&
+        normalizePhone(metadata?.display_phone_number) !== normalizePhone(config.whatsappDisplayPhoneNumber)
+      ) {
+        return { ok: false, reason: "unexpected display_phone_number", status: 403, publicMessage: "forbidden" };
+      }
+    }
+  }
+
+  if (!hasProcessableChange) return { ok: true, noMessages: true };
+  return { ok: true };
+}
+
 function handleDebugConfig(req, url, res) {
   if (!hasInboxAccess(req, url, res)) {
     return;
@@ -171,6 +291,8 @@ function handleDebugConfig(req, url, res) {
         whatsappTokenSha12: hashShort(config.whatsappAccessToken ?? ""),
         whatsappPhoneNumberId: config.whatsappPhoneNumberId,
         whatsappBusinessAccountId: config.whatsappBusinessAccountId,
+        webhookSignatureMode: config.whatsappAppSecret && config.requireWebhookSignature ? "signed" : config.allowUnsignedWebhooks ? "unsigned-temporary" : "blocked",
+        webhookPathSecretEnabled: Boolean(config.webhookPathSecret),
         doctorWhatsappNumber: config.doctorWhatsappNumber,
         databaseEnabled: isDatabaseEnabled()
       })
@@ -186,11 +308,91 @@ async function handleInbox(req, url, res) {
   const list = await getInboxConversations();
   const selected = selectedPhone ? conversations.get(selectedPhone) : list[0];
 
-  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderInboxPage(list, selected));
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderInboxPage(list, selected, req, url));
+}
+
+async function handleInboxSend(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) return;
+  if (!checkRateLimit(req, url, "inbox-send")) {
+    res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8" }).end("too many requests");
+    return;
+  }
+
+  const form = await readForm(req);
+  if (!isValidCsrf(req, form.get("csrf"))) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const phone = normalizePhone(form.get("phone") ?? "");
+  const message = String(form.get("message") ?? "").trim();
+  if (!isValidWhatsAppPhone(phone) || !message || message.length > 2000) {
+    await redirectInbox(res, phone, "Mensaje invalido o telefono invalido.");
+    return;
+  }
+
+  try {
+    await sendWhatsAppText(phone, message);
+    await recordConversationMessage(phone, "human", message, { source: "inbox" });
+    await markConversationHumanReply(phone);
+    console.log(`Inbox human reply sent to ${maskPhone(phone)}`);
+    await redirectInbox(res, phone);
+  } catch (error) {
+    logSafeError(`Could not send inbox reply to ${maskPhone(phone)}`, error);
+    await redirectInbox(res, phone, "No se pudo enviar el mensaje por WhatsApp.");
+  }
+}
+
+async function handleInboxTakeover(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) return;
+  if (!checkRateLimit(req, url, "inbox-action")) {
+    res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8" }).end("too many requests");
+    return;
+  }
+
+  const form = await readForm(req);
+  if (!isValidCsrf(req, form.get("csrf"))) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const phone = normalizePhone(form.get("phone") ?? "");
+  if (!isValidWhatsAppPhone(phone)) {
+    await redirectInbox(res, "", "Telefono invalido.");
+    return;
+  }
+
+  await setConversationHumanMode(phone, true);
+  setMemoryHumanMode(phone, true);
+  await redirectInbox(res, phone);
+}
+
+async function handleInboxRelease(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) return;
+  if (!checkRateLimit(req, url, "inbox-action")) {
+    res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8" }).end("too many requests");
+    return;
+  }
+
+  const form = await readForm(req);
+  if (!isValidCsrf(req, form.get("csrf"))) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const phone = normalizePhone(form.get("phone") ?? "");
+  if (!isValidWhatsAppPhone(phone)) {
+    await redirectInbox(res, "", "Telefono invalido.");
+    return;
+  }
+
+  await setConversationHumanMode(phone, false);
+  setMemoryHumanMode(phone, false);
+  await redirectInbox(res, phone);
 }
 
 function hasInboxAccess(req, url, res, options = {}) {
-  if (!config.inboxPassword) {
+  if (!config.inboxPassword && !config.inboxPasswordHash) {
     res
       .writeHead(403, { "Content-Type": "text/plain; charset=utf-8" })
       .end("Configura INBOX_PASSWORD en las variables de entorno para acceder al inbox");
@@ -201,7 +403,7 @@ function hasInboxAccess(req, url, res, options = {}) {
   if (session) return true;
 
   const token = url.searchParams.get("token");
-  if (token && secureCompare(token, config.inboxPassword)) {
+  if (token && isValidInboxPassword(token)) {
     setInboxCookie(res);
     url.searchParams.delete("token");
     res.writeHead(303, { Location: `${url.pathname}${url.search || ""}` }).end();
@@ -209,7 +411,7 @@ function hasInboxAccess(req, url, res, options = {}) {
   }
 
   const auth = req.headers.authorization;
-  if (auth?.startsWith("Bearer ") && secureCompare(auth.slice("Bearer ".length), config.inboxPassword)) {
+  if (auth?.startsWith("Bearer ") && isValidInboxPassword(auth.slice("Bearer ".length))) {
     return true;
   }
 
@@ -222,7 +424,9 @@ function hasInboxAccess(req, url, res, options = {}) {
     return false;
 }
 
-function handleInboxLoginPage(res, error = "") {
+function handleInboxLoginPage(req, res, error = "") {
+  const csrf = createLoginCsrfToken();
+  setLoginCsrfCookie(res, csrf);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(`<!doctype html>
 <html lang="es">
 <head>
@@ -248,6 +452,7 @@ function handleInboxLoginPage(res, error = "") {
     <p>Entra con la clave privada del consultorio.</p>
     ${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}
     <form method="post" action="/inbox/login">
+      <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
       <label for="password">Clave</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
       <button type="submit">Entrar</button>
@@ -258,16 +463,25 @@ function handleInboxLoginPage(res, error = "") {
 }
 
 async function handleInboxLogin(req, res) {
-  if (!config.inboxPassword) {
+  if (!config.inboxPassword && !config.inboxPasswordHash) {
     res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("Configura INBOX_PASSWORD");
     return;
   }
 
-  const rawBody = await readRawBody(req);
-  const params = new URLSearchParams(rawBody.toString("utf8"));
+  if (!checkRateLimit(req, new URL("/inbox/login", "http://local"), "inbox-login")) {
+    handleInboxLoginPage(req, res, "No se pudo iniciar sesion. Intenta de nuevo mas tarde.");
+    return;
+  }
+
+  const params = await readForm(req);
+  if (!isValidLoginCsrf(req, params.get("csrf"))) {
+    handleInboxLoginPage(req, res, "No se pudo iniciar sesion.");
+    return;
+  }
+
   const password = params.get("password") ?? "";
-  if (!secureCompare(password, config.inboxPassword)) {
-    handleInboxLoginPage(res, "Clave incorrecta.");
+  if (!isValidInboxPassword(password)) {
+    handleInboxLoginPage(req, res, "No se pudo iniciar sesion.");
     return;
   }
 
@@ -294,12 +508,12 @@ function clearInboxCookie(res) {
 
 function getInboxSession(req) {
   const token = parseCookies(req.headers.cookie ?? "").inbox_session;
-  if (!token || !config.inboxPassword) return null;
+  if (!token) return null;
 
   const [payloadPart, signature] = token.split(".");
   if (!payloadPart || !signature) return null;
 
-  const expected = crypto.createHmac("sha256", config.inboxPassword).update(payloadPart).digest("base64url");
+  const expected = crypto.createHmac("sha256", getCookieSecret()).update(payloadPart).digest("base64url");
   if (!secureCompare(signature, expected)) return null;
 
   try {
@@ -318,7 +532,7 @@ function createInboxSessionToken(maxAgeSeconds) {
       nonce: crypto.randomBytes(12).toString("hex")
     })
   ).toString("base64url");
-  const signature = crypto.createHmac("sha256", config.inboxPassword).update(payloadPart).digest("base64url");
+  const signature = crypto.createHmac("sha256", getCookieSecret()).update(payloadPart).digest("base64url");
   return `${payloadPart}.${signature}`;
 }
 
@@ -353,21 +567,32 @@ async function getInboxConversations() {
   return [...conversations.values()].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
 
-function renderInboxPage(list, selected) {
-  const stats = buildInboxStats(list);
+function renderInboxPage(list, selected, req, url) {
+  const csrf = createSessionCsrfToken(req);
+  const q = normalizeText(url.searchParams.get("q") ?? "");
+  const filter = url.searchParams.get("filter") ?? "all";
+  const filteredList = filterInboxConversations(list, q, filter);
+  if (selected && !filteredList.some((conversation) => conversation.phoneNumber === selected.phoneNumber)) {
+    filteredList.unshift(selected);
+  }
+  const stats = buildInboxStats(filteredList);
   const selectedStatus = selected ? getConversationStatus(selected) : undefined;
   const selectedName = selected ? getConversationDisplayName(selected) : "";
   const appointmentCard = selected?.appointment ? renderAppointmentCard(selected.appointment) : "";
+  const inboxError = url.searchParams.get("error");
+  const selectedPhone = selected?.phoneNumber ?? "";
+  const lastPatientMessage = selected?.messages ? [...selected.messages].reverse().find((message) => message.sender === "patient") : undefined;
+  const needsTemplateNotice = lastPatientMessage ? Date.now() - new Date(lastPatientMessage.timestamp).getTime() > 24 * 60 * 60 * 1000 : false;
   const conversationLinks =
-    list.length === 0
+    filteredList.length === 0
       ? `<div class="empty-state">Todavia no hay conversaciones.</div>`
-      : list
+      : filteredList
           .map((conversation) => {
             const last = conversation.messages.at(-1);
             const active = selected?.phoneNumber === conversation.phoneNumber ? " active" : "";
             const status = getConversationStatus(conversation);
             const title = getConversationDisplayName(conversation);
-            return `<a class="thread${active}" href="/inbox?phone=${encodeURIComponent(conversation.phoneNumber)}">
+            return `<a class="thread${active}" href="/inbox?${buildInboxQuery({ phone: conversation.phoneNumber, q: url.searchParams.get("q"), filter })}">
               <div class="avatar">${escapeHtml(conversation.phoneNumber.slice(-2))}</div>
               <div class="thread-copy">
                 <div class="thread-top">
@@ -378,6 +603,7 @@ function renderInboxPage(list, selected) {
                 <p>${escapeHtml(last?.body ?? "")}</p>
                 <div class="thread-tags">
                   <span class="tag ${status.className}">${status.label}</span>
+                  ${conversation.botPaused ? `<span class="tag human">Modo humano</span>` : ""}
                   ${conversation.appointment?.slotStart ? `<span class="tag">${formatAppointmentShort(conversation.appointment.slotStart)}</span>` : ""}
                 </div>
               </div>
@@ -388,8 +614,8 @@ function renderInboxPage(list, selected) {
   const messages = selected
     ? selected.messages
         .map((message) => {
-          const side = message.sender === "bot" ? "bot" : "patient";
-          const label = message.sender === "bot" ? "Bot" : "Paciente";
+          const side = message.sender === "bot" ? "bot" : message.sender === "human" || message.sender === "admin" ? "human" : "patient";
+          const label = message.sender === "bot" ? "Bot" : message.sender === "human" || message.sender === "admin" ? "Humano" : "Paciente";
           return `<div class="message ${side}">
             <div class="bubble">
               <div class="meta">${label} · ${formatInboxDate(message.timestamp)}</div>
@@ -614,6 +840,35 @@ function renderInboxPage(list, selected) {
     .tag.confirmed { color: #166534; background: #dcfce7; border-color: #bbf7d0; }
     .tag.followup { color: #854d0e; background: #fef3c7; border-color: #fde68a; }
     .tag.open { color: #075985; background: #e0f2fe; border-color: #bae6fd; }
+    .tag.human { color: #6d28d9; background: #ede9fe; border-color: #ddd6fe; }
+    .tools {
+      display: grid;
+      gap: 8px;
+      padding: 12px 14px;
+      border-bottom: 1px solid #edf1f6;
+    }
+    .tools input, .tools select, textarea {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 10px 11px;
+      font: inherit;
+      background: #ffffff;
+    }
+    .tool-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+    button, .button-link {
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: var(--brand);
+      color: #ffffff;
+      font: inherit;
+      font-weight: 800;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .button-secondary { background: #334155; }
+    .button-danger { background: #b45309; }
     .chat {
       display: flex;
       flex-direction: column;
@@ -705,12 +960,56 @@ function renderInboxPage(list, selected) {
       background: #d9fdd3;
       border-radius: 16px 16px 4px 16px;
     }
+    .human { justify-content: flex-end; }
+    .human .bubble {
+      color: #3b0764;
+      background: #f3e8ff;
+      border-radius: 16px 16px 4px 16px;
+    }
     .meta {
       color: var(--muted);
       font-size: 12px;
       margin-bottom: 6px;
     }
     .body { font-size: 14px; }
+    .notice {
+      margin: 14px 24px 0;
+      padding: 12px 14px;
+      border-radius: 12px;
+      color: #854d0e;
+      background: #fef3c7;
+      border: 1px solid #fde68a;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .composer {
+      border-top: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.96);
+      padding: 14px;
+    }
+    .composer form { display: grid; gap: 10px; }
+    .composer-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .conversation-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .error-banner {
+      margin: 14px 24px 0;
+      padding: 12px 14px;
+      border-radius: 12px;
+      color: #991b1b;
+      background: #fee2e2;
+      border: 1px solid #fecaca;
+      font-size: 13px;
+    }
     .empty-state {
       color: var(--muted);
       margin: 18px;
@@ -749,6 +1048,7 @@ function renderInboxPage(list, selected) {
       .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .messages { padding: 16px; }
       .appointment-card { margin: 12px 16px 0; }
+      .notice, .error-banner { margin: 12px 16px 0; }
       .appointment-grid { grid-template-columns: 1fr; }
       .chat { min-height: 58vh; }
       .bubble { max-width: 92%; }
@@ -777,6 +1077,18 @@ function renderInboxPage(list, selected) {
         <div class="stat"><strong>${stats.confirmed}</strong><span>Agendadas</span></div>
         <div class="stat"><strong>${stats.followup}</strong><span>Seguimiento</span></div>
       </div>
+      <form class="tools" method="get" action="/inbox">
+        <input name="q" value="${escapeHtml(url.searchParams.get("q") ?? "")}" placeholder="Buscar telefono o nombre">
+        <div class="tool-row">
+          <select name="filter">
+            ${renderFilterOption("all", "Todas", filter)}
+            ${renderFilterOption("pending", "Pendientes", filter)}
+            ${renderFilterOption("confirmed", "Cita agendada", filter)}
+            ${renderFilterOption("human", "Modo humano", filter)}
+          </select>
+          <button type="submit">Filtrar</button>
+        </div>
+      </form>
       ${conversationLinks}
     </aside>
     <section class="chat">
@@ -784,6 +1096,19 @@ function renderInboxPage(list, selected) {
         <div>
           <strong>${selected ? escapeHtml(selectedName) : "Sin conversacion seleccionada"}</strong>
           <span>${selected ? `${formatPhoneForInbox(selected.phoneNumber)} · Ultima actividad: ${formatInboxDate(selected.updatedAt)}` : "Cuando llegue un mensaje aparecera aqui."}</span>
+          ${
+            selected
+              ? `<div class="conversation-tools">
+                  <a class="button-link button-secondary" href="https://wa.me/${encodeURIComponent(selectedPhone)}" target="_blank" rel="noreferrer">Abrir WhatsApp</a>
+                  <button type="button" class="button-secondary" onclick="navigator.clipboard?.writeText('${escapeHtml(selectedPhone)}')">Copiar telefono</button>
+                  ${
+                    selected.botPaused
+                      ? `<form method="post" action="/inbox/release"><input name="csrf" type="hidden" value="${escapeHtml(csrf)}"><input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}"><button type="submit">Devolver al bot</button></form>`
+                      : `<form method="post" action="/inbox/takeover"><input name="csrf" type="hidden" value="${escapeHtml(csrf)}"><input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}"><button class="button-danger" type="submit">Tomar conversacion</button></form>`
+                  }
+                </div>`
+              : ""
+          }
         </div>
         ${
           selected
@@ -791,8 +1116,26 @@ function renderInboxPage(list, selected) {
             : ""
         }
       </div>
+      ${inboxError ? `<div class="error-banner">${escapeHtml(inboxError)}</div>` : ""}
+      ${selected?.botPaused ? `<div class="notice">Modo humano activo: el bot guarda mensajes entrantes, pero no responde automaticamente a este paciente.</div>` : ""}
+      ${needsTemplateNotice ? `<div class="notice">La ultima interaccion del paciente fue hace mas de 24 horas. Puede requerir plantilla aprobada de WhatsApp para responder fuera de la ventana de atencion.</div>` : ""}
       ${appointmentCard}
       <div class="messages">${messages}</div>
+      ${
+        selected
+          ? `<div class="composer">
+              <form method="post" action="/inbox/send">
+                <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                <textarea name="message" rows="3" maxlength="2000" placeholder="Escribe una respuesta como humano..." required></textarea>
+                <div class="composer-actions">
+                  <span class="subtitle">Se enviara por WhatsApp y se guardara como Humano.</span>
+                  <button type="submit">Enviar respuesta</button>
+                </div>
+              </form>
+            </div>`
+          : ""
+      }
     </section>
   </main>
 </body>
@@ -813,7 +1156,38 @@ function buildInboxStats(list) {
   );
 }
 
+function filterInboxConversations(list, q, filter) {
+  return list.filter((conversation) => {
+    const status = getConversationStatus(conversation);
+    const name = normalizeText(getConversationDisplayName(conversation));
+    const phone = normalizePhone(conversation.phoneNumber);
+    const matchesQuery = !q || name.includes(q) || phone.includes(normalizePhone(q));
+    const matchesFilter =
+      filter === "all" ||
+      (filter === "pending" && status.key === "followup") ||
+      (filter === "confirmed" && status.key === "confirmed") ||
+      (filter === "human" && conversation.botPaused);
+    return matchesQuery && matchesFilter;
+  });
+}
+
+function renderFilterOption(value, label, current) {
+  return `<option value="${escapeHtml(value)}"${value === current ? " selected" : ""}>${escapeHtml(label)}</option>`;
+}
+
+function buildInboxQuery(values) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    if (value) params.set(key, value);
+  }
+  return params.toString();
+}
+
 function getConversationStatus(conversation) {
+  if (conversation.botPaused) {
+    return { key: "human", label: "Modo humano activo", className: "human" };
+  }
+
   if (conversation.appointment?.status === "confirmed") {
     return { key: "confirmed", label: "Cita agendada", className: "confirmed" };
   }
@@ -901,15 +1275,19 @@ function hashShort(value) {
 }
 
 async function handleWhatsAppWebhook(body) {
-  const messages = body?.entry?.[0]?.changes?.[0]?.value?.messages ?? [];
+  const messages = extractWhatsAppMessages(body);
   for (const message of messages) {
     if (message.type !== "text") continue;
-    if (alreadyProcessed(message.id)) continue;
+    if (!checkPhoneRateLimit(message.from)) {
+      console.warn(`Phone rate limit exceeded for ${maskPhone(message.from)}`);
+      continue;
+    }
+    if (await alreadyProcessed(message.id, message.from)) continue;
 
     try {
       await handleIncomingText(message.from, message.text.body);
     } catch (error) {
-      logSafeError(`Failed handling WhatsApp message ${message.id ?? "without-id"} from ${message.from}`, error);
+      logSafeError(`Failed handling WhatsApp message ${message.id ?? "without-id"} from ${maskPhone(message.from)}`, error);
       await safeSendWhatsAppText(
         message.from,
         "🙏 Perdon, tuve un problema revisando la agenda. Por favor intenta de nuevo en un momento o escribe directamente al consultorio."
@@ -918,12 +1296,26 @@ async function handleWhatsAppWebhook(body) {
   }
 }
 
+function extractWhatsAppMessages(body) {
+  return body.entry.flatMap((entry) =>
+    entry.changes
+      .filter((change) => change.field === "messages")
+      .flatMap((change) => change.value?.messages ?? [])
+  );
+}
+
 async function handleIncomingText(from, text) {
-  console.log(`Incoming WhatsApp from ${from}: ${text}`);
+  console.log(`Incoming WhatsApp from ${maskPhone(from)}`);
   const lower = text.trim().toLowerCase();
   const normalized = normalizeText(text);
   await recordConversationMessage(from, "patient", text);
   await notifyIncomingPatientMessage(from, text);
+
+  const conversationState = (await getConversationState(from)) ?? conversations.get(from);
+  if (conversationState?.botPaused) {
+    console.log(`Bot paused for ${maskPhone(from)}; message stored without auto-reply.`);
+    return;
+  }
 
   if (isCancellationRequest(normalized)) {
     await handleCancellationRequest(from);
@@ -1166,16 +1558,18 @@ function shouldForwardConversation(phoneNumber) {
   return config.forwardConversationCopies && phoneNumber !== config.doctorWhatsappNumber;
 }
 
-async function recordConversationMessage(phoneNumber, sender, body) {
+async function recordConversationMessage(phoneNumber, sender, body, metadata = {}) {
   const existing = conversations.get(phoneNumber) ?? {
     phoneNumber,
     updatedAt: undefined,
+    botPaused: false,
     messages: []
   };
 
   const message = {
     sender,
     body,
+    metadata,
     timestamp: new Date().toISOString()
   };
 
@@ -1186,10 +1580,23 @@ async function recordConversationMessage(phoneNumber, sender, body) {
 
   if (!isDatabaseEnabled()) return;
   try {
-    await saveConversationMessage(phoneNumber, sender, body);
+    await saveConversationMessage(phoneNumber, sender, body, metadata);
   } catch (error) {
     console.warn("Could not save conversation to Supabase:", error.message);
   }
+}
+
+function setMemoryHumanMode(phoneNumber, enabled) {
+  const existing = conversations.get(phoneNumber) ?? {
+    phoneNumber,
+    updatedAt: new Date().toISOString(),
+    messages: []
+  };
+  existing.botPaused = enabled;
+  existing.botPausedAt = enabled ? new Date().toISOString() : undefined;
+  existing.assignedTo = enabled ? "consultorio" : undefined;
+  existing.updatedAt = new Date().toISOString();
+  conversations.set(phoneNumber, existing);
 }
 
 async function getPatientSession(phoneNumber) {
@@ -1323,6 +1730,7 @@ async function scheduleAppointmentReminder(phoneNumber, session, slot, cita) {
 function startReminderWorker() {
   if (!config.enableReminderWorker) return;
 
+  void cleanupProcessedWhatsAppMessages();
   void processDueReminders();
   setInterval(() => {
     void processDueReminders();
@@ -1471,24 +1879,11 @@ function normalizeText(value) {
     .trim();
 }
 
-function alreadyProcessed(messageId) {
-  if (!messageId) return false;
-
-  const now = Date.now();
-  for (const [id, timestamp] of processedMessages) {
-    if (now - timestamp > processedMessageTtlMs) processedMessages.delete(id);
-  }
-
-  if (processedMessages.has(messageId)) return true;
-  processedMessages.set(messageId, now);
-  return false;
-}
-
 async function safeSendWhatsAppText(to, body) {
   try {
     await sendWhatsAppText(to, body);
   } catch (error) {
-    logSafeError(`Failed sending fallback WhatsApp message to ${to}`, error);
+    logSafeError(`Failed sending fallback WhatsApp message to ${maskPhone(to)}`, error);
   }
 }
 
@@ -1503,13 +1898,16 @@ function todayISO() {
 
 function isValidWebhookSignature(req, rawBody) {
   if (!config.whatsappAppSecret) {
-    if (config.requireWebhookSignature) return false;
+    if (!config.allowUnsignedWebhooks) return false;
+    if (isUnsignedWebhookExpired()) return false;
     if (!appSecretWarningShown) {
-      console.warn("WHATSAPP_APP_SECRET is not configured; skipping WhatsApp webhook signature validation.");
+      console.warn("WARNING: WHATSAPP_APP_SECRET is not configured; accepting unsigned webhooks because ALLOW_UNSIGNED_WEBHOOKS=true.");
       appSecretWarningShown = true;
     }
     return true;
   }
+
+  if (!config.requireWebhookSignature) return true;
 
   const signature = req.headers["x-hub-signature-256"];
   if (!signature || !signature.startsWith("sha256=")) return false;
@@ -1541,6 +1939,7 @@ function setSecurityHeaders(res) {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
   res.setHeader("Cache-Control", "no-store");
   res.setHeader(
     "Content-Security-Policy",
@@ -1548,13 +1947,19 @@ function setSecurityHeaders(res) {
   );
 }
 
-function checkRateLimit(req, url) {
+function checkRateLimit(req, url, scope) {
   const now = Date.now();
-  const windowMs = 60_000;
-  const limit = url.pathname.startsWith("/inbox") || url.pathname.startsWith("/debug")
-    ? config.inboxRateLimitPerMinute
-    : config.webhookRateLimitPerMinute;
-  const key = `${getClientIp(req)}:${url.pathname}`;
+  const isLogin = scope === "inbox-login";
+  const windowMs = isLogin ? 15 * 60_000 : 60_000;
+  const limit =
+    scope === "inbox-login"
+      ? config.inboxLoginRateLimitPer15Minutes
+      : scope === "inbox-send" || scope === "inbox-action"
+        ? config.inboxSendRateLimitPerMinute
+        : url.pathname.startsWith("/inbox") || url.pathname.startsWith("/debug")
+          ? config.inboxRateLimitPerMinute
+          : config.webhookRateLimitPerMinute;
+  const key = `${scope ?? url.pathname}:${getClientIp(req)}`;
   const bucket = rateLimitBuckets.get(key) ?? { count: 0, resetAt: now + windowMs };
 
   if (now > bucket.resetAt) {
@@ -1570,6 +1975,121 @@ function checkRateLimit(req, url) {
   }
 
   return bucket.count <= limit;
+}
+
+function checkPhoneRateLimit(phoneNumber) {
+  const now = Date.now();
+  const windowMs = 60_000;
+  const key = `phone:${normalizePhone(phoneNumber) || "unknown"}`;
+  const bucket = rateLimitBuckets.get(key) ?? { count: 0, resetAt: now + windowMs };
+  if (now > bucket.resetAt) {
+    bucket.count = 0;
+    bucket.resetAt = now + windowMs;
+  }
+  bucket.count += 1;
+  rateLimitBuckets.set(key, bucket);
+  return bucket.count <= config.webhookPhoneRateLimitPerMinute;
+}
+
+async function alreadyProcessed(messageId, fromPhone) {
+  if (!messageId) return false;
+
+  const now = Date.now();
+  for (const [id, timestamp] of processedMessages) {
+    if (now - timestamp > processedMessageTtlMs) processedMessages.delete(id);
+  }
+
+  if (processedMessages.has(messageId)) return true;
+
+  if (isDatabaseEnabled()) {
+    try {
+      const duplicate = await rememberProcessedWhatsAppMessage(messageId, fromPhone);
+      if (duplicate) {
+        processedMessages.set(messageId, now);
+        return true;
+      }
+    } catch (error) {
+      console.warn("Could not persist WhatsApp message dedupe:", error.message);
+    }
+  }
+
+  processedMessages.set(messageId, now);
+  return false;
+}
+
+function isUnsignedWebhookExpired() {
+  if (!config.unsignedWebhookExpiresAt) return false;
+  const expiresAt = new Date(config.unsignedWebhookExpiresAt).getTime();
+  return Number.isFinite(expiresAt) && Date.now() > expiresAt;
+}
+
+async function readForm(req) {
+  const rawBody = await readRawBody(req);
+  return new URLSearchParams(rawBody.toString("utf8"));
+}
+
+function redirectInbox(res, phone, error) {
+  const params = new URLSearchParams();
+  if (phone) params.set("phone", phone);
+  if (error) params.set("error", error);
+  res.writeHead(303, { Location: `/inbox${params.toString() ? `?${params}` : ""}` }).end();
+}
+
+function createLoginCsrfToken() {
+  return crypto.randomBytes(24).toString("base64url");
+}
+
+function setLoginCsrfCookie(res, token) {
+  const cookie = [`login_csrf=${encodeURIComponent(token)}`, "HttpOnly", "SameSite=Lax", "Path=/inbox", "Max-Age=600"];
+  if (config.nodeEnv === "production") cookie.push("Secure");
+  res.setHeader("Set-Cookie", cookie.join("; "));
+}
+
+function isValidLoginCsrf(req, token) {
+  const expected = parseCookies(req.headers.cookie ?? "").login_csrf;
+  return Boolean(expected && token && secureCompare(expected, token));
+}
+
+function createSessionCsrfToken(req) {
+  const sessionToken = parseCookies(req.headers.cookie ?? "").inbox_session ?? "";
+  return crypto.createHmac("sha256", getCookieSecret()).update(sessionToken).digest("base64url");
+}
+
+function isValidCsrf(req, token) {
+  return Boolean(token && secureCompare(createSessionCsrfToken(req), token));
+}
+
+function getCookieSecret() {
+  return config.cookieSecret || config.inboxPasswordHash || config.inboxPassword || config.whatsappVerifyToken;
+}
+
+function isValidInboxPassword(password) {
+  if (config.inboxPasswordHash) {
+    return secureCompare(hashPassword(password), normalizePasswordHash(config.inboxPasswordHash));
+  }
+  return Boolean(config.inboxPassword && secureCompare(password, config.inboxPassword));
+}
+
+function hashPassword(password) {
+  return crypto.createHash("sha256").update(String(password)).digest("hex");
+}
+
+function normalizePasswordHash(hash) {
+  return String(hash).replace(/^sha256:/i, "").trim();
+}
+
+function normalizePhone(value) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function isValidWhatsAppPhone(value) {
+  return /^\d{10,15}$/.test(normalizePhone(value));
+}
+
+function maskPhone(value) {
+  const phone = normalizePhone(value);
+  if (phone.length <= 6) return phone ? "***" : "";
+  return `${phone.slice(0, 5)}****${phone.slice(-3)}`;
 }
 
 function getClientIp(req) {
@@ -1598,7 +2118,8 @@ function redactSecrets(value) {
   return String(value)
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer [redacted]")
     .replace(/ya29\.[A-Za-z0-9._-]+/g, "ya29.[redacted]")
-    .replace(/(service_role|apikey|access_token|refresh_token|client_secret)([^A-Za-z0-9]+)[A-Za-z0-9._~+/=-]+/gi, "$1$2[redacted]");
+    .replace(/(service_role|apikey|access_token|refresh_token|client_secret)([^A-Za-z0-9]+)[A-Za-z0-9._~+/=-]+/gi, "$1$2[redacted]")
+    .replace(/\b(52\d{3})\d{4,6}(\d{3})\b/g, "$1****$2");
 }
 
 function escapeHtml(value) {

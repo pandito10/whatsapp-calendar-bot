@@ -18,13 +18,25 @@ services:
         sync: false
       - key: WHATSAPP_BUSINESS_ACCOUNT_ID
         sync: false
+      - key: WHATSAPP_DISPLAY_PHONE_NUMBER
+        sync: false
       - key: WHATSAPP_APP_SECRET
         sync: false
       - key: REQUIRE_WEBHOOK_SIGNATURE
-        value: "false"
+        value: "true"
+      - key: ALLOW_UNSIGNED_WEBHOOKS
+        value: "true"
+      - key: UNSIGNED_WEBHOOK_EXPIRES_AT
+        sync: false
+      - key: WEBHOOK_PATH_SECRET
+        sync: false
       - key: DOCTOR_WHATSAPP_NUMBER
         sync: false
       - key: INBOX_PASSWORD
+        sync: false
+      - key: INBOX_PASSWORD_HASH
+        sync: false
+      - key: COOKIE_SECRET
         sync: false
       - key: INBOX_SESSION_HOURS
         value: "8"
@@ -32,8 +44,14 @@ services:
         value: "256000"
       - key: WEBHOOK_RATE_LIMIT_PER_MINUTE
         value: "600"
+      - key: WEBHOOK_PHONE_RATE_LIMIT_PER_MINUTE
+        value: "30"
       - key: INBOX_RATE_LIMIT_PER_MINUTE
         value: "60"
+      - key: INBOX_SEND_RATE_LIMIT_PER_MINUTE
+        value: "20"
+      - key: INBOX_LOGIN_RATE_LIMIT_PER_15_MINUTES
+        value: "5"
       - key: ENABLE_REMINDER_WORKER
         value: "true"
       - key: REMINDER_WORKER_INTERVAL_MS
