@@ -41,6 +41,6 @@ services:
       - key: WORK_DAYS
         value: 1,2,3,4,5
       - key: WORK_START
-        value: 16:00
+        value: 16:40
       - key: WORK_END
         value: 20:00
