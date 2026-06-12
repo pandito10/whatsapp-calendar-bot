@@ -130,7 +130,7 @@ async function handleWhatsAppWebhook(body) {
       console.error(`Failed handling WhatsApp message ${message.id ?? "without-id"} from ${message.from}:`, error);
       await safeSendWhatsAppText(
         message.from,
-        "Perdon, tuve un problema revisando la agenda. Por favor intenta de nuevo en un momento o escribe directamente al consultorio."
+        "🙏 Perdon, tuve un problema revisando la agenda. Por favor intenta de nuevo en un momento o escribe directamente al consultorio."
       );
     }
   }
@@ -139,13 +139,20 @@ async function handleWhatsAppWebhook(body) {
 async function handleIncomingText(from, text) {
   console.log(`Incoming WhatsApp from ${from}: ${text}`);
   const lower = text.trim().toLowerCase();
+  const normalized = normalizeText(text);
 
   if (from === config.doctorWhatsappNumber && /^(?:agenda|mi agenda|ver agenda)$/.test(lower)) {
-    await sendWhatsAppText(from, "Por ahora te aviso cada cita nueva por aqui. El resumen diario lo agregamos en la siguiente version.");
+    await sendWhatsAppText(from, "📅 Por ahora te aviso cada cita nueva por aqui. El resumen diario lo agregamos en la siguiente version.");
     return;
   }
 
   const existing = sessions.get(from);
+  const faqAnswer = answerFaq(normalized);
+  if (faqAnswer && !existing) {
+    await sendWhatsAppText(from, faqAnswer);
+    return;
+  }
+
   let parsed;
   try {
     parsed = await understandMessage(text, existing);
@@ -194,36 +201,36 @@ async function handleIncomingText(from, text) {
 
     await sendWhatsAppText(
       from,
-      `Listo, ${name}. Tu cita quedo agendada para ${slot.label}.\n\nUbicacion: ${config.clinicAddress}${session.email ? "\n\nGoogle Calendar tambien enviara la confirmacion a tu correo." : ""}\n\nSi tienes dolor intenso, sangrado abundante o una urgencia, por favor acude a urgencias o contacta directamente al consultorio.`
+      `✅ Listo, ${name}. Tu cita quedo agendada para ${slot.label}.\n\n📍 Ubicacion: ${config.clinicAddress}${session.email ? "\n\n📩 Google Calendar tambien enviara la confirmacion a tu correo." : ""}\n\n⚠️ Si tienes dolor intenso, sangrado abundante o una urgencia, por favor acude a urgencias o contacta directamente al consultorio.`
     );
     await sendWhatsAppText(
       config.doctorWhatsappNumber,
-      `Nueva cita por WhatsApp:\nPaciente: ${name}\nFecha: ${slot.label}\nTelefono: ${from}${session.email ? `\nCorreo: ${session.email}` : ""}${session.firstVisit ? `\nPrimera vez: ${session.firstVisit}` : ""}${session.paymentType ? `\nTipo: ${session.paymentType}` : ""}${session.reason ? `\nMotivo: ${session.reason}` : ""}`
+      `📅 Nueva cita por WhatsApp:\nPaciente: ${name}\nFecha: ${slot.label}\nTelefono: ${from}${session.email ? `\nCorreo: ${session.email}` : ""}${session.firstVisit ? `\nPrimera vez: ${session.firstVisit}` : ""}${session.paymentType ? `\nTipo: ${session.paymentType}` : ""}${session.reason ? `\nMotivo: ${session.reason}` : ""}`
     );
     return;
   }
 
   if (!session.name) {
     sessions.set(from, session);
-    await sendWhatsAppText(from, "Claro, te ayudo a agendar. ¿Me compartes tu nombre completo?");
+    await sendWhatsAppText(from, "😊 Claro, te ayudo a agendar. ¿Me compartes tu nombre completo?");
     return;
   }
 
   if (!session.email) {
     sessions.set(from, { ...session, step: "collectingEmail" });
-    await sendWhatsAppText(from, `Gracias, ${session.name}. ¿Me compartes tu correo electronico para enviarte la confirmacion de Google Calendar?`);
+    await sendWhatsAppText(from, `📩 Gracias, ${session.name}. ¿Me compartes tu correo electronico para enviarte la confirmacion de Google Calendar?`);
     return;
   }
 
   if (!session.firstVisit) {
     sessions.set(from, { ...session, step: "collectingFirstVisit" });
-    await sendWhatsAppText(from, "¿Es tu primera vez con nosotros? Responde si o no.");
+    await sendWhatsAppText(from, "📝 ¿Es tu primera vez con nosotros? Responde si o no.");
     return;
   }
 
   if (!session.paymentType) {
     sessions.set(from, { ...session, step: "collectingPaymentType" });
-    await sendWhatsAppText(from, "¿Tu consulta es particular o por parte de alguna red medica/aseguradora?");
+    await sendWhatsAppText(from, "💳 ¿Tu consulta es particular o por parte de alguna red medica/aseguradora?");
     return;
   }
 
@@ -238,7 +245,7 @@ async function handleIncomingText(from, text) {
 
   if (!session.preferredDateText) {
     sessions.set(from, session);
-    await sendWhatsAppText(from, `Gracias, ${session.name}. ¿Que dia te gustaria la cita?`);
+    await sendWhatsAppText(from, `📅 Gracias, ${session.name}. ¿Que dia te gustaria la cita?`);
     return;
   }
 
@@ -253,7 +260,7 @@ async function offerAvailableSlots(from, session) {
     if (error.message?.includes("Missing Google Calendar")) {
       await sendWhatsAppText(
         from,
-        "Ya entendi tu solicitud, pero falta conectar Google Calendar para revisar horarios y agendar la cita."
+        "📅 Ya entendi tu solicitud, pero falta conectar Google Calendar para revisar horarios y agendar la cita."
       );
       return;
     }
@@ -261,7 +268,7 @@ async function offerAvailableSlots(from, session) {
   }
   if (slots.length === 0) {
     sessions.set(from, { ...session, preferredDateText: undefined });
-    await sendWhatsAppText(from, "No encontre horarios disponibles en esos dias. ¿Quieres que revise otra fecha?");
+    await sendWhatsAppText(from, "😕 No encontre horarios disponibles en esos dias. ¿Quieres que revise otra fecha?");
     return;
   }
 
@@ -273,10 +280,89 @@ async function offerAvailableSlots(from, session) {
 
   await sendWhatsAppText(
     from,
-    `Tengo estos horarios disponibles:\n${slots
+    `🕒 Tengo estos horarios disponibles:\n${slots
       .map((slot, index) => `${index + 1}. ${slot.label}`)
       .join("\n")}\n\nResponde con 1, 2 o 3 para confirmar.`
   );
+}
+
+function answerFaq(text) {
+  if (isLocationQuestion(text)) {
+    return "📍 Estamos ubicados en Plaza de la Paz #20, 2o. Piso, Consultorio 14, Guanajuato, Gto.";
+  }
+
+  if (isMorningQuestion(text)) {
+    return "🌙 No, solo atendemos por la tarde de 5:00 a 9:00 pm.";
+  }
+
+  if (isSaturdayQuestion(text)) {
+    return "📅 No, solo atendemos de lunes a viernes.";
+  }
+
+  if (isPriceQuestion(text)) {
+    return `💰 Consulta ${config.consultationPrice}\n🎁 Paquete de promocion ${config.promotionPrice}`;
+  }
+
+  if (isPromotionQuestion(text)) {
+    return "🎁 Si, aun contamos con la promocion.";
+  }
+
+  if (isCardQuestion(text)) {
+    return "💵 Por el momento no, solo efectivo o transferencia bancaria.";
+  }
+
+  if (isGeneralMenuQuestion(text)) {
+    return [
+      "😊 Te puedo ayudar con:",
+      "1. 📍 Ubicacion",
+      "2. 📅 Agendar una cita",
+      "3. 🕒 Horarios de atencion",
+      "4. 📆 Sabados",
+      "5. 💰 Costo de consulta",
+      "6. 🎁 Promocion",
+      "7. 💵 Formas de pago"
+    ].join("\n");
+  }
+
+  return undefined;
+}
+
+function isLocationQuestion(text) {
+  return /\b(?:ubicacion|ubicados|direccion|donde estan|donde se ubican|como llegar)\b/.test(text);
+}
+
+function isMorningQuestion(text) {
+  return /\b(?:manana|mañana|temprano|matutino)\b/.test(text) && /\b(?:consulta|atienden|horario|cita)\b/.test(text);
+}
+
+function isSaturdayQuestion(text) {
+  return /\b(?:sabado|sabados|sábado|sábados|fin de semana)\b/.test(text);
+}
+
+function isPriceQuestion(text) {
+  return /\b(?:cuanto cuesta|costo|precio|costos|precios|vale|cuanto es|cuanto cobran)\b/.test(text);
+}
+
+function isPromotionQuestion(text) {
+  return /\b(?:promocion|paquete|promo)\b/.test(text);
+}
+
+function isCardQuestion(text) {
+  return /\b(?:tarjeta|credito|crédito|debito|débito|pago con tarjeta)\b/.test(text);
+}
+
+function isGeneralMenuQuestion(text) {
+  return /\b(?:info|informacion|información|dudas|preguntas|opciones|jotas)\b/.test(text);
+}
+
+function normalizeText(value) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[¿?¡!,.;:]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function alreadyProcessed(messageId) {
