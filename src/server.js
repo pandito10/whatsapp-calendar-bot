@@ -9,6 +9,8 @@ import { sendWhatsAppText } from "./whatsapp.js";
 const sessions = new Map();
 const processedMessages = new Map();
 const processedMessageTtlMs = 24 * 60 * 60 * 1000;
+const conversations = new Map();
+const maxMessagesPerConversation = 100;
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -33,6 +35,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && url.pathname === "/debug/config") {
       handleDebugConfig(url, res);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/inbox") {
+      handleInbox(url, res);
       return;
     }
 
@@ -115,6 +122,190 @@ function handleDebugConfig(url, res) {
     );
 }
 
+function handleInbox(url, res) {
+  if (url.searchParams.get("token") !== config.whatsappVerifyToken) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const selectedPhone = url.searchParams.get("phone");
+  const list = [...conversations.values()].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  const selected = selectedPhone ? conversations.get(selectedPhone) : list[0];
+
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderInboxPage(list, selected, url.searchParams.get("token")));
+}
+
+function renderInboxPage(list, selected, token) {
+  const conversationLinks =
+    list.length === 0
+      ? `<div class="empty">Todavia no hay conversaciones.</div>`
+      : list
+          .map((conversation) => {
+            const last = conversation.messages.at(-1);
+            const active = selected?.phoneNumber === conversation.phoneNumber ? " active" : "";
+            return `<a class="thread${active}" href="/inbox?token=${encodeURIComponent(token)}&phone=${encodeURIComponent(
+              conversation.phoneNumber
+            )}">
+              <strong>${escapeHtml(conversation.phoneNumber)}</strong>
+              <span>${formatInboxDate(conversation.updatedAt)}</span>
+              <p>${escapeHtml(last?.body ?? "")}</p>
+            </a>`;
+          })
+          .join("");
+
+  const messages = selected
+    ? selected.messages
+        .map((message) => {
+          const side = message.sender === "bot" ? "bot" : "patient";
+          const label = message.sender === "bot" ? "Bot" : "Paciente";
+          return `<div class="message ${side}">
+            <div class="bubble">
+              <div class="meta">${label} · ${formatInboxDate(message.timestamp)}</div>
+              <div class="body">${escapeHtml(message.body).replaceAll("\n", "<br>")}</div>
+            </div>
+          </div>`;
+        })
+        .join("")
+    : `<div class="empty chat-empty">Selecciona una conversacion para verla aqui.</div>`;
+
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="20">
+  <title>Inbox del bot</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f7fb;
+      color: #172033;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    header {
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      border-bottom: 1px solid #d9e0ec;
+      background: #ffffff;
+    }
+    h1 { font-size: 18px; margin: 0; }
+    .status { color: #526070; font-size: 13px; }
+    main {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      min-height: calc(100vh - 64px);
+    }
+    aside {
+      border-right: 1px solid #d9e0ec;
+      background: #ffffff;
+      overflow: auto;
+    }
+    .thread {
+      display: block;
+      padding: 14px 16px;
+      color: inherit;
+      text-decoration: none;
+      border-bottom: 1px solid #edf1f6;
+    }
+    .thread.active { background: #eaf3ff; }
+    .thread strong { display: block; font-size: 14px; margin-bottom: 3px; }
+    .thread span { color: #66758a; font-size: 12px; }
+    .thread p {
+      color: #526070;
+      font-size: 13px;
+      line-height: 1.35;
+      margin: 7px 0 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .chat {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .chat-title {
+      padding: 18px 24px;
+      background: #ffffff;
+      border-bottom: 1px solid #d9e0ec;
+    }
+    .chat-title strong { display: block; font-size: 16px; }
+    .chat-title span { color: #66758a; font-size: 13px; }
+    .messages {
+      padding: 24px;
+      overflow: auto;
+    }
+    .message {
+      display: flex;
+      margin-bottom: 14px;
+    }
+    .message.bot { justify-content: flex-end; }
+    .bubble {
+      max-width: min(720px, 86%);
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: #ffffff;
+      box-shadow: 0 1px 2px rgba(23, 32, 51, 0.08);
+      line-height: 1.45;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+    .bot .bubble {
+      background: #dff4e8;
+    }
+    .meta {
+      color: #66758a;
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+    .body { font-size: 14px; }
+    .empty {
+      color: #66758a;
+      padding: 18px;
+      font-size: 14px;
+    }
+    .chat-empty { margin: 24px; }
+    @media (max-width: 780px) {
+      main { grid-template-columns: 1fr; }
+      aside { max-height: 34vh; border-right: 0; border-bottom: 1px solid #d9e0ec; }
+      header { padding: 0 16px; }
+      .messages { padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Inbox del bot</h1>
+    <div class="status">${list.length} conversaciones · actualiza cada 20s</div>
+  </header>
+  <main>
+    <aside>${conversationLinks}</aside>
+    <section class="chat">
+      <div class="chat-title">
+        <strong>${selected ? escapeHtml(selected.phoneNumber) : "Sin conversacion seleccionada"}</strong>
+        <span>${selected ? `Ultima actividad: ${formatInboxDate(selected.updatedAt)}` : "Cuando llegue un mensaje aparecera aqui."}</span>
+      </div>
+      <div class="messages">${messages}</div>
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
+function formatInboxDate(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("es-MX", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: config.clinicTimezone
+  }).format(new Date(value));
+}
+
 function hashShort(value) {
   return crypto.createHash("sha256").update(value).digest("hex").slice(0, 12);
 }
@@ -141,6 +332,7 @@ async function handleIncomingText(from, text) {
   console.log(`Incoming WhatsApp from ${from}: ${text}`);
   const lower = text.trim().toLowerCase();
   const normalized = normalizeText(text);
+  recordConversationMessage(from, "patient", text);
   await notifyIncomingPatientMessage(from, text);
 
   if (isResetCommand(normalized)) {
@@ -331,6 +523,7 @@ async function handleMenuOption(from, text) {
 
 async function replyToPatient(to, body) {
   await sendWhatsAppText(to, body);
+  recordConversationMessage(to, "bot", body);
   await notifyBotReply(to, body);
 }
 
@@ -352,6 +545,27 @@ async function notifyBotReply(to, body) {
 
 function shouldForwardConversation(phoneNumber) {
   return config.forwardConversationCopies && phoneNumber !== config.doctorWhatsappNumber;
+}
+
+function recordConversationMessage(phoneNumber, sender, body) {
+  if (phoneNumber === config.doctorWhatsappNumber) return;
+
+  const existing = conversations.get(phoneNumber) ?? {
+    phoneNumber,
+    updatedAt: undefined,
+    messages: []
+  };
+
+  const message = {
+    sender,
+    body,
+    timestamp: new Date().toISOString()
+  };
+
+  existing.messages.push(message);
+  existing.messages = existing.messages.slice(-maxMessagesPerConversation);
+  existing.updatedAt = message.timestamp;
+  conversations.set(phoneNumber, existing);
 }
 
 function answerFaq(text) {
