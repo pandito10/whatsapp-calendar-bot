@@ -19,4 +19,6 @@ export async function sendWhatsAppText(to, body) {
   if (!response.ok) {
     throw new Error(`WhatsApp send failed to ${to}: ${response.status} ${await response.text()}`);
   }
+
+  console.log(`WhatsApp sent to ${to}`);
 }

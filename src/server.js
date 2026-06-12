@@ -140,7 +140,7 @@ async function handleIncomingText(from, text) {
   console.log(`Incoming WhatsApp from ${from}: ${text}`);
   const lower = text.trim().toLowerCase();
 
-  if (from === config.doctorWhatsappNumber && lower.includes("agenda")) {
+  if (from === config.doctorWhatsappNumber && /^(?:agenda|mi agenda|ver agenda)$/.test(lower)) {
     await sendWhatsAppText(from, "Por ahora te aviso cada cita nueva por aqui. El resumen diario lo agregamos en la siguiente version.");
     return;
   }
