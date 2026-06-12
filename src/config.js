@@ -28,7 +28,7 @@ export const config = {
   whatsappAppSecret: process.env.WHATSAPP_APP_SECRET,
   webhookPathSecret: process.env.WEBHOOK_PATH_SECRET,
   requireWebhookSignature: process.env.REQUIRE_WEBHOOK_SIGNATURE !== "false",
-  allowUnsignedWebhooks: process.env.ALLOW_UNSIGNED_WEBHOOKS === "true",
+  allowUnsignedWebhooks: process.env.ALLOW_UNSIGNED_WEBHOOKS === "true" || process.env.REQUIRE_WEBHOOK_SIGNATURE === "false",
   unsignedWebhookExpiresAt: process.env.UNSIGNED_WEBHOOK_EXPIRES_AT,
   doctorWhatsappNumber: process.env.DOCTOR_WHATSAPP_NUMBER,
   inboxPassword: process.env.INBOX_PASSWORD,
