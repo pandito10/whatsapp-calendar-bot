@@ -36,9 +36,11 @@ services:
         value: Consultorio Ginecologico
       - key: APPOINTMENT_MINUTES
         value: 40
+      - key: MAX_OFFERED_SLOTS
+        value: 6
       - key: WORK_DAYS
         value: 1,2,3,4,5
       - key: WORK_START
-        value: 17:00
+        value: 16:00
       - key: WORK_END
-        value: 21:00
+        value: 20:00

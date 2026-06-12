@@ -103,6 +103,7 @@ function handleDebugConfig(url, res) {
         calendarId: config.googleCalendarId,
         clinicTimezone: config.clinicTimezone,
         appointmentMinutes: config.appointmentMinutes,
+        maxOfferedSlots: config.maxOfferedSlots,
         workStart: config.workStart,
         workEnd: config.workEnd,
         whatsappTokenLength: config.whatsappAccessToken?.length ?? 0,
@@ -282,7 +283,7 @@ async function offerAvailableSlots(from, session) {
     from,
     `🕒 Tengo estos horarios disponibles:\n${slots
       .map((slot, index) => `${index + 1}. ${slot.label}`)
-      .join("\n")}\n\nResponde con 1, 2 o 3 para confirmar.`
+      .join("\n")}\n\nResponde con el numero del horario que prefieras para confirmar. Si ninguno te acomoda, dime otra fecha.`
   );
 }
 

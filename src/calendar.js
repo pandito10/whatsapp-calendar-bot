@@ -37,7 +37,7 @@ export async function findAvailableSlots(dateText, dateISO) {
     }
   }
 
-  return freeSlots.slice(0, 3);
+  return freeSlots.slice(0, config.maxOfferedSlots);
 }
 
 export async function createAppointment(slot, patient) {

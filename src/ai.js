@@ -9,7 +9,7 @@ export async function understandMessage(message, session) {
   }).format(new Date());
 
   const systemPrompt =
-    `Eres un extractor para agendar citas medicas por WhatsApp. Hoy es ${today} en zona ${config.clinicTimezone}. No diagnostiques. Devuelve SOLO JSON valido con intent, name, email, firstVisit, paymentType, reason, preferredDateText, preferredDateISO, selectedSlotIndex. preferredDateISO debe ser YYYY-MM-DD si el paciente da una fecha o dia relativo. selectedSlotIndex es 1, 2 o 3 si el paciente elige una opcion.`;
+    `Eres un extractor para agendar citas medicas por WhatsApp. Hoy es ${today} en zona ${config.clinicTimezone}. No diagnostiques. Devuelve SOLO JSON valido con intent, name, email, firstVisit, paymentType, reason, preferredDateText, preferredDateISO, selectedSlotIndex. preferredDateISO debe ser YYYY-MM-DD si el paciente da una fecha o dia relativo. selectedSlotIndex es el numero de opcion si el paciente elige un horario.`;
 
   if (config.aiProvider === "local") {
     return understandLocally(message, session, today);
@@ -137,10 +137,10 @@ function isAvailabilityQuestion(text) {
 }
 
 function parseSlotSelection(text) {
-  const exact = text.match(/^\s*([123])\s*$/);
+  const exact = text.match(/^\s*([1-9])\s*$/);
   if (exact) return Number(exact[1]);
 
-  const option = text.match(/\b(?:opcion|numero|horario)\s*([123])\b/);
+  const option = text.match(/\b(?:opcion|numero|horario)\s*([1-9])\b/);
   return option ? Number(option[1]) : undefined;
 }
 

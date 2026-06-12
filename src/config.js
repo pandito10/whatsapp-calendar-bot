@@ -45,6 +45,7 @@ export const config = {
   consultationPrice: process.env.CONSULTATION_PRICE ?? "1000",
   promotionPrice: process.env.PROMOTION_PRICE ?? "1200",
   appointmentMinutes: Number(process.env.APPOINTMENT_MINUTES ?? 45),
+  maxOfferedSlots: Number(process.env.MAX_OFFERED_SLOTS ?? 6),
   workDays: (process.env.WORK_DAYS ?? "1,2,3,4,5").split(",").map((day) => Number(day.trim())),
   workStart: process.env.WORK_START ?? "09:00",
   workEnd: process.env.WORK_END ?? "18:00"
