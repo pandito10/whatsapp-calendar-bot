@@ -1,4 +1,5 @@
 import http from "node:http";
+import crypto from "node:crypto";
 import { URL } from "node:url";
 import { understandMessage } from "./ai.js";
 import { createAppointment, findAvailableSlots } from "./calendar.js";
@@ -27,6 +28,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && url.pathname === "/health") {
       res.writeHead(200).end("ok");
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/debug/config") {
+      handleDebugConfig(url, res);
       return;
     }
 
@@ -81,6 +87,35 @@ function handleGoogleOAuthCallback(url, res) {
       <p>Después reinicia el bot.</p>
     </main>
   `);
+}
+
+function handleDebugConfig(url, res) {
+  if (url.searchParams.get("token") !== config.whatsappVerifyToken) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  res
+    .writeHead(200, { "Content-Type": "application/json; charset=utf-8" })
+    .end(
+      JSON.stringify({
+        aiProvider: config.aiProvider,
+        calendarId: config.googleCalendarId,
+        clinicTimezone: config.clinicTimezone,
+        appointmentMinutes: config.appointmentMinutes,
+        workStart: config.workStart,
+        workEnd: config.workEnd,
+        whatsappTokenLength: config.whatsappAccessToken?.length ?? 0,
+        whatsappTokenSha12: hashShort(config.whatsappAccessToken ?? ""),
+        whatsappPhoneNumberId: config.whatsappPhoneNumberId,
+        whatsappBusinessAccountId: config.whatsappBusinessAccountId,
+        doctorWhatsappNumber: config.doctorWhatsappNumber
+      })
+    );
+}
+
+function hashShort(value) {
+  return crypto.createHash("sha256").update(value).digest("hex").slice(0, 12);
 }
 
 async function handleWhatsAppWebhook(body) {
