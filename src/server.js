@@ -4,6 +4,7 @@ import { URL } from "node:url";
 import { understandMessage } from "./ai.js";
 import { createAppointment, findAvailableSlots } from "./calendar.js";
 import { config } from "./config.js";
+import { isDatabaseEnabled, loadConversations, saveConversationMessage } from "./db.js";
 import { sendWhatsAppText } from "./whatsapp.js";
 
 const sessions = new Map();
@@ -39,7 +40,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/inbox") {
-      handleInbox(url, res);
+      await handleInbox(url, res);
       return;
     }
 
@@ -117,22 +118,40 @@ function handleDebugConfig(url, res) {
         whatsappTokenSha12: hashShort(config.whatsappAccessToken ?? ""),
         whatsappPhoneNumberId: config.whatsappPhoneNumberId,
         whatsappBusinessAccountId: config.whatsappBusinessAccountId,
-        doctorWhatsappNumber: config.doctorWhatsappNumber
+        doctorWhatsappNumber: config.doctorWhatsappNumber,
+        databaseEnabled: isDatabaseEnabled()
       })
     );
 }
 
-function handleInbox(url, res) {
+async function handleInbox(url, res) {
   if (url.searchParams.get("token") !== config.whatsappVerifyToken) {
     res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
     return;
   }
 
   const selectedPhone = url.searchParams.get("phone");
-  const list = [...conversations.values()].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  const list = await getInboxConversations();
   const selected = selectedPhone ? conversations.get(selectedPhone) : list[0];
 
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderInboxPage(list, selected, url.searchParams.get("token")));
+}
+
+async function getInboxConversations() {
+  if (isDatabaseEnabled()) {
+    try {
+      const savedConversations = await loadConversations();
+      if (savedConversations) {
+        conversations.clear();
+        for (const conversation of savedConversations) conversations.set(conversation.phoneNumber, conversation);
+        return savedConversations;
+      }
+    } catch (error) {
+      console.warn("Could not load conversations from Supabase; using memory fallback:", error.message);
+    }
+  }
+
+  return [...conversations.values()].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
 
 function renderInboxPage(list, selected, token) {
@@ -529,7 +548,7 @@ async function handleIncomingText(from, text) {
   console.log(`Incoming WhatsApp from ${from}: ${text}`);
   const lower = text.trim().toLowerCase();
   const normalized = normalizeText(text);
-  recordConversationMessage(from, "patient", text);
+  await recordConversationMessage(from, "patient", text);
   await notifyIncomingPatientMessage(from, text);
 
   if (isResetCommand(normalized)) {
@@ -720,7 +739,7 @@ async function handleMenuOption(from, text) {
 
 async function replyToPatient(to, body) {
   await sendWhatsAppText(to, body);
-  recordConversationMessage(to, "bot", body);
+  await recordConversationMessage(to, "bot", body);
   await notifyBotReply(to, body);
 }
 
@@ -744,7 +763,7 @@ function shouldForwardConversation(phoneNumber) {
   return config.forwardConversationCopies && phoneNumber !== config.doctorWhatsappNumber;
 }
 
-function recordConversationMessage(phoneNumber, sender, body) {
+async function recordConversationMessage(phoneNumber, sender, body) {
   if (phoneNumber === config.doctorWhatsappNumber) return;
 
   const existing = conversations.get(phoneNumber) ?? {
@@ -763,6 +782,13 @@ function recordConversationMessage(phoneNumber, sender, body) {
   existing.messages = existing.messages.slice(-maxMessagesPerConversation);
   existing.updatedAt = message.timestamp;
   conversations.set(phoneNumber, existing);
+
+  if (!isDatabaseEnabled()) return;
+  try {
+    await saveConversationMessage(phoneNumber, sender, body);
+  } catch (error) {
+    console.warn("Could not save conversation to Supabase:", error.message);
+  }
 }
 
 function answerFaq(text) {

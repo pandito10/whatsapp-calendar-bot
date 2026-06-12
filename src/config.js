@@ -24,6 +24,8 @@ export const config = {
   whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
   doctorWhatsappNumber: process.env.DOCTOR_WHATSAPP_NUMBER,
   forwardConversationCopies: process.env.FORWARD_CONVERSATION_COPIES !== "false",
+  supabaseUrl: process.env.SUPABASE_URL,
+  supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
   googleClientId: process.env.GOOGLE_CLIENT_ID,
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
   googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN,

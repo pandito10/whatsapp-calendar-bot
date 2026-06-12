@@ -126,6 +126,24 @@ Edita estas variables en `.env`:
 - `WORK_END`: hora de cierre.
 - `DOCTOR_WHATSAPP_NUMBER`: numero de tu tia con codigo de pais.
 
+## Guardar conversaciones en Supabase
+
+Sin base de datos, el inbox guarda conversaciones en memoria y se borra cuando Render reinicia. Para dejar historial permanente:
+
+1. Crea un proyecto en Supabase.
+2. Abre SQL Editor.
+3. Pega y ejecuta el contenido de `supabase/schema.sql`.
+4. En Render agrega estas variables:
+
+```text
+SUPABASE_URL=https://TU-PROYECTO.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=TU_SERVICE_ROLE_KEY
+```
+
+5. Redeploya el servicio.
+
+El bot seguira funcionando aunque Supabase falle; en ese caso usa memoria temporal como respaldo.
+
 ## Nota medica
 
 El bot no debe diagnosticar ni pedir informacion sensible innecesaria. Para urgencias, siempre debe indicar que el paciente contacte directamente al consultorio o acuda a urgencias.
