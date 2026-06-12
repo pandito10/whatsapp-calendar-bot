@@ -135,6 +135,9 @@ async function handleIncomingText(from, text) {
     from,
     step: existing?.step ?? "collecting",
     name: parsed.name ?? existing?.name,
+    email: parsed.email ?? existing?.email,
+    firstVisit: parsed.firstVisit ?? existing?.firstVisit,
+    paymentType: parsed.paymentType ?? existing?.paymentType,
     reason: parsed.reason ?? existing?.reason,
     preferredDateText: parsed.preferredDateText ?? existing?.preferredDateText,
     preferredDateISO: parsed.preferredDateISO ?? existing?.preferredDateISO,
@@ -144,16 +147,23 @@ async function handleIncomingText(from, text) {
   if (session.step === "choosingSlot" && parsed.selectedSlotIndex && session.offeredSlots?.[parsed.selectedSlotIndex - 1]) {
     const slot = session.offeredSlots[parsed.selectedSlotIndex - 1];
     const name = session.name ?? "Paciente";
-    await createAppointment(slot, name, session.reason);
+    await createAppointment(slot, {
+      name,
+      phone: from,
+      email: session.email,
+      firstVisit: session.firstVisit,
+      paymentType: session.paymentType,
+      reason: session.reason
+    });
     sessions.delete(from);
 
     await sendWhatsAppText(
       from,
-      `Listo, ${name}. Tu cita quedo agendada para ${slot.label}. Si tienes dolor intenso, sangrado abundante o una urgencia, por favor acude a urgencias o contacta directamente al consultorio.`
+      `Listo, ${name}. Tu cita quedo agendada para ${slot.label}.\n\nUbicacion: ${config.clinicAddress}${session.email ? "\n\nGoogle Calendar tambien enviara la confirmacion a tu correo." : ""}\n\nSi tienes dolor intenso, sangrado abundante o una urgencia, por favor acude a urgencias o contacta directamente al consultorio.`
     );
     await sendWhatsAppText(
       config.doctorWhatsappNumber,
-      `Nueva cita por WhatsApp:\nPaciente: ${name}\nFecha: ${slot.label}\nTelefono: ${from}${session.reason ? `\nMotivo: ${session.reason}` : ""}`
+      `Nueva cita por WhatsApp:\nPaciente: ${name}\nFecha: ${slot.label}\nTelefono: ${from}${session.email ? `\nCorreo: ${session.email}` : ""}${session.firstVisit ? `\nPrimera vez: ${session.firstVisit}` : ""}${session.paymentType ? `\nTipo: ${session.paymentType}` : ""}${session.reason ? `\nMotivo: ${session.reason}` : ""}`
     );
     return;
   }
@@ -161,6 +171,24 @@ async function handleIncomingText(from, text) {
   if (!session.name) {
     sessions.set(from, session);
     await sendWhatsAppText(from, "Claro, te ayudo a agendar. ¿Me compartes tu nombre completo?");
+    return;
+  }
+
+  if (!session.email) {
+    sessions.set(from, { ...session, step: "collectingEmail" });
+    await sendWhatsAppText(from, `Gracias, ${session.name}. ¿Me compartes tu correo electronico para enviarte la confirmacion de Google Calendar?`);
+    return;
+  }
+
+  if (!session.firstVisit) {
+    sessions.set(from, { ...session, step: "collectingFirstVisit" });
+    await sendWhatsAppText(from, "¿Es tu primera vez con nosotros? Responde si o no.");
+    return;
+  }
+
+  if (!session.paymentType) {
+    sessions.set(from, { ...session, step: "collectingPaymentType" });
+    await sendWhatsAppText(from, "¿Tu consulta es particular o por parte de alguna red medica/aseguradora?");
     return;
   }
 

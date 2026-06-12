@@ -39,6 +39,9 @@ export const config = {
   openaiModel: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
   clinicTimezone: process.env.CLINIC_TIMEZONE ?? "America/Mexico_City",
   clinicName: process.env.CLINIC_NAME ?? "Consultorio Ginecologico",
+  clinicAddress:
+    process.env.CLINIC_ADDRESS ??
+    "Edificio Plaza Mayor, Plaza de la Paz 20, 2o. Piso Consultorio 14, Col. Centro, Guanajuato, Gto.",
   appointmentMinutes: Number(process.env.APPOINTMENT_MINUTES ?? 45),
   workDays: (process.env.WORK_DAYS ?? "1,2,3,4,5").split(",").map((day) => Number(day.trim())),
   workStart: process.env.WORK_START ?? "09:00",

@@ -9,7 +9,7 @@ export async function understandMessage(message, session) {
   }).format(new Date());
 
   const systemPrompt =
-    `Eres un extractor para agendar citas medicas por WhatsApp. Hoy es ${today} en zona ${config.clinicTimezone}. No diagnostiques. Devuelve SOLO JSON valido con intent, name, reason, preferredDateText, preferredDateISO, selectedSlotIndex. preferredDateISO debe ser YYYY-MM-DD si el paciente da una fecha o dia relativo. selectedSlotIndex es 1, 2 o 3 si el paciente elige una opcion.`;
+    `Eres un extractor para agendar citas medicas por WhatsApp. Hoy es ${today} en zona ${config.clinicTimezone}. No diagnostiques. Devuelve SOLO JSON valido con intent, name, email, firstVisit, paymentType, reason, preferredDateText, preferredDateISO, selectedSlotIndex. preferredDateISO debe ser YYYY-MM-DD si el paciente da una fecha o dia relativo. selectedSlotIndex es 1, 2 o 3 si el paciente elige una opcion.`;
 
   if (config.aiProvider === "local") {
     return understandLocally(message, session, today);
@@ -113,11 +113,15 @@ function understandLocally(message, session, today) {
   const selectedSlotIndex = parseSlotSelection(text);
   const preferredDateISO = parseDate(text, today);
   const name = parseName(message, text, session);
+  const email = parseEmail(message);
   const wantsAvailability = isAvailabilityQuestion(text);
 
   return {
     intent: selectedSlotIndex ? "select_slot" : wantsAvailability ? "check_availability" : "book_appointment",
     name,
+    email,
+    firstVisit: parseFirstVisit(text, session),
+    paymentType: parsePaymentType(text, session),
     reason: parseReason(message, text, session),
     preferredDateText: preferredDateISO ? message : undefined,
     preferredDateISO,
@@ -150,6 +154,31 @@ function parseName(original, normalized, session) {
     return cleanName(original);
   }
 
+  return undefined;
+}
+
+function parseEmail(value) {
+  const match = value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match ? match[0].toLowerCase() : undefined;
+}
+
+function parseFirstVisit(text, session) {
+  if (session?.firstVisit) return undefined;
+  if (/\b(?:primera vez|nuevo|nueva|nunca he ido|no he ido)\b/.test(text)) return "Si";
+  if (/\b(?:ya he ido|ya fui|subsecuente|seguimiento|no es primera)\b/.test(text)) return "No";
+  if (session?.step === "collectingFirstVisit") {
+    if (/\b(?:si|sí|primera)\b/.test(text)) return "Si";
+    if (/\b(?:no|ya)\b/.test(text)) return "No";
+  }
+  return undefined;
+}
+
+function parsePaymentType(text, session) {
+  if (session?.paymentType) return undefined;
+  if (/\b(?:particular|privado|efectivo|tarjeta)\b/.test(text)) return "Particular";
+  const network = text.match(/\b(?:seguro|aseguradora|red medica|red médica|gastos medicos|gastos médicos|axa|gnp|metlife|bupa|seguros monterrey|monterrey)\b/);
+  if (network) return cleanSentence(network[0]);
+  if (session?.step === "collectingPaymentType") return cleanSentence(text);
   return undefined;
 }
 

@@ -40,17 +40,36 @@ export async function findAvailableSlots(dateText, dateISO) {
   return freeSlots.slice(0, 3);
 }
 
-export async function createAppointment(slot, patientName, reason) {
+export async function createAppointment(slot, patient) {
   const calendarId = encodeURIComponent(config.googleCalendarId);
-  return googleRequest(`/calendar/v3/calendars/${calendarId}/events`, {
+  const details = buildPatientDetails(patient);
+  const attendees = patient.email ? [{ email: patient.email }] : undefined;
+
+  return googleRequest(`/calendar/v3/calendars/${calendarId}/events?sendUpdates=all`, {
     method: "POST",
     body: JSON.stringify({
-      summary: `Cita ginecologia - ${patientName}`,
-      description: reason ? `Motivo compartido por WhatsApp: ${reason}` : "Cita creada por WhatsApp",
+      summary: `Cita ginecologia - ${patient.name}`,
+      description: details,
+      location: config.clinicAddress,
       start: { dateTime: slot.start, timeZone: config.clinicTimezone },
-      end: { dateTime: slot.end, timeZone: config.clinicTimezone }
+      end: { dateTime: slot.end, timeZone: config.clinicTimezone },
+      attendees
     })
   });
+}
+
+function buildPatientDetails(patient) {
+  return [
+    "Cita creada por WhatsApp",
+    `Paciente: ${patient.name}`,
+    patient.phone ? `Telefono: ${patient.phone}` : undefined,
+    patient.email ? `Correo: ${patient.email}` : undefined,
+    patient.firstVisit ? `Primera vez: ${patient.firstVisit}` : undefined,
+    patient.paymentType ? `Tipo de consulta: ${patient.paymentType}` : undefined,
+    patient.reason ? `Motivo compartido: ${patient.reason}` : undefined
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function buildWorkWindows(startDate) {
