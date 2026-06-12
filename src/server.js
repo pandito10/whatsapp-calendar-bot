@@ -138,7 +138,7 @@ function handleInbox(url, res) {
 function renderInboxPage(list, selected, token) {
   const conversationLinks =
     list.length === 0
-      ? `<div class="empty">Todavia no hay conversaciones.</div>`
+      ? `<div class="empty-state">Todavia no hay conversaciones.</div>`
       : list
           .map((conversation) => {
             const last = conversation.messages.at(-1);
@@ -146,9 +146,14 @@ function renderInboxPage(list, selected, token) {
             return `<a class="thread${active}" href="/inbox?token=${encodeURIComponent(token)}&phone=${encodeURIComponent(
               conversation.phoneNumber
             )}">
-              <strong>${escapeHtml(conversation.phoneNumber)}</strong>
-              <span>${formatInboxDate(conversation.updatedAt)}</span>
-              <p>${escapeHtml(last?.body ?? "")}</p>
+              <div class="avatar">${escapeHtml(conversation.phoneNumber.slice(-2))}</div>
+              <div class="thread-copy">
+                <div class="thread-top">
+                  <strong>${escapeHtml(formatPhoneForInbox(conversation.phoneNumber))}</strong>
+                  <span>${formatInboxDate(conversation.updatedAt)}</span>
+                </div>
+                <p>${escapeHtml(last?.body ?? "")}</p>
+              </div>
             </a>`;
           })
           .join("");
@@ -166,7 +171,13 @@ function renderInboxPage(list, selected, token) {
           </div>`;
         })
         .join("")
-    : `<div class="empty chat-empty">Selecciona una conversacion para verla aqui.</div>`;
+    : `<div class="empty-chat">
+        <div class="empty-card">
+          <div class="empty-icon">💬</div>
+          <h2>Selecciona una conversacion</h2>
+          <p>Cuando llegue un mensaje, aqui veras la platica completa entre el paciente y el bot.</p>
+        </div>
+      </div>`;
 
   return `<!doctype html>
 <html lang="es">
@@ -179,47 +190,156 @@ function renderInboxPage(list, selected, token) {
     :root {
       color-scheme: light;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f5f7fb;
+      background: #eef3f8;
       color: #172033;
+      --line: #d9e2ec;
+      --muted: #66758a;
+      --brand: #0f766e;
+      --brand-dark: #115e59;
+      --surface: #ffffff;
+      --soft: #f6f9fc;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top left, rgba(15, 118, 110, 0.14), transparent 32rem),
+        linear-gradient(135deg, #f7fbff 0%, #edf3f8 100%);
+    }
     header {
-      height: 64px;
+      height: 72px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 24px;
-      border-bottom: 1px solid #d9e0ec;
-      background: #ffffff;
+      padding: 0 28px;
+      border-bottom: 1px solid rgba(217, 226, 236, 0.82);
+      background: rgba(255, 255, 255, 0.86);
+      backdrop-filter: blur(14px);
+      position: sticky;
+      top: 0;
+      z-index: 3;
     }
-    h1 { font-size: 18px; margin: 0; }
-    .status { color: #526070; font-size: 13px; }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      background: var(--brand);
+      color: #ffffff;
+      font-weight: 800;
+      box-shadow: 0 10px 24px rgba(15, 118, 110, 0.22);
+    }
+    h1 {
+      font-size: 18px;
+      margin: 0;
+      line-height: 1.1;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+    .status {
+      color: var(--brand-dark);
+      background: #dff4ef;
+      border: 1px solid #bce4dc;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 650;
+    }
     main {
       display: grid;
-      grid-template-columns: 340px 1fr;
-      min-height: calc(100vh - 64px);
+      grid-template-columns: minmax(300px, 360px) 1fr;
+      height: calc(100vh - 72px);
+      padding: 18px;
+      gap: 18px;
     }
     aside {
-      border-right: 1px solid #d9e0ec;
-      background: #ffffff;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.92);
       overflow: auto;
+      border-radius: 18px;
+      box-shadow: 0 16px 40px rgba(23, 32, 51, 0.08);
+    }
+    .sidebar-head {
+      padding: 18px 18px 12px;
+      border-bottom: 1px solid #edf1f6;
+    }
+    .sidebar-head strong {
+      display: block;
+      font-size: 14px;
+    }
+    .sidebar-head span {
+      color: var(--muted);
+      display: block;
+      font-size: 12px;
+      margin-top: 4px;
     }
     .thread {
-      display: block;
+      display: flex;
+      gap: 12px;
+      align-items: center;
       padding: 14px 16px;
       color: inherit;
       text-decoration: none;
       border-bottom: 1px solid #edf1f6;
+      transition: background 0.15s ease, transform 0.15s ease;
     }
-    .thread.active { background: #eaf3ff; }
-    .thread strong { display: block; font-size: 14px; margin-bottom: 3px; }
-    .thread span { color: #66758a; font-size: 12px; }
+    .thread:hover {
+      background: #f4faf8;
+    }
+    .thread.active {
+      background: #e5f5f0;
+      border-left: 4px solid var(--brand);
+      padding-left: 12px;
+    }
+    .avatar {
+      flex: 0 0 auto;
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #ffffff;
+      background: linear-gradient(135deg, #0f766e, #14b8a6);
+      font-weight: 800;
+      font-size: 13px;
+    }
+    .thread-copy {
+      min-width: 0;
+      flex: 1;
+    }
+    .thread-top {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .thread strong {
+      display: block;
+      font-size: 14px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .thread span {
+      color: var(--muted);
+      flex: 0 0 auto;
+      font-size: 11px;
+    }
     .thread p {
-      color: #526070;
+      color: var(--muted);
       font-size: 13px;
       line-height: 1.35;
-      margin: 7px 0 0;
+      margin: 5px 0 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -228,17 +348,40 @@ function renderInboxPage(list, selected, token) {
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.82);
+      border-radius: 18px;
+      box-shadow: 0 16px 40px rgba(23, 32, 51, 0.08);
     }
     .chat-title {
-      padding: 18px 24px;
-      background: #ffffff;
-      border-bottom: 1px solid #d9e0ec;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 22px;
+      background: rgba(255, 255, 255, 0.96);
+      border-bottom: 1px solid var(--line);
     }
     .chat-title strong { display: block; font-size: 16px; }
-    .chat-title span { color: #66758a; font-size: 13px; }
+    .chat-title span { color: var(--muted); font-size: 13px; }
+    .chip {
+      flex: 0 0 auto;
+      color: var(--brand-dark);
+      background: #e5f5f0;
+      border: 1px solid #bce4dc;
+      padding: 7px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
     .messages {
       padding: 24px;
       overflow: auto;
+      background:
+        linear-gradient(rgba(246, 249, 252, 0.86), rgba(246, 249, 252, 0.86)),
+        radial-gradient(circle, rgba(15, 118, 110, 0.08) 1px, transparent 1px);
+      background-size: auto, 18px 18px;
+      flex: 1;
     }
     .message {
       display: flex;
@@ -247,54 +390,108 @@ function renderInboxPage(list, selected, token) {
     .message.bot { justify-content: flex-end; }
     .bubble {
       max-width: min(720px, 86%);
-      padding: 12px 14px;
-      border-radius: 12px;
-      background: #ffffff;
-      box-shadow: 0 1px 2px rgba(23, 32, 51, 0.08);
+      padding: 11px 13px 10px;
+      border-radius: 16px 16px 16px 4px;
+      background: var(--surface);
+      box-shadow: 0 8px 22px rgba(23, 32, 51, 0.08);
       line-height: 1.45;
       white-space: normal;
       overflow-wrap: anywhere;
     }
     .bot .bubble {
-      background: #dff4e8;
+      background: #d9fdd3;
+      border-radius: 16px 16px 4px 16px;
     }
     .meta {
-      color: #66758a;
+      color: var(--muted);
       font-size: 12px;
       margin-bottom: 6px;
     }
     .body { font-size: 14px; }
-    .empty {
-      color: #66758a;
+    .empty-state {
+      color: var(--muted);
+      margin: 18px;
       padding: 18px;
+      border-radius: 14px;
+      background: var(--soft);
       font-size: 14px;
     }
-    .chat-empty { margin: 24px; }
+    .empty-chat {
+      display: grid;
+      place-items: center;
+      flex: 1;
+      padding: 24px;
+    }
+    .empty-card {
+      max-width: 360px;
+      text-align: center;
+      padding: 28px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.76);
+      border: 1px solid var(--line);
+    }
+    .empty-icon { font-size: 38px; margin-bottom: 8px; }
+    .empty-card h2 { font-size: 18px; margin: 0 0 8px; }
+    .empty-card p {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+      margin: 0;
+    }
     @media (max-width: 780px) {
-      main { grid-template-columns: 1fr; }
-      aside { max-height: 34vh; border-right: 0; border-bottom: 1px solid #d9e0ec; }
-      header { padding: 0 16px; }
+      header { padding: 0 16px; height: auto; min-height: 72px; gap: 12px; }
+      .status { display: none; }
+      main { grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 72px); padding: 12px; }
+      aside { max-height: 34vh; }
       .messages { padding: 16px; }
+      .chat { min-height: 58vh; }
+      .bubble { max-width: 92%; }
     }
   </style>
 </head>
 <body>
   <header>
-    <h1>Inbox del bot</h1>
+    <div class="brand">
+      <div class="brand-mark">WA</div>
+      <div>
+        <h1>Inbox del bot</h1>
+        <div class="subtitle">Conversaciones del consultorio</div>
+      </div>
+    </div>
     <div class="status">${list.length} conversaciones · actualiza cada 20s</div>
   </header>
   <main>
-    <aside>${conversationLinks}</aside>
+    <aside>
+      <div class="sidebar-head">
+        <strong>Pacientes</strong>
+        <span>Ultimos mensajes recibidos</span>
+      </div>
+      ${conversationLinks}
+    </aside>
     <section class="chat">
       <div class="chat-title">
-        <strong>${selected ? escapeHtml(selected.phoneNumber) : "Sin conversacion seleccionada"}</strong>
-        <span>${selected ? `Ultima actividad: ${formatInboxDate(selected.updatedAt)}` : "Cuando llegue un mensaje aparecera aqui."}</span>
+        <div>
+          <strong>${selected ? escapeHtml(formatPhoneForInbox(selected.phoneNumber)) : "Sin conversacion seleccionada"}</strong>
+          <span>${selected ? `Ultima actividad: ${formatInboxDate(selected.updatedAt)}` : "Cuando llegue un mensaje aparecera aqui."}</span>
+        </div>
+        ${selected ? `<div class="chip">${selected.messages.length} mensajes</div>` : ""}
       </div>
       <div class="messages">${messages}</div>
     </section>
   </main>
 </body>
 </html>`;
+}
+
+function formatPhoneForInbox(phoneNumber) {
+  if (!phoneNumber) return "";
+  if (phoneNumber.startsWith("521") && phoneNumber.length === 13) {
+    return `+52 ${phoneNumber.slice(3, 6)} ${phoneNumber.slice(6, 9)} ${phoneNumber.slice(9)}`;
+  }
+  if (phoneNumber.startsWith("52") && phoneNumber.length === 12) {
+    return `+52 ${phoneNumber.slice(2, 5)} ${phoneNumber.slice(5, 8)} ${phoneNumber.slice(8)}`;
+  }
+  return phoneNumber;
 }
 
 function formatInboxDate(value) {
