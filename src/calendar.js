@@ -40,6 +40,21 @@ export async function findAvailableSlots(dateText, dateISO) {
   return freeSlots.slice(0, config.maxOfferedSlots);
 }
 
+export async function isSlotAvailable(slot) {
+  const busy = await googleRequest("/calendar/v3/freeBusy", {
+    method: "POST",
+    body: JSON.stringify({
+      timeMin: slot.start,
+      timeMax: slot.end,
+      timeZone: config.clinicTimezone,
+      items: [{ id: config.googleCalendarId }]
+    })
+  });
+
+  const busyRanges = busy.calendars?.[config.googleCalendarId]?.busy ?? [];
+  return busyRanges.length === 0;
+}
+
 export async function createAppointment(slot, patient) {
   const calendarId = encodeURIComponent(config.googleCalendarId);
   const details = buildPatientDetails(patient);

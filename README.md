@@ -43,6 +43,24 @@ El inbox y `/debug/config` usan una credencial separada:
 INBOX_PASSWORD=una-clave-distinta-al-verify-token
 ```
 
+Para entrar al inbox abre:
+
+```text
+https://TU-DOMINIO/inbox
+```
+
+El sistema mostrara una pantalla de login y guardara una sesion segura en cookie `HttpOnly`.
+El link viejo con `?token=...` solo debe usarse para entrar una vez; despues redirige sin dejar el token visible en la URL.
+
+## Seguridad recomendada
+
+- Configura `INBOX_PASSWORD` con una clave larga y diferente al verify token de Meta.
+- Configura `WHATSAPP_APP_SECRET` desde Meta Developers.
+- Cuando `WHATSAPP_APP_SECRET` ya este funcionando, cambia `REQUIRE_WEBHOOK_SIGNATURE=true` en Render para bloquear webhooks sin firma valida.
+- No pongas `SUPABASE_SERVICE_ROLE_KEY`, tokens de Meta ni secretos de Google en frontend o capturas publicas.
+- El servidor limita requests por minuto, rechaza cuerpos grandes y agrega headers basicos de seguridad.
+- Para datos medicos/personales, comparte acceso al inbox solo con personal autorizado.
+
 ## IA gratis para empezar
 
 El bot puede funcionar sin pagar IA usando:
@@ -132,6 +150,15 @@ Edita estas variables en `.env`:
 - `WORK_END`: hora de cierre.
 - `DOCTOR_WHATSAPP_NUMBER`: numero de tu tia con codigo de pais.
 
+Defaults actuales del consultorio:
+
+```text
+APPOINTMENT_MINUTES=40
+WORK_DAYS=1,2,3,4,5
+WORK_START=16:40
+WORK_END=20:00
+```
+
 ## Guardar conversaciones en Supabase
 
 Sin base de datos, el inbox guarda conversaciones en memoria y se borra cuando Render reinicia. Para dejar historial permanente:
@@ -149,6 +176,8 @@ SUPABASE_SERVICE_ROLE_KEY=TU_SERVICE_ROLE_KEY
 5. Redeploya el servicio.
 
 El bot seguira funcionando aunque Supabase falle; en ese caso usa memoria temporal como respaldo.
+
+El schema tambien agrega un indice unico para evitar dos citas confirmadas con el mismo `slot_start`.
 
 ## Nota medica
 

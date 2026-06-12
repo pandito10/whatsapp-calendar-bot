@@ -17,15 +17,21 @@ for (const key of required) {
 }
 
 export const config = {
+  nodeEnv: process.env.NODE_ENV ?? "development",
   port: Number(process.env.PORT ?? 3000),
   publicBaseUrl: process.env.PUBLIC_BASE_URL,
   whatsappVerifyToken: process.env.WHATSAPP_VERIFY_TOKEN,
   whatsappAccessToken: process.env.WHATSAPP_ACCESS_TOKEN,
   whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
   whatsappAppSecret: process.env.WHATSAPP_APP_SECRET,
+  requireWebhookSignature: process.env.REQUIRE_WEBHOOK_SIGNATURE === "true",
   doctorWhatsappNumber: process.env.DOCTOR_WHATSAPP_NUMBER,
   inboxPassword: process.env.INBOX_PASSWORD,
-  forwardConversationCopies: process.env.FORWARD_CONVERSATION_COPIES !== "false",
+  inboxSessionHours: Number(process.env.INBOX_SESSION_HOURS ?? 8),
+  maxRequestBytes: Number(process.env.MAX_REQUEST_BYTES ?? 256_000),
+  webhookRateLimitPerMinute: Number(process.env.WEBHOOK_RATE_LIMIT_PER_MINUTE ?? 120),
+  inboxRateLimitPerMinute: Number(process.env.INBOX_RATE_LIMIT_PER_MINUTE ?? 60),
+  forwardConversationCopies: process.env.FORWARD_CONVERSATION_COPIES === "true",
   supabaseUrl: process.env.SUPABASE_URL,
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
   googleClientId: process.env.GOOGLE_CLIENT_ID,
@@ -44,16 +50,14 @@ export const config = {
   openaiModel: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
   clinicTimezone: process.env.CLINIC_TIMEZONE ?? "America/Mexico_City",
   clinicName: process.env.CLINIC_NAME ?? "Consultorio Ginecologico",
-  clinicAddress:
-    process.env.CLINIC_ADDRESS ??
-    "Edificio Plaza Mayor, Plaza de la Paz 20, 2o. Piso Consultorio 14, Col. Centro, Guanajuato, Gto.",
+  clinicAddress: process.env.CLINIC_ADDRESS ?? "",
   consultationPrice: process.env.CONSULTATION_PRICE ?? "1000",
   promotionPrice: process.env.PROMOTION_PRICE ?? "1200",
-  appointmentMinutes: Number(process.env.APPOINTMENT_MINUTES ?? 45),
+  appointmentMinutes: Number(process.env.APPOINTMENT_MINUTES ?? 40),
   maxOfferedSlots: Number(process.env.MAX_OFFERED_SLOTS ?? 6),
   workDays: (process.env.WORK_DAYS ?? "1,2,3,4,5").split(",").map((day) => Number(day.trim())),
-  workStart: process.env.WORK_START ?? "09:00",
-  workEnd: process.env.WORK_END ?? "18:00"
+  workStart: process.env.WORK_START ?? "16:40",
+  workEnd: process.env.WORK_END ?? "20:00"
 };
 
 export function requireEnv(keys, serviceName) {

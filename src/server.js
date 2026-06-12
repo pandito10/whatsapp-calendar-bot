@@ -2,7 +2,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { URL } from "node:url";
 import { understandMessage } from "./ai.js";
-import { createAppointment, findAvailableSlots } from "./calendar.js";
+import { createAppointment, findAvailableSlots, isSlotAvailable } from "./calendar.js";
 import { config } from "./config.js";
 import {
   deleteSession,
@@ -20,11 +20,18 @@ const processedMessages = new Map();
 const processedMessageTtlMs = 24 * 60 * 60 * 1000;
 const conversations = new Map();
 const maxMessagesPerConversation = 100;
+const rateLimitBuckets = new Map();
 let appSecretWarningShown = false;
 
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
+    setSecurityHeaders(res);
+
+    if (!checkRateLimit(req, url)) {
+      res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8" }).end("too many requests");
+      return;
+    }
 
     if (req.method === "GET" && url.pathname === "/webhook") {
       handleWebhookVerification(url, res);
@@ -38,7 +45,13 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const body = JSON.parse(rawBody.toString("utf8"));
+      let body;
+      try {
+        body = JSON.parse(rawBody.toString("utf8"));
+      } catch {
+        res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" }).end("invalid json");
+        return;
+      }
       res.writeHead(200).end("ok");
       await handleWhatsAppWebhook(body);
       return;
@@ -50,12 +63,28 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/debug/config") {
-      handleDebugConfig(url, res);
+      handleDebugConfig(req, url, res);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/inbox/login") {
+      handleInboxLoginPage(res);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/inbox/login") {
+      await handleInboxLogin(req, res);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/inbox/logout") {
+      clearInboxCookie(res);
+      res.writeHead(303, { Location: "/inbox/login" }).end();
       return;
     }
 
     if (req.method === "GET" && url.pathname === "/inbox") {
-      await handleInbox(url, res);
+      await handleInbox(req, url, res);
       return;
     }
 
@@ -66,8 +95,11 @@ const server = http.createServer(async (req, res) => {
 
     res.writeHead(404).end("not found");
   } catch (error) {
-    console.error(error);
-    if (!res.headersSent) res.writeHead(500).end("server error");
+    logSafeError("Unhandled server error", error);
+    if (!res.headersSent) {
+      const status = error.message?.startsWith("Request body too large") ? 413 : 500;
+      res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" }).end(status === 413 ? "payload too large" : "server error");
+    }
   }
 });
 
@@ -112,8 +144,8 @@ function handleGoogleOAuthCallback(url, res) {
   `);
 }
 
-function handleDebugConfig(url, res) {
-  if (!hasInboxAccess(url, res)) {
+function handleDebugConfig(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) {
     return;
   }
 
@@ -138,8 +170,8 @@ function handleDebugConfig(url, res) {
     );
 }
 
-async function handleInbox(url, res) {
-  if (!hasInboxAccess(url, res)) {
+async function handleInbox(req, url, res) {
+  if (!hasInboxAccess(req, url, res, { redirectToLogin: true })) {
     return;
   }
 
@@ -147,10 +179,10 @@ async function handleInbox(url, res) {
   const list = await getInboxConversations();
   const selected = selectedPhone ? conversations.get(selectedPhone) : list[0];
 
-  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderInboxPage(list, selected, url.searchParams.get("token")));
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderInboxPage(list, selected));
 }
 
-function hasInboxAccess(url, res) {
+function hasInboxAccess(req, url, res, options = {}) {
   if (!config.inboxPassword) {
     res
       .writeHead(403, { "Content-Type": "text/plain; charset=utf-8" })
@@ -158,12 +190,143 @@ function hasInboxAccess(url, res) {
     return false;
   }
 
-  if (url.searchParams.get("token") !== config.inboxPassword) {
-    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+  const session = getInboxSession(req);
+  if (session) return true;
+
+  const token = url.searchParams.get("token");
+  if (token && secureCompare(token, config.inboxPassword)) {
+    setInboxCookie(res);
+    url.searchParams.delete("token");
+    res.writeHead(303, { Location: `${url.pathname}${url.search || ""}` }).end();
     return false;
   }
 
-  return true;
+  const auth = req.headers.authorization;
+  if (auth?.startsWith("Bearer ") && secureCompare(auth.slice("Bearer ".length), config.inboxPassword)) {
+    return true;
+  }
+
+  if (options.redirectToLogin) {
+    res.writeHead(303, { Location: "/inbox/login" }).end();
+    return false;
+  }
+
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return false;
+}
+
+function handleInboxLoginPage(res, error = "") {
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(`<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entrar al inbox</title>
+  <style>
+    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172033; background: #eef3f8; }
+    * { box-sizing: border-box; }
+    body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: linear-gradient(135deg, #f7fbff, #edf3f8); }
+    main { width: min(420px, 100%); background: white; border: 1px solid #d9e2ec; border-radius: 14px; padding: 28px; box-shadow: 0 16px 40px rgba(23, 32, 51, 0.1); }
+    h1 { margin: 0 0 8px; font-size: 22px; }
+    p { margin: 0 0 20px; color: #66758a; line-height: 1.45; }
+    label { display: block; font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+    input { width: 100%; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px; font: inherit; }
+    button { width: 100%; margin-top: 14px; border: 0; border-radius: 10px; padding: 12px; background: #0f766e; color: white; font: inherit; font-weight: 800; cursor: pointer; }
+    .error { margin-bottom: 14px; padding: 10px 12px; border-radius: 10px; color: #991b1b; background: #fee2e2; border: 1px solid #fecaca; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Inbox del bot</h1>
+    <p>Entra con la clave privada del consultorio.</p>
+    ${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}
+    <form method="post" action="/inbox/login">
+      <label for="password">Clave</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+      <button type="submit">Entrar</button>
+    </form>
+  </main>
+</body>
+</html>`);
+}
+
+async function handleInboxLogin(req, res) {
+  if (!config.inboxPassword) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("Configura INBOX_PASSWORD");
+    return;
+  }
+
+  const rawBody = await readRawBody(req);
+  const params = new URLSearchParams(rawBody.toString("utf8"));
+  const password = params.get("password") ?? "";
+  if (!secureCompare(password, config.inboxPassword)) {
+    handleInboxLoginPage(res, "Clave incorrecta.");
+    return;
+  }
+
+  setInboxCookie(res);
+  res.writeHead(303, { Location: "/inbox" }).end();
+}
+
+function setInboxCookie(res) {
+  const maxAge = Math.max(1, config.inboxSessionHours) * 60 * 60;
+  const cookie = [
+    `inbox_session=${createInboxSessionToken(maxAge)}`,
+    "HttpOnly",
+    "SameSite=Lax",
+    "Path=/",
+    `Max-Age=${maxAge}`
+  ];
+  if (config.nodeEnv === "production") cookie.push("Secure");
+  res.setHeader("Set-Cookie", cookie.join("; "));
+}
+
+function clearInboxCookie(res) {
+  res.setHeader("Set-Cookie", "inbox_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
+}
+
+function getInboxSession(req) {
+  const token = parseCookies(req.headers.cookie ?? "").inbox_session;
+  if (!token || !config.inboxPassword) return null;
+
+  const [payloadPart, signature] = token.split(".");
+  if (!payloadPart || !signature) return null;
+
+  const expected = crypto.createHmac("sha256", config.inboxPassword).update(payloadPart).digest("base64url");
+  if (!secureCompare(signature, expected)) return null;
+
+  try {
+    const payload = JSON.parse(Buffer.from(payloadPart, "base64url").toString("utf8"));
+    if (!payload.exp || Date.now() > payload.exp) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function createInboxSessionToken(maxAgeSeconds) {
+  const payloadPart = Buffer.from(
+    JSON.stringify({
+      exp: Date.now() + maxAgeSeconds * 1000,
+      nonce: crypto.randomBytes(12).toString("hex")
+    })
+  ).toString("base64url");
+  const signature = crypto.createHmac("sha256", config.inboxPassword).update(payloadPart).digest("base64url");
+  return `${payloadPart}.${signature}`;
+}
+
+function parseCookies(cookieHeader) {
+  return Object.fromEntries(
+    cookieHeader
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const equals = part.indexOf("=");
+        if (equals === -1) return [part, ""];
+        return [part.slice(0, equals), decodeURIComponent(part.slice(equals + 1))];
+      })
+  );
 }
 
 async function getInboxConversations() {
@@ -183,7 +346,7 @@ async function getInboxConversations() {
   return [...conversations.values()].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
 
-function renderInboxPage(list, selected, token) {
+function renderInboxPage(list, selected) {
   const conversationLinks =
     list.length === 0
       ? `<div class="empty-state">Todavia no hay conversaciones.</div>`
@@ -191,9 +354,7 @@ function renderInboxPage(list, selected, token) {
           .map((conversation) => {
             const last = conversation.messages.at(-1);
             const active = selected?.phoneNumber === conversation.phoneNumber ? " active" : "";
-            return `<a class="thread${active}" href="/inbox?token=${encodeURIComponent(token)}&phone=${encodeURIComponent(
-              conversation.phoneNumber
-            )}">
+            return `<a class="thread${active}" href="/inbox?phone=${encodeURIComponent(conversation.phoneNumber)}">
               <div class="avatar">${escapeHtml(conversation.phoneNumber.slice(-2))}</div>
               <div class="thread-copy">
                 <div class="thread-top">
@@ -506,7 +667,7 @@ function renderInboxPage(list, selected, token) {
         <div class="subtitle">Conversaciones del consultorio</div>
       </div>
     </div>
-    <div class="status">${list.length} conversaciones · actualiza cada 20s</div>
+    <div class="status">${list.length} conversaciones · actualiza cada 20s · <a href="/inbox/logout">salir</a></div>
   </header>
   <main>
     <aside>
@@ -564,7 +725,7 @@ async function handleWhatsAppWebhook(body) {
     try {
       await handleIncomingText(message.from, message.text.body);
     } catch (error) {
-      console.error(`Failed handling WhatsApp message ${message.id ?? "without-id"} from ${message.from}:`, error);
+      logSafeError(`Failed handling WhatsApp message ${message.id ?? "without-id"} from ${message.from}`, error);
       await safeSendWhatsAppText(
         message.from,
         "🙏 Perdon, tuve un problema revisando la agenda. Por favor intenta de nuevo en un momento o escribe directamente al consultorio."
@@ -639,6 +800,22 @@ async function handleIncomingText(from, text) {
   if (session.step === "choosingSlot" && parsed.selectedSlotIndex && session.offeredSlots?.[parsed.selectedSlotIndex - 1]) {
     const slot = session.offeredSlots[parsed.selectedSlotIndex - 1];
     const name = session.name ?? "Paciente";
+    const stillAvailable = await isSlotAvailable(slot);
+    if (!stillAvailable) {
+      await setPatientSession(from, {
+        ...session,
+        step: "collecting",
+        preferredDateText: undefined,
+        preferredDateISO: undefined,
+        offeredSlots: undefined
+      });
+      await replyToPatient(
+        from,
+        "😕 Ese horario se acaba de ocupar. Dime que dia te gustaria revisar y te paso nuevos horarios disponibles."
+      );
+      return;
+    }
+
     const event = await createAppointment(slot, {
       name,
       phone: from,
@@ -652,7 +829,7 @@ async function handleIncomingText(from, text) {
 
     await replyToPatient(
       from,
-      `✅ Listo, ${name}. Tu cita quedo agendada para ${slot.label}.\n\n📍 Ubicacion: ${config.clinicAddress}${session.email ? "\n\n📩 Google Calendar tambien enviara la confirmacion a tu correo." : ""}\n\n⚠️ Si tienes dolor intenso, sangrado abundante o una urgencia, por favor acude a urgencias o contacta directamente al consultorio.`
+      `✅ Listo, ${name}. Tu cita quedo agendada para ${slot.label}.${config.clinicAddress ? `\n\n📍 Ubicacion: ${config.clinicAddress}` : ""}${session.email ? "\n\n📩 Google Calendar tambien enviara la confirmacion a tu correo." : ""}\n\n⚠️ Si tienes dolor intenso, sangrado abundante o una urgencia, por favor acude a urgencias o contacta directamente al consultorio.`
     );
     await sendWhatsAppText(
       config.doctorWhatsappNumber,
@@ -998,7 +1175,7 @@ async function safeSendWhatsAppText(to, body) {
   try {
     await sendWhatsAppText(to, body);
   } catch (error) {
-    console.error(`Failed sending fallback WhatsApp message to ${to}:`, error);
+    logSafeError(`Failed sending fallback WhatsApp message to ${to}`, error);
   }
 }
 
@@ -1013,6 +1190,7 @@ function todayISO() {
 
 function isValidWebhookSignature(req, rawBody) {
   if (!config.whatsappAppSecret) {
+    if (config.requireWebhookSignature) return false;
     if (!appSecretWarningShown) {
       console.warn("WHATSAPP_APP_SECRET is not configured; skipping WhatsApp webhook signature validation.");
       appSecretWarningShown = true;
@@ -1035,12 +1213,83 @@ function isValidWebhookSignature(req, rawBody) {
 
 async function readRawBody(req) {
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > config.maxRequestBytes) {
+      throw new Error(`Request body too large: ${size} bytes`);
+    }
+    chunks.push(chunk);
+  }
   return Buffer.concat(chunks);
 }
 
+function setSecurityHeaders(res) {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; style-src 'unsafe-inline' 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+  );
+}
+
+function checkRateLimit(req, url) {
+  const now = Date.now();
+  const windowMs = 60_000;
+  const limit = url.pathname.startsWith("/inbox") || url.pathname.startsWith("/debug")
+    ? config.inboxRateLimitPerMinute
+    : config.webhookRateLimitPerMinute;
+  const key = `${getClientIp(req)}:${url.pathname}`;
+  const bucket = rateLimitBuckets.get(key) ?? { count: 0, resetAt: now + windowMs };
+
+  if (now > bucket.resetAt) {
+    bucket.count = 0;
+    bucket.resetAt = now + windowMs;
+  }
+
+  bucket.count += 1;
+  rateLimitBuckets.set(key, bucket);
+
+  for (const [bucketKey, value] of rateLimitBuckets) {
+    if (now > value.resetAt + windowMs) rateLimitBuckets.delete(bucketKey);
+  }
+
+  return bucket.count <= limit;
+}
+
+function getClientIp(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0].trim();
+  }
+  return req.socket.remoteAddress ?? "unknown";
+}
+
+function secureCompare(a, b) {
+  const left = Buffer.from(String(a));
+  const right = Buffer.from(String(b));
+  if (left.length !== right.length) return false;
+  return crypto.timingSafeEqual(left, right);
+}
+
+function logSafeError(message, error) {
+  console.error(message, {
+    name: error?.name,
+    message: redactSecrets(error?.message ?? String(error))
+  });
+}
+
+function redactSecrets(value) {
+  return String(value)
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer [redacted]")
+    .replace(/ya29\.[A-Za-z0-9._-]+/g, "ya29.[redacted]")
+    .replace(/(service_role|apikey|access_token|refresh_token|client_secret)([^A-Za-z0-9]+)[A-Za-z0-9._~+/=-]+/gi, "$1$2[redacted]");
+}
+
 function escapeHtml(value) {
-  return value
+  return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")

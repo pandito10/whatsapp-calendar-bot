@@ -41,3 +41,6 @@ create table if not exists public.citas (
 
 create index if not exists citas_phone_idx on public.citas (phone_number);
 create index if not exists citas_slot_start_idx on public.citas (slot_start);
+create unique index if not exists citas_confirmed_slot_start_unique_idx
+  on public.citas (slot_start)
+  where status = 'confirmed';

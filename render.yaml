@@ -20,10 +20,20 @@ services:
         sync: false
       - key: WHATSAPP_APP_SECRET
         sync: false
+      - key: REQUIRE_WEBHOOK_SIGNATURE
+        value: "false"
       - key: DOCTOR_WHATSAPP_NUMBER
         sync: false
       - key: INBOX_PASSWORD
         sync: false
+      - key: INBOX_SESSION_HOURS
+        value: "8"
+      - key: MAX_REQUEST_BYTES
+        value: "256000"
+      - key: WEBHOOK_RATE_LIMIT_PER_MINUTE
+        value: "120"
+      - key: INBOX_RATE_LIMIT_PER_MINUTE
+        value: "60"
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
