@@ -747,6 +747,12 @@ async function handleIncomingText(from, text) {
     return;
   }
 
+  if (isConversationClosing(normalized)) {
+    await deletePatientSession(from);
+    await replyToPatient(from, "😊 Con gusto. Si necesitas algo mas, aqui estoy para ayudarte.");
+    return;
+  }
+
   if (from === config.doctorWhatsappNumber && /^(?:agenda|mi agenda|ver agenda)$/.test(lower)) {
     await replyToPatient(from, "📅 Por ahora te aviso cada cita nueva por aqui. El resumen diario lo agregamos en la siguiente version.");
     return;
@@ -1122,6 +1128,10 @@ function isGreetingQuestion(text) {
 
 function isResetCommand(text) {
   return /^(?:menu|menú|cancelar|reiniciar|empezar de nuevo|volver al menu|volver al menú)$/.test(text);
+}
+
+function isConversationClosing(text) {
+  return /^(?:gracias|muchas gracias|ok gracias|okay gracias|listo gracias|perfecto gracias|esta bien gracias|sale gracias|va gracias|ya gracias|no gracias|por ahora no|seria todo|eso es todo|listo|ok|okay|va|sale|perfecto)$/.test(text);
 }
 
 function isMorningQuestion(text) {
