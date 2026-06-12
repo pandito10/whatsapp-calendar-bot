@@ -92,9 +92,42 @@ function buildWorkWindows(startDate) {
 
 function withTime(date, hhmm) {
   const [hours, minutes] = hhmm.split(":").map(Number);
-  const copy = new Date(date);
-  copy.setHours(hours, minutes, 0, 0);
-  return copy;
+  return zonedDateTimeToDate(date.getFullYear(), date.getMonth() + 1, date.getDate(), hours, minutes);
+}
+
+function zonedDateTimeToDate(year, month, day, hours, minutes) {
+  const utcGuess = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0, 0));
+  const zonedParts = getZonedParts(utcGuess);
+  const wantedLocalTime = Date.UTC(year, month - 1, day, hours, minutes, 0, 0);
+  const actualLocalTime = Date.UTC(
+    zonedParts.year,
+    zonedParts.month - 1,
+    zonedParts.day,
+    zonedParts.hour,
+    zonedParts.minute,
+    0,
+    0
+  );
+
+  return new Date(utcGuess.getTime() + wantedLocalTime - actualLocalTime);
+}
+
+function getZonedParts(date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: config.clinicTimezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+
+  return Object.fromEntries(
+    parts
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, Number(part.value)])
+  );
 }
 
 function formatSlot(date) {

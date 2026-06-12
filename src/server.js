@@ -148,6 +148,11 @@ async function handleIncomingText(from, text) {
   }
 
   const existing = sessions.get(from);
+  if (!existing) {
+    const menuHandled = await handleMenuOption(from, normalized);
+    if (menuHandled) return;
+  }
+
   const faqAnswer = answerFaq(normalized);
   if (faqAnswer && !existing) {
     await sendWhatsAppText(from, faqAnswer);
@@ -285,6 +290,36 @@ async function offerAvailableSlots(from, session) {
       .map((slot, index) => `${index + 1}. ${slot.label}`)
       .join("\n")}\n\nResponde con el numero del horario que prefieras para confirmar. Si ninguno te acomoda, dime otra fecha.`
   );
+}
+
+async function handleMenuOption(from, text) {
+  if (/^(?:1|agendar|agendar cita|quiero agendar|hacer cita|quiero hacer una cita|cita)$/.test(text)) {
+    sessions.set(from, { from, step: "collecting" });
+    await sendWhatsAppText(from, "😊 Claro, te ayudo a agendar. ¿Me compartes tu nombre completo?");
+    return true;
+  }
+
+  if (/^(?:2|horarios|ver horarios|horarios disponibles|que citas tienes|que citas tienes disponibles|citas disponibles)$/.test(text)) {
+    await sendWhatsAppText(from, "🕒 Claro. ¿Para que dia te gustaria revisar disponibilidad? Puedes decirme, por ejemplo: hoy, mañana, viernes o una fecha.");
+    return true;
+  }
+
+  if (/^(?:3|ubicacion)$/.test(text)) {
+    await sendWhatsAppText(from, answerFaq("ubicacion"));
+    return true;
+  }
+
+  if (/^(?:4|costos|costo|precios|promocion|promocion)$/.test(text)) {
+    await sendWhatsAppText(from, `${answerFaq("cuanto cuesta")}\n${answerFaq("promocion")}`);
+    return true;
+  }
+
+  if (/^(?:5|formas de pago|forma de pago|pago)$/.test(text)) {
+    await sendWhatsAppText(from, answerFaq("tarjeta"));
+    return true;
+  }
+
+  return false;
 }
 
 function answerFaq(text) {
