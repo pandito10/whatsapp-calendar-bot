@@ -32,6 +32,10 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.equal(login.status, 200);
     assert.match(html, /Inbox del bot/);
     assert.match(html, /Clave/);
+
+    const inboxScript = await fetch("http://127.0.0.1:32131/inbox.js");
+    assert.equal(inboxScript.status, 200);
+    assert.match(await inboxScript.text(), /scrollMessagesToBottom/);
   } finally {
     await app.stop();
   }

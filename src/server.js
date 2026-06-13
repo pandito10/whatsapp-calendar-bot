@@ -151,6 +151,11 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/inbox.js") {
+      handleInboxScript(res);
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/inbox") {
       await handleInbox(req, url, res);
       return;
@@ -390,6 +395,21 @@ async function handleInbox(req, url, res) {
   const knowledgeSuggestions = await loadKnowledgeSuggestions("pending", 8);
 
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderInboxPage(list, selected, req, url, knowledgeSuggestions));
+}
+
+function handleInboxScript(res) {
+  res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8" }).end(`(() => {
+  function scrollMessagesToBottom() {
+    const messages = document.querySelector(".messages");
+    if (!messages) return;
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  window.addEventListener("DOMContentLoaded", scrollMessagesToBottom);
+  window.addEventListener("load", scrollMessagesToBottom);
+  window.addEventListener("pageshow", scrollMessagesToBottom);
+  setTimeout(scrollMessagesToBottom, 80);
+})();`);
 }
 
 async function handleInboxSend(req, url, res) {
@@ -817,6 +837,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="refresh" content="20">
   <title>Inbox del bot</title>
+  <script src="/inbox.js" defer></script>
   <style>
     :root {
       color-scheme: light;
