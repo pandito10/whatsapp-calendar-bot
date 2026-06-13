@@ -119,11 +119,11 @@ function understandLocally(message, session, today) {
   const preferredDateISO = parseDate(text, today);
   const name = parseName(message, text, session);
   const email = parseEmail(message);
-  const wantsAvailability = isAvailabilityQuestion(text);
+  const wantsAvailability = isAvailabilityQuestion(text) || Boolean(preferredDateISO);
   const detectedIntent = detectLocalIntent(text);
 
   return {
-    intent: selectedSlotIndex ? "select_slot" : wantsAvailability ? "check_availability" : detectedIntent,
+    intent: selectedSlotIndex ? "select_slot" : detectedIntent !== "fallback" ? detectedIntent : wantsAvailability ? "check_availability" : detectedIntent,
     name,
     email,
     firstVisit: parseFirstVisit(text, session),
@@ -259,6 +259,16 @@ function parseDate(text, todayISO) {
     return validDate(year, month, day, today);
   }
 
+  const monthDate = text.match(
+    /\b(\d{1,2})(?:\s+de)?\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)(?:\s+(?:de\s+)?(\d{2,4}))?\b/
+  );
+  if (monthDate) {
+    const day = Number(monthDate[1]);
+    const month = monthNumber(monthDate[2]);
+    const year = monthDate[3] ? normalizeYear(Number(monthDate[3])) : today.getFullYear();
+    return validDate(year, month, day, today);
+  }
+
   const weekday = [
     ["domingo", 0],
     ["lunes", 1],
@@ -328,6 +338,24 @@ function formatISODate(date) {
 
 function normalizeYear(year) {
   return year < 100 ? 2000 + year : year;
+}
+
+function monthNumber(month) {
+  return {
+    enero: 1,
+    febrero: 2,
+    marzo: 3,
+    abril: 4,
+    mayo: 5,
+    junio: 6,
+    julio: 7,
+    agosto: 8,
+    septiembre: 9,
+    setiembre: 9,
+    octubre: 10,
+    noviembre: 11,
+    diciembre: 12
+  }[month];
 }
 
 function validDate(year, month, day, today) {

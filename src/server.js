@@ -1578,13 +1578,14 @@ async function handleIncomingText(from, text) {
   }
 
   const existing = await getPatientSession(from);
-  if (!existing) {
+  const dateLikeRequest = looksLikeDateRequest(normalized);
+  if (!existing && !dateLikeRequest) {
     const menuHandled = await handleMenuOption(from, normalized, detectedIntent.intent);
     if (menuHandled) return;
   }
 
   const faqAnswer = getIntentResponse(detectedIntent.intent) ?? answerFaq(normalized);
-  if (faqAnswer && !existing) {
+  if (faqAnswer && !existing && !dateLikeRequest) {
     await replyToPatient(from, faqAnswer);
     return;
   }
@@ -1629,7 +1630,8 @@ async function handleIncomingText(from, text) {
     preferredDateISO: parsed.preferredDateISO ?? existing?.preferredDateISO,
     offeredSlots: existing?.offeredSlots,
     rescheduleFromCitaId: existing?.rescheduleFromCitaId,
-    rescheduleFromGoogleEventId: existing?.rescheduleFromGoogleEventId
+    rescheduleFromGoogleEventId: existing?.rescheduleFromGoogleEventId,
+    availabilityOnly: existing?.availabilityOnly ?? (!existing && parsed.intent === "check_availability")
   };
 
   if (session.step === "choosingSlot" && parsed.selectedSlotIndex) {
@@ -1708,6 +1710,11 @@ async function handleIncomingText(from, text) {
     }
   }
 
+  if (session.availabilityOnly && session.preferredDateText) {
+    await offerAvailableSlots(from, session, { allowSelection: false });
+    return;
+  }
+
   if (!session.name) {
     await setPatientSession(from, session);
     await replyToPatient(from, "😊 Claro, te ayudo a agendar. ¿Me compartes tu nombre completo?");
@@ -1750,7 +1757,8 @@ async function handleIncomingText(from, text) {
   await offerAvailableSlots(from, session);
 }
 
-async function offerAvailableSlots(from, session) {
+async function offerAvailableSlots(from, session, options = {}) {
+  const allowSelection = options.allowSelection !== false;
   let slots;
   try {
     slots = await findAvailableSlots(session.preferredDateText, session.preferredDateISO);
@@ -1770,17 +1778,21 @@ async function offerAvailableSlots(from, session) {
     return;
   }
 
-  await setPatientSession(from, {
+  await setPatientSession(from, allowSelection ? {
     ...session,
     step: "choosingSlot",
     offeredSlots: slots
+  } : {
+    ...session,
+    step: "collectingDateOnly",
+    offeredSlots: undefined
   });
 
   await replyToPatient(
     from,
     `🕒 Tengo estos horarios disponibles:\n${slots
       .map((slot, index) => `${index + 1}. ${slot.label}`)
-      .join("\n")}\n\nResponde con el numero del horario que prefieras para confirmar. Si ninguno te acomoda, dime otra fecha.`
+      .join("\n")}\n\n${allowSelection ? "Responde con el numero del horario que prefieras para confirmar. Si ninguno te acomoda, dime otra fecha." : "Si alguno te acomoda, escribe \"quiero agendar\" y te ayudo a apartarlo. Si no, dime otra fecha."}`
   );
 }
 
@@ -1819,6 +1831,7 @@ async function handleMenuOption(from, text, intent = detectIntent(text).intent) 
   }
 
   if (/^2$/.test(text) || intent === "check_availability") {
+    await setPatientSession(from, { from, step: "collectingDateOnly", availabilityOnly: true });
     await replyToPatient(from, getIntentResponse("check_availability"));
     return true;
   }
@@ -2271,7 +2284,8 @@ function isAvailabilityIntent(text) {
       "hay espacio",
       "tienen citas"
     ]) ||
-    /\b(?:hay|tienes|tienen)\s+(?:lugar|espacio|cita|horario|disponible)\b/.test(text)
+    /\b(?:hay|tienes|tienen)\s+(?:lugar|espacio|cita|horario|disponible)\b/.test(text) ||
+    looksLikeDateRequest(text)
   );
 }
 
@@ -2308,7 +2322,14 @@ function meaningfulWords(text) {
 }
 
 function isAppointmentLikeQuestion(text) {
-  return /\b(?:cita|agendar|agenda|horario|disponible|disponibilidad|cancelar|reagendar)\b/.test(text);
+  return /\b(?:cita|agendar|agenda|horario|disponible|disponibilidad|cancelar|reagendar)\b/.test(text) || looksLikeDateRequest(text);
+}
+
+function looksLikeDateRequest(text) {
+  return (
+    /\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/.test(text) ||
+    /\b\d{1,2}(?:\s+de)?\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)(?:\s+(?:de\s+)?\d{2,4})?\b/.test(text)
+  );
 }
 
 function isLocationQuestion(text) {

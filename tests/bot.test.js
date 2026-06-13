@@ -27,6 +27,18 @@ test("parser local detecta seleccion de horario", async () => {
   assert.equal(result.selectedSlotIndex, 2);
 });
 
+test("parser local entiende fechas con mes escrito", async () => {
+  const result = await understandMessage("25 de octubre", { step: "collectingDateOnly", availabilityOnly: true });
+  assert.equal(result.intent, "check_availability");
+  assert.equal(result.preferredDateISO, "2026-10-25");
+});
+
+test("parser local entiende fecha con mes dentro de una pregunta", async () => {
+  const result = await understandMessage("tienes cita el 25 de octubre?", undefined);
+  assert.equal(result.intent, "check_availability");
+  assert.equal(result.preferredDateISO, "2026-10-25");
+});
+
 test("valida horario dentro de reglas del consultorio", () => {
   assert.equal(
     isSlotWithinClinicRules({ start: "2030-06-17T22:40:00.000Z", end: "2030-06-17T23:20:00.000Z" }),
