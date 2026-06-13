@@ -50,10 +50,16 @@ export const config = {
     inboxSendRateLimitPerMinute: Number(process.env.INBOX_SEND_RATE_LIMIT_PER_MINUTE ?? 20),
     inboxActionRateLimitPerMinute: Number(process.env.INBOX_ACTION_RATE_LIMIT_PER_MINUTE ?? 30),
     inboxLoginRateLimitPer15Minutes: Number(process.env.INBOX_LOGIN_RATE_LIMIT_PER_15_MINUTES ?? 5),
+    inboxAllowLegacyTokenAccess: process.env.INBOX_ALLOW_LEGACY_TOKEN_ACCESS === "true",
+    externalRequestTimeoutMs: Number(process.env.EXTERNAL_REQUEST_TIMEOUT_MS ?? 8000),
+    externalRequestRetries: Number(process.env.EXTERNAL_REQUEST_RETRIES ?? 2),
     botPauseTimeoutMinutes: Number(process.env.BOT_PAUSE_TIMEOUT_MINUTES ?? 120),
     enableReminderWorker: process.env.ENABLE_REMINDER_WORKER !== "false",
+    requireDatabaseForAppointments: process.env.REQUIRE_DB_FOR_APPOINTMENTS === "true" || process.env.NODE_ENV === "production",
+    appointmentLockMinutes: Number(process.env.APPOINTMENT_LOCK_MINUTES ?? 10),
     reminderWorkerIntervalMs: Number(process.env.REMINDER_WORKER_INTERVAL_MS ?? 60_000),
     forwardConversationCopies: process.env.FORWARD_CONVERSATION_COPIES === "true",
+    forwardConversationBodies: process.env.FORWARD_CONVERSATION_BODIES === "true",
     supabaseUrl: process.env.SUPABASE_URL,
     supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
     googleClientId: process.env.GOOGLE_CLIENT_ID,
@@ -74,6 +80,11 @@ export const config = {
     clinicName: process.env.CLINIC_NAME ?? "Consultorio Ginecologico",
     clinicAddress: process.env.CLINIC_ADDRESS ?? "",
     consultationPrice: process.env.CONSULTATION_PRICE ?? "1000",
+    includeSensitiveAppointmentNotes: process.env.INCLUDE_SENSITIVE_APPOINTMENT_NOTES === "true",
+    maskPatientPhoneInCalendar: process.env.MASK_PATIENT_PHONE_IN_CALENDAR !== "false",
+    includePatientContactInCalendar:
+          process.env.INCLUDE_PATIENT_CONTACT_IN_CALENDAR === "true" &&
+          process.env.MASK_PATIENT_PHONE_IN_CALENDAR === "false",
     promotionPrice: process.env.PROMOTION_PRICE ?? "1200",
     appointmentMinutes: Number(process.env.APPOINTMENT_DURATION_MINUTES ?? process.env.APPOINTMENT_MINUTES ?? 40),
     maxOfferedSlots: Number(process.env.MAX_OFFERED_SLOTS ?? 6),
@@ -81,6 +92,82 @@ export const config = {
     workStart: process.env.CLINIC_START_TIME ?? process.env.WORK_START ?? "16:40",
     workEnd: process.env.CLINIC_END_TIME ?? process.env.WORK_END ?? "20:00"
 };
+
+validateStartupConfig();
+
+function validateStartupConfig() {
+    if (config.nodeEnv === "production") {
+          if (config.requireWebhookSignature && !config.whatsappAppSecret && !config.allowUnsignedWebhooks) {
+                throw new Error("WHATSAPP_APP_SECRET is required in production when REQUIRE_WEBHOOK_SIGNATURE=true");
+          }
+          if (config.requireDatabaseForAppointments && (!config.supabaseUrl || !config.supabaseServiceRoleKey)) {
+                throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in production when REQUIRE_DB_FOR_APPOINTMENTS=true");
+          }
+    }
+
+    if (config.appointmentMinutes <= 0 || config.appointmentMinutes > 240) {
+          throw new Error("APPOINTMENT_DURATION_MINUTES must be between 1 and 240");
+    }
+
+    if (config.maxOfferedSlots <= 0 || config.maxOfferedSlots > 20) {
+          throw new Error("MAX_OFFERED_SLOTS must be between 1 and 20");
+    }
+
+    if (!Array.isArray(config.workDays) || config.workDays.length === 0 || config.workDays.some((day) => !Number.isInteger(day) || day < 0 || day > 6)) {
+          throw new Error("CLINIC_WORK_DAYS must contain weekday numbers from 0 to 6");
+    }
+
+    const start = parseMinutes(config.workStart, "CLINIC_START_TIME");
+    const end = parseMinutes(config.workEnd, "CLINIC_END_TIME");
+    if (start >= end) {
+          throw new Error("CLINIC_START_TIME must be earlier than CLINIC_END_TIME");
+    }
+
+    if (config.externalRequestTimeoutMs < 1000 || config.externalRequestTimeoutMs > 30000) {
+          throw new Error("EXTERNAL_REQUEST_TIMEOUT_MS must be between 1000 and 30000");
+    }
+
+    if (config.externalRequestRetries < 0 || config.externalRequestRetries > 5) {
+          throw new Error("EXTERNAL_REQUEST_RETRIES must be between 0 and 5");
+    }
+
+    validatePositiveInteger(config.port, "PORT", 1, 65535);
+    validatePositiveInteger(config.maxRequestBytes, "MAX_REQUEST_BYTES", 10_000, 2_000_000);
+    validatePositiveInteger(config.webhookRateLimitPerMinute, "WEBHOOK_RATE_LIMIT_PER_MINUTE", 1, 10_000);
+    validatePositiveInteger(config.webhookPhoneRateLimitPerMinute, "WEBHOOK_PHONE_RATE_LIMIT_PER_MINUTE", 1, 1_000);
+    validatePositiveInteger(config.inboxRateLimitPerMinute, "INBOX_RATE_LIMIT_PER_MINUTE", 1, 10_000);
+    validatePositiveInteger(config.inboxSendRateLimitPerMinute, "INBOX_SEND_RATE_LIMIT_PER_MINUTE", 1, 1_000);
+    validatePositiveInteger(config.inboxActionRateLimitPerMinute, "INBOX_ACTION_RATE_LIMIT_PER_MINUTE", 1, 1_000);
+    validatePositiveInteger(config.inboxLoginRateLimitPer15Minutes, "INBOX_LOGIN_RATE_LIMIT_PER_15_MINUTES", 1, 100);
+    validatePositiveInteger(config.inboxSessionHours, "INBOX_SESSION_HOURS", 1, 168);
+    validatePositiveInteger(config.appointmentLockMinutes, "APPOINTMENT_LOCK_MINUTES", 1, 60);
+    validatePositiveInteger(config.reminderWorkerIntervalMs, "REMINDER_WORKER_INTERVAL_MS", 10_000, 3_600_000);
+
+    if (!/^\d{10,15}$/.test(String(config.doctorWhatsappNumber ?? "").replace(/\D/g, ""))) {
+          throw new Error("DOCTOR_WHATSAPP_NUMBER must be a WhatsApp phone number with country code");
+    }
+
+    if (config.nodeEnv === "production" && config.forwardConversationCopies && config.forwardConversationBodies) {
+          throw new Error("FORWARD_CONVERSATION_BODIES=true is not allowed in production because it can leak patient data");
+    }
+}
+
+function validatePositiveInteger(value, key, min, max) {
+    if (!Number.isInteger(value) || value < min || value > max) {
+          throw new Error(`${key} must be an integer between ${min} and ${max}`);
+    }
+}
+
+function parseMinutes(value, key) {
+    if (!/^\d{2}:\d{2}$/.test(String(value))) {
+          throw new Error(`${key} must use HH:mm format`);
+    }
+    const [hour, minute] = String(value).split(":").map(Number);
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+          throw new Error(`${key} must be a valid time`);
+    }
+    return hour * 60 + minute;
+}
 
 export function requireEnv(keys, serviceName) {
     const missing = keys.filter((key) => !process.env[key]);

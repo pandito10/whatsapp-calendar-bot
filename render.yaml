@@ -27,7 +27,7 @@ services:
       - key: REQUIRE_WEBHOOK_SIGNATURE
         value: "true"
       - key: ALLOW_UNSIGNED_WEBHOOKS
-        value: "true"
+        value: "false"
       - key: UNSIGNED_WEBHOOK_EXPIRES_AT
         sync: false
       - key: WEBHOOK_PATH_SECRET
@@ -56,8 +56,18 @@ services:
         value: "30"
       - key: INBOX_LOGIN_RATE_LIMIT_PER_15_MINUTES
         value: "5"
+      - key: INBOX_ALLOW_LEGACY_TOKEN_ACCESS
+        value: "false"
+      - key: EXTERNAL_REQUEST_TIMEOUT_MS
+        value: "8000"
+      - key: EXTERNAL_REQUEST_RETRIES
+        value: "2"
       - key: ENABLE_REMINDER_WORKER
         value: "true"
+      - key: REQUIRE_DB_FOR_APPOINTMENTS
+        value: "true"
+      - key: APPOINTMENT_LOCK_MINUTES
+        value: "10"
       - key: REMINDER_WORKER_INTERVAL_MS
         value: "60000"
       - key: SUPABASE_URL
@@ -102,5 +112,15 @@ services:
         value: 1200
       - key: CLINIC_ADDRESS
         sync: false
+      - key: INCLUDE_SENSITIVE_APPOINTMENT_NOTES
+        value: "false"
+      - key: MASK_PATIENT_PHONE_IN_CALENDAR
+        value: "true"
+      - key: INCLUDE_PATIENT_CONTACT_IN_CALENDAR
+        value: "false"
       - key: BOT_PAUSE_TIMEOUT_MINUTES
         value: "120"
+      - key: FORWARD_CONVERSATION_COPIES
+        value: "false"
+      - key: FORWARD_CONVERSATION_BODIES
+        value: "false"

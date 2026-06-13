@@ -4,7 +4,19 @@ import { URL } from "node:url";
 import { understandMessage } from "./ai.js";
 import { cancelAppointment, createAppointment, findAvailableSlots, isSlotAvailable } from "./calendar.js";
 import { config } from "./config.js";
+import { redactSecrets } from "./http.js";
 import {
+  buildAdminAppointmentNotification,
+  buildManualReviewMessage,
+  buildPatientConfirmationMessage,
+  classifyAppointmentError,
+  validateSlotSelection
+} from "./appointments.js";
+import { buildOperationalHealth, isOperationallyUnhealthy } from "./health.js";
+import { verifyMetaSignature } from "./security.js";
+import {
+  acquireAppointmentLock,
+  checkDatabaseHealth,
   cancelCita,
   cleanupProcessedWhatsAppMessages,
   deleteSession,
@@ -17,6 +29,7 @@ import {
   markReminderFailed,
   markReminderSent,
   markConversationHumanReply,
+  releaseAppointmentLock,
   rememberProcessedWhatsAppMessage,
   loadKnowledgeSuggestions,
   reviewKnowledgeSuggestion,
@@ -36,6 +49,7 @@ const conversations = new Map();
 const maxMessagesPerConversation = 100;
 const rateLimitBuckets = new Map();
 let appSecretWarningShown = false;
+let isShuttingDown = false;
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -97,7 +111,13 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/health") {
-      res.writeHead(200).end("ok");
+      await handleHealth(req, res);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/health/live") {
+      const status = isShuttingDown ? 503 : 200;
+      res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" }).end(JSON.stringify({ app: isShuttingDown ? "shutting_down" : "ok", time: new Date().toISOString() }));
       return;
     }
 
@@ -168,6 +188,26 @@ server.listen(config.port, () => {
   startReminderWorker();
 });
 
+process.once("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.once("SIGINT", () => gracefulShutdown("SIGINT"));
+
+function gracefulShutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`Received ${signal}; closing HTTP server gracefully.`);
+  server.close((error) => {
+    if (error) {
+      logSafeError("Error during graceful shutdown", error);
+      process.exitCode = 1;
+    }
+    process.exit();
+  });
+  setTimeout(() => {
+    console.error("Forced shutdown after timeout.");
+    process.exit(1);
+  }, 10_000).unref?.();
+}
+
 function warnAboutSecurityMode() {
   if (config.webhookPathSecret && config.webhookPathSecret.length < 24) {
     const message = "WEBHOOK_PATH_SECRET should be at least 24 characters.";
@@ -191,6 +231,10 @@ function warnAboutSecurityMode() {
 
   if (!config.inboxPasswordHash && (!config.inboxPassword || config.inboxPassword.length < 16)) {
     console.warn("WARNING: INBOX_PASSWORD is missing or weak. Use INBOX_PASSWORD_HASH or a strong password in production.");
+  }
+
+  if (config.inboxAllowLegacyTokenAccess) {
+    console.warn("WARNING: INBOX_ALLOW_LEGACY_TOKEN_ACCESS=true allows URL/Bearer password access. Keep it false in production.");
   }
 }
 
@@ -284,6 +328,20 @@ function validateWhatsAppPayload(body) {
 
   if (!hasProcessableChange) return { ok: true, noMessages: true };
   return { ok: true };
+}
+
+async function handleHealth(req, res) {
+  const db = await checkDatabaseHealth();
+  const health = buildOperationalHealth({
+    db,
+    conversationCount: conversations.size,
+    memorySessionCount: sessions.size,
+    processedMessageCount: processedMessages.size
+  });
+
+  res
+    .writeHead(isOperationallyUnhealthy(health) ? 503 : 200, { "Content-Type": "application/json; charset=utf-8" })
+    .end(JSON.stringify(health));
 }
 
 function handleDebugConfig(req, url, res) {
@@ -436,17 +494,19 @@ function hasInboxAccess(req, url, res, options = {}) {
   const session = getInboxSession(req);
   if (session) return true;
 
-  const token = url.searchParams.get("token");
-  if (token && isValidInboxPassword(token)) {
-    setInboxCookie(res);
-    url.searchParams.delete("token");
-    res.writeHead(303, { Location: `${url.pathname}${url.search || ""}` }).end();
-    return false;
-  }
+  if (config.inboxAllowLegacyTokenAccess) {
+    const token = url.searchParams.get("token");
+    if (token && isValidInboxPassword(token)) {
+      setInboxCookie(res);
+      url.searchParams.delete("token");
+      res.writeHead(303, { Location: `${url.pathname}${url.search || ""}` }).end();
+      return false;
+    }
 
-  const auth = req.headers.authorization;
-  if (auth?.startsWith("Bearer ") && isValidInboxPassword(auth.slice("Bearer ".length))) {
-    return true;
+    const auth = req.headers.authorization;
+    if (auth?.startsWith("Bearer ") && isValidInboxPassword(auth.slice("Bearer ".length))) {
+      return true;
+    }
   }
 
   if (options.redirectToLogin) {
@@ -594,7 +654,7 @@ async function getInboxConversations() {
         return savedConversations;
       }
     } catch (error) {
-      console.warn("Could not load conversations from Supabase; using memory fallback:", error.message);
+      logSafeError("Could not load conversations from Supabase; using memory fallback", error);
     }
   }
 
@@ -610,6 +670,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
     filteredList.unshift(selected);
   }
   const stats = buildInboxStats(filteredList);
+  const operationalStatus = renderOperationalStatusBadges();
   const selectedStatus = selected ? getConversationStatus(selected) : undefined;
   const selectedName = selected ? getConversationDisplayName(selected) : "";
   const appointmentCard = selected?.appointment ? renderAppointmentCard(selected.appointment) : "";
@@ -735,15 +796,26 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       margin-top: 4px;
     }
     .status {
-      color: var(--brand-dark);
-      background: #dff4ef;
-      border: 1px solid #bce4dc;
-      padding: 8px 12px;
-      border-radius: 999px;
-      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 12px;
       font-weight: 650;
     }
-    .status a { color: inherit; }
+    .status a { color: var(--brand-dark); }
+    .health-pill {
+      border-radius: 999px;
+      padding: 7px 10px;
+      border: 1px solid #d6e2ee;
+      background: #ffffff;
+      color: #334155;
+      box-shadow: 0 6px 14px rgba(15, 23, 42, 0.05);
+    }
+    .health-pill.ok { color: #166534; background: #dcfce7; border-color: #bbf7d0; }
+    .health-pill.warn { color: #92400e; background: #fef3c7; border-color: #fde68a; }
+    .health-pill.err { color: #991b1b; background: #fee2e2; border-color: #fecaca; }
     main {
       display: grid;
       grid-template-columns: minmax(300px, 360px) 1fr;
@@ -1138,7 +1210,13 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
         <div class="subtitle">Conversaciones del consultorio</div>
       </div>
     </div>
-    <div class="status">${list.length} conversaciones · ${stats.confirmed} citas · ${stats.followup} seguimiento · <a href="/inbox/logout">salir</a></div>
+    <div class="status">
+      <span class="health-pill ok">${list.length} conversaciones</span>
+      <span class="health-pill ok">${stats.confirmed} citas</span>
+      <span class="health-pill ${stats.followup > 0 ? "warn" : "ok"}">${stats.followup} seguimiento</span>
+      ${operationalStatus}
+      <a class="health-pill" href="/inbox/logout">salir</a>
+    </div>
   </header>
   <main>
     <aside>
@@ -1215,6 +1293,16 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
   </main>
 </body>
 </html>`;
+}
+
+function renderOperationalStatusBadges() {
+  const badges = [
+    { label: `DB ${isDatabaseEnabled() ? "ok" : "off"}`, className: isDatabaseEnabled() ? "ok" : "warn" },
+    { label: `Google ${config.googleClientId && config.googleClientSecret && config.googleRefreshToken ? "ok" : "cfg"}`, className: config.googleClientId && config.googleClientSecret && config.googleRefreshToken ? "ok" : "warn" },
+    { label: `Meta ${config.whatsappAppSecret && config.requireWebhookSignature && !config.allowUnsignedWebhooks ? "firmado" : "revisar"}`, className: config.whatsappAppSecret && config.requireWebhookSignature && !config.allowUnsignedWebhooks ? "ok" : "err" }
+  ];
+
+  return badges.map((badge) => `<span class="health-pill ${badge.className}">${escapeHtml(badge.label)}</span>`).join("");
 }
 
 function buildInboxStats(list) {
@@ -1539,53 +1627,80 @@ async function handleIncomingText(from, text) {
     rescheduleFromGoogleEventId: existing?.rescheduleFromGoogleEventId
   };
 
-  if (session.step === "choosingSlot" && parsed.selectedSlotIndex && session.offeredSlots?.[parsed.selectedSlotIndex - 1]) {
-    const slot = session.offeredSlots[parsed.selectedSlotIndex - 1];
+  if (session.step === "choosingSlot" && parsed.selectedSlotIndex) {
+    const slot = session.offeredSlots?.[parsed.selectedSlotIndex - 1];
     const name = session.name ?? "Paciente";
-    const stillAvailable = await isSlotAvailable(slot);
-    if (!stillAvailable) {
-      await setPatientSession(from, {
-        ...session,
-        step: "collecting",
-        preferredDateText: undefined,
-        preferredDateISO: undefined,
-        offeredSlots: undefined
-      });
-      await replyToPatient(
-        from,
-        "😕 Ese horario se acaba de ocupar. Dime que dia te gustaria revisar y te paso nuevos horarios disponibles."
-      );
+    const slotValidation = validateSlotSelection({ slot, session, selectedSlotIndex: parsed.selectedSlotIndex });
+
+    if (!slotValidation.ok) {
+      await resetSlotSelection(from, session);
+      await replyToPatient(from, "Ese horario ya no es valido. Dime que dia quieres revisar y te paso nuevos horarios disponibles.");
       return;
     }
 
-    const event = await createAppointment(slot, {
-      name,
-      phone: from,
-      email: session.email,
-      firstVisit: session.firstVisit,
-      paymentType: session.paymentType,
-      reason: session.reason
-    });
-    let cita;
+    let lock;
+    let event;
     try {
-      cita = await saveConfirmedCita(from, session, slot, event);
-    } catch (error) {
-      await cancelAppointment(event?.id);
-      throw error;
-    }
-    await scheduleAppointmentReminder(from, session, slot, cita);
-    await cancelPreviousRescheduledAppointment(session);
-    await deletePatientSession(from);
+      lock = await lockAppointmentSlot(from, slot);
+      if (lock === false) {
+        await resetSlotSelection(from, session);
+        await replyToPatient(
+          from,
+          "😕 Ese horario se acaba de apartar. Dime que dia te gustaria revisar y te paso nuevos horarios disponibles."
+        );
+        return;
+      }
 
-    await replyToPatient(
-      from,
-      `✅ Listo, ${name}. Tu cita quedo agendada para ${slot.label}.${config.clinicAddress ? `\n\n📍 Ubicacion: ${config.clinicAddress}` : ""}${session.email ? "\n\n📩 Google Calendar tambien enviara la confirmacion a tu correo." : ""}\n\n⚠️ Si tienes dolor intenso, sangrado abundante o una urgencia, por favor acude a urgencias o contacta directamente al consultorio.`
-    );
-    await sendWhatsAppText(
-      config.doctorWhatsappNumber,
-      `📅 Nueva cita por WhatsApp:\nPaciente: ${name}\nFecha: ${slot.label}\nTelefono: ${from}${session.email ? `\nCorreo: ${session.email}` : ""}${session.firstVisit ? `\nPrimera vez: ${session.firstVisit}` : ""}${session.paymentType ? `\nTipo: ${session.paymentType}` : ""}${session.reason ? `\nMotivo: ${session.reason}` : ""}`
-    );
-    return;
+      const stillAvailable = await isSlotAvailable(slot);
+      if (!stillAvailable) {
+        await resetSlotSelection(from, session);
+        await replyToPatient(
+          from,
+          "😕 Ese horario se acaba de ocupar. Dime que dia te gustaria revisar y te paso nuevos horarios disponibles."
+        );
+        return;
+      }
+
+      event = await createAppointment(slot, {
+        name,
+        phone: from,
+        email: session.email,
+        firstVisit: session.firstVisit,
+        paymentType: session.paymentType,
+        reason: config.includeSensitiveAppointmentNotes ? session.reason : undefined
+      });
+
+      const cita = await saveConfirmedCita(from, session, slot, event);
+      await scheduleAppointmentReminder(from, session, slot, cita);
+      await cancelPreviousRescheduledAppointment(session);
+      await deletePatientSession(from);
+
+      await replyToPatient(from, buildPatientConfirmationMessage({ name, slot, email: session.email }));
+      await sendWhatsAppText(
+        config.doctorWhatsappNumber,
+        buildAdminAppointmentNotification({ name, from, slot, session })
+      );
+      return;
+    } catch (error) {
+      if (event?.id) {
+        try {
+          await cancelAppointment(event.id);
+        } catch (cancelError) {
+          logSafeError("Could not rollback Google Calendar event after appointment failure", cancelError);
+        }
+      }
+      const failureType = classifyAppointmentError(error);
+      logSafeError(`Could not confirm appointment for ${maskPhone(from)} [${failureType}]`, error);
+      await resetSlotSelection(from, session);
+      await replyToPatient(from, buildManualReviewMessage());
+      await safeSendWhatsAppText(
+        config.doctorWhatsappNumber,
+        `⚠️ Error al confirmar cita por WhatsApp (${failureType}). Telefono: ${maskPhone(from)}. Revisa Calendar/Supabase antes de confirmar manualmente.`
+      );
+      return;
+    } finally {
+      if (lock && typeof lock === "object") await releaseAppointmentLock(lock.token);
+    }
   }
 
   if (!session.name) {
@@ -1664,6 +1779,33 @@ async function offerAvailableSlots(from, session) {
   );
 }
 
+async function resetSlotSelection(from, session) {
+  await setPatientSession(from, {
+    ...session,
+    step: "collecting",
+    preferredDateText: undefined,
+    preferredDateISO: undefined,
+    offeredSlots: undefined
+  });
+}
+
+async function lockAppointmentSlot(from, slot) {
+  if (!isDatabaseEnabled()) {
+    if (config.requireDatabaseForAppointments) {
+      throw new Error("Database is required before confirming appointments");
+    }
+    return null;
+  }
+
+  const lock = await acquireAppointmentLock({
+    slotStart: slot.start,
+    slotEnd: slot.end,
+    phoneNumber: from
+  });
+
+  return lock || false;
+}
+
 async function handleMenuOption(from, text, intent = detectIntent(text).intent) {
   if (/^1$/.test(text) || intent === "schedule_appointment" || intent === "new_patient") {
     await setPatientSession(from, { from, step: "collecting" });
@@ -1704,7 +1846,7 @@ async function notifyIncomingPatientMessage(from, body) {
   if (!shouldForwardConversation(from)) return;
   await safeSendWhatsAppText(
     config.doctorWhatsappNumber,
-    `💬 Mensaje de paciente\nTelefono: ${from}\n\n${body}`
+    buildForwardCopyMessage({ type: "patient", phone: from, body })
   );
 }
 
@@ -1712,8 +1854,27 @@ async function notifyBotReply(to, body) {
   if (!shouldForwardConversation(to)) return;
   await safeSendWhatsAppText(
     config.doctorWhatsappNumber,
-    `🤖 Bot respondio a ${to}\n\n${body}`
+    buildForwardCopyMessage({ type: "bot", phone: to, body })
   );
+}
+
+function buildForwardCopyMessage({ type, phone, body }) {
+  const prefix = type === "bot" ? "🤖 Bot respondio" : "💬 Mensaje de paciente";
+  const lines = [prefix, `Telefono: ${maskPhone(phone)}`];
+  if (config.forwardConversationBodies) {
+    lines.push("", sanitizeForwardedBody(body));
+  } else {
+    lines.push("", "Contenido oculto por privacidad. Revisa la conversacion en el inbox.");
+  }
+  return lines.join("\n");
+}
+
+function sanitizeForwardedBody(body) {
+  return String(body ?? "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 600);
 }
 
 function shouldForwardConversation(phoneNumber) {
@@ -1744,7 +1905,7 @@ async function recordConversationMessage(phoneNumber, sender, body, metadata = {
   try {
     await saveConversationMessage(phoneNumber, sender, body, metadata);
   } catch (error) {
-    console.warn("Could not save conversation to Supabase:", error.message);
+    logSafeError("Could not save conversation to Supabase", error);
   }
 }
 
@@ -1779,7 +1940,7 @@ async function getPatientSession(phoneNumber) {
       return saved;
     }
   } catch (error) {
-    console.warn("Could not load session from Supabase; using memory fallback:", error.message);
+    logSafeError("Could not load session from Supabase; using memory fallback", error);
   }
 
   return undefined;
@@ -1792,7 +1953,7 @@ async function setPatientSession(phoneNumber, session) {
   try {
     await setSession(phoneNumber, session);
   } catch (error) {
-    console.warn("Could not save session to Supabase:", error.message);
+    logSafeError("Could not save session to Supabase", error);
   }
 }
 
@@ -1803,7 +1964,7 @@ async function deletePatientSession(phoneNumber) {
   try {
     await deleteSession(phoneNumber);
   } catch (error) {
-    console.warn("Could not delete session from Supabase:", error.message);
+    logSafeError("Could not delete session from Supabase", error);
   }
 }
 
@@ -1828,12 +1989,12 @@ async function saveConfirmedCita(phoneNumber, session, slot, event) {
       slotEnd: slot.end,
       firstVisit: session.firstVisit,
       paymentType: session.paymentType,
-      reason: session.reason
+      reason: config.includeSensitiveAppointmentNotes ? session.reason : undefined
     });
     if (!saved) throw new Error("Supabase did not return saved appointment");
     return saved;
   } catch (error) {
-    console.warn("Could not save cita to Supabase:", error.message);
+    logSafeError("Could not save cita to Supabase", error);
     throw new Error("Could not persist confirmed appointment");
   }
 }
@@ -1843,7 +2004,7 @@ async function handleCancellationRequest(from) {
   try {
     cita = await getLatestConfirmedCitaByPhone(from);
   } catch (error) {
-    console.warn("Could not load cita for cancellation:", error.message);
+    logSafeError("Could not load cita for cancellation", error);
   }
 
   if (!cita) {
@@ -1878,7 +2039,7 @@ async function handleRescheduleRequest(from) {
   try {
     cita = await getLatestConfirmedCitaByPhone(from);
   } catch (error) {
-    console.warn("Could not load cita for reschedule:", error.message);
+    logSafeError("Could not load cita for reschedule", error);
   }
 
   if (!cita) {
@@ -1906,7 +2067,7 @@ async function handleConfirmAppointmentRequest(from) {
   try {
     cita = await getLatestConfirmedCitaByPhone(from);
   } catch (error) {
-    console.warn("Could not load cita confirmation:", error.message);
+    logSafeError("Could not load cita confirmation", error);
   }
 
   if (!cita) {
@@ -1930,7 +2091,7 @@ async function cancelPreviousRescheduledAppointment(session) {
     await cancelAppointment(session.rescheduleFromGoogleEventId);
     await cancelCita(session.rescheduleFromCitaId);
   } catch (error) {
-    console.warn("Could not cancel previous rescheduled appointment:", error.message);
+    logSafeError("Could not cancel previous rescheduled appointment", error);
   }
 }
 
@@ -1952,7 +2113,7 @@ async function scheduleAppointmentReminder(phoneNumber, session, slot, cita) {
       }
     });
   } catch (error) {
-    console.warn("Could not schedule appointment reminder:", error.message);
+    logSafeError("Could not schedule appointment reminder", error);
   }
 }
 
@@ -1979,7 +2140,7 @@ async function processDueReminders() {
       }
     }
   } catch (error) {
-    console.warn("Reminder worker skipped cycle:", error.message);
+    logSafeError("Reminder worker skipped cycle", error);
   }
 }
 
@@ -2124,7 +2285,7 @@ async function answerFromApprovedKnowledge(normalizedText) {
     const match = suggestions.find((suggestion) => knowledgeMatches(normalizedText, suggestion.question));
     return match?.answer;
   } catch (error) {
-    console.warn("Could not load approved knowledge:", error.message);
+    logSafeError("Could not load approved knowledge", error);
     return undefined;
   }
 }
@@ -2240,17 +2401,11 @@ function isValidWebhookSignature(req, rawBody) {
 
   if (!config.requireWebhookSignature) return true;
 
-  const signature = req.headers["x-hub-signature-256"];
-  if (!signature || !signature.startsWith("sha256=")) return false;
-
-  const expected = crypto.createHmac("sha256", config.whatsappAppSecret).update(rawBody).digest("hex");
-  const actual = signature.slice("sha256=".length);
-
-  const expectedBuffer = Buffer.from(expected, "hex");
-  const actualBuffer = Buffer.from(actual, "hex");
-  if (expectedBuffer.length !== actualBuffer.length) return false;
-
-  return crypto.timingSafeEqual(expectedBuffer, actualBuffer);
+  return verifyMetaSignature({
+    appSecret: config.whatsappAppSecret,
+    signatureHeader: req.headers["x-hub-signature-256"],
+    rawBody
+  });
 }
 
 async function readRawBody(req) {
@@ -2348,7 +2503,7 @@ async function alreadyProcessed(messageId, fromPhone) {
         return true;
       }
     } catch (error) {
-      console.warn("Could not persist WhatsApp message dedupe:", error.message);
+      logSafeError("Could not persist WhatsApp message dedupe", error);
     }
   }
 
@@ -2451,14 +2606,6 @@ function logSafeError(message, error) {
     name: error?.name,
     message: redactSecrets(error?.message ?? String(error))
   });
-}
-
-function redactSecrets(value) {
-  return String(value)
-    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer [redacted]")
-    .replace(/ya29\.[A-Za-z0-9._-]+/g, "ya29.[redacted]")
-    .replace(/(service_role|apikey|access_token|refresh_token|client_secret)([^A-Za-z0-9]+)[A-Za-z0-9._~+/=-]+/gi, "$1$2[redacted]")
-    .replace(/\b(52\d{3})\d{4,6}(\d{3})\b/g, "$1****$2");
 }
 
 function escapeHtml(value) {

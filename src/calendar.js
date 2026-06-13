@@ -15,7 +15,7 @@ export async function findAvailableSlots(dateText, dateISO) {
         timeZone: config.clinicTimezone,
         items: [{ id: config.googleCalendarId }]
       })
-    });
+    }, { retry: true });
 
     const busyRanges = (busy.calendars?.[config.googleCalendarId]?.busy ?? []).map((range) => ({
       start: new Date(range.start),
@@ -40,6 +40,28 @@ export async function findAvailableSlots(dateText, dateISO) {
   return freeSlots.slice(0, config.maxOfferedSlots);
 }
 
+export function isSlotWithinClinicRules(slot) {
+  if (!slot?.start || !slot?.end) return false;
+  const start = new Date(slot.start);
+  const end = new Date(slot.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
+  if (start <= new Date()) return false;
+  if (end.getTime() - start.getTime() !== config.appointmentMinutes * 60_000) return false;
+
+  const parts = getZonedParts(start);
+  if (!config.workDays.includes(getZonedWeekday(start))) return false;
+
+  const startMinutes = parts.hour * 60 + parts.minute;
+  const endParts = getZonedParts(end);
+  const endMinutes = endParts.hour * 60 + endParts.minute;
+  const [workStartHour, workStartMinute] = config.workStart.split(":").map(Number);
+  const [workEndHour, workEndMinute] = config.workEnd.split(":").map(Number);
+  const workStartMinutes = workStartHour * 60 + workStartMinute;
+  const workEndMinutes = workEndHour * 60 + workEndMinute;
+
+  return startMinutes >= workStartMinutes && endMinutes <= workEndMinutes;
+}
+
 export async function isSlotAvailable(slot) {
   const busy = await googleRequest("/calendar/v3/freeBusy", {
     method: "POST",
@@ -49,7 +71,7 @@ export async function isSlotAvailable(slot) {
       timeZone: config.clinicTimezone,
       items: [{ id: config.googleCalendarId }]
     })
-  });
+  }, { retry: true });
 
   const busyRanges = busy.calendars?.[config.googleCalendarId]?.busy ?? [];
   return busyRanges.length === 0;
@@ -57,20 +79,22 @@ export async function isSlotAvailable(slot) {
 
 export async function createAppointment(slot, patient) {
   const calendarId = encodeURIComponent(config.googleCalendarId);
-  const details = buildPatientDetails(patient);
-  const attendees = patient.email ? [{ email: patient.email }] : undefined;
-
   return googleRequest(`/calendar/v3/calendars/${calendarId}/events?sendUpdates=all`, {
     method: "POST",
-    body: JSON.stringify({
-      summary: `Cita ginecologia - ${patient.name}`,
-      description: details,
-      location: config.clinicAddress,
-      start: { dateTime: slot.start, timeZone: config.clinicTimezone },
-      end: { dateTime: slot.end, timeZone: config.clinicTimezone },
-      attendees
-    })
+    body: JSON.stringify(buildCalendarEventPayload(slot, patient))
   });
+}
+
+export function buildCalendarEventPayload(slot, patient) {
+  const attendees = patient.email ? [{ email: patient.email }] : undefined;
+  return {
+    summary: `Cita ginecologia - ${sanitizeCalendarText(patient.name || "Paciente")}`,
+    description: buildPatientDetails(patient),
+    location: config.clinicAddress,
+    start: { dateTime: slot.start, timeZone: config.clinicTimezone },
+    end: { dateTime: slot.end, timeZone: config.clinicTimezone },
+    attendees
+  };
 }
 
 export async function cancelAppointment(googleEventId) {
@@ -87,12 +111,12 @@ export async function cancelAppointment(googleEventId) {
 function buildPatientDetails(patient) {
   return [
     "Cita creada por WhatsApp",
-    `Paciente: ${patient.name}`,
-    patient.phone ? `Telefono: ${patient.phone}` : undefined,
-    patient.email ? `Correo: ${patient.email}` : undefined,
+    `Paciente: ${sanitizeCalendarText(patient.name || "Paciente")}`,
+    patient.phone ? `Telefono: ${config.includePatientContactInCalendar ? sanitizePhoneForCalendar(patient.phone) : maskPhone(patient.phone)}` : undefined,
+    patient.email && config.includePatientContactInCalendar ? `Correo: ${sanitizeCalendarText(patient.email)}` : undefined,
     patient.firstVisit ? `Primera vez: ${patient.firstVisit}` : undefined,
     patient.paymentType ? `Tipo de consulta: ${patient.paymentType}` : undefined,
-    patient.reason ? `Motivo compartido: ${patient.reason}` : undefined
+    config.includeSensitiveAppointmentNotes && patient.reason ? `Nota interna: ${sanitizeCalendarText(patient.reason)}` : undefined
   ]
     .filter(Boolean)
     .join("\n");
@@ -180,4 +204,30 @@ function parseDate(text, dateISO) {
     return date;
   }
   return date;
+}
+
+function getZonedWeekday(date) {
+  const shortDay = new Intl.DateTimeFormat("en-US", {
+    timeZone: config.clinicTimezone,
+    weekday: "short"
+  }).format(date);
+  return { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[shortDay] ?? date.getDay();
+}
+
+function sanitizePhoneForCalendar(value) {
+  return String(value ?? "").replace(/\D/g, "").slice(0, 15);
+}
+
+function maskPhone(value) {
+  const phone = sanitizePhoneForCalendar(value);
+  if (phone.length <= 6) return phone ? "***" : "";
+  return `${phone.slice(0, 5)}****${phone.slice(-3)}`;
+}
+
+function sanitizeCalendarText(value) {
+  return String(value ?? "")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
 }

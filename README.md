@@ -27,7 +27,7 @@ cp .env.example .env
 npm start
 ```
 
-No usa dependencias externas de npm; solo necesita Node.js moderno con `fetch`.
+No usa dependencias externas de npm; solo necesita Node.js moderno con `fetch`. Las pruebas usan el runner nativo de Node.js.
 
 En Meta, configura el webhook:
 
@@ -257,9 +257,9 @@ SUPABASE_SERVICE_ROLE_KEY=TU_SERVICE_ROLE_KEY
 
 5. Redeploya el servicio.
 
-Si Supabase falla, el inbox puede usar memoria temporal como respaldo. Para citas confirmadas, si Supabase esta configurado y falla el guardado, el bot no confirma al paciente y trata de cancelar el evento recien creado en Google Calendar.
+Si Supabase falla, el inbox puede usar memoria temporal como respaldo. Para citas confirmadas en produccion, `REQUIRE_DB_FOR_APPOINTMENTS=true` obliga a tener Supabase funcionando antes de confirmar al paciente. Si falla el guardado, el bot no confirma al paciente y trata de cancelar el evento recien creado en Google Calendar.
 
-El schema tambien agrega un indice unico para evitar dos citas confirmadas con el mismo `slot_start`.
+El schema tambien agrega un indice unico para evitar dos citas confirmadas con el mismo `slot_start` y una tabla `appointment_locks` para apartar temporalmente un horario mientras se revalida Calendar y se confirma la cita.
 
 Para instalar desde cero, corre todo:
 
@@ -278,6 +278,22 @@ Para limpiar dedupe viejo:
 ```sql
 select public.cleanup_processed_whatsapp_messages(30);
 ```
+
+Para limpiar locks vencidos:
+
+```sql
+select public.cleanup_expired_appointment_locks();
+```
+
+## Pruebas automatizadas
+
+Ejecuta pruebas basicas del parser y reglas de agenda:
+
+```bash
+npm test
+```
+
+Estas pruebas cubren intencion de agendar, seleccion de horario, horario valido, fin de semana y duracion incorrecta.
 
 ## Pruebas manuales
 
@@ -311,6 +327,9 @@ Incluye pruebas de:
 - `INBOX_PASSWORD_HASH` o password fuerte.
 - Supabase con backups.
 - `supabase/schema.sql` ejecutado.
+- `REQUIRE_DB_FOR_APPOINTMENTS=true` en produccion.
+- `INCLUDE_SENSITIVE_APPOINTMENT_NOTES=false` para no enviar motivos delicados a Google Calendar.
+- `npm test` pasando.
 - Logs sin datos sensibles completos.
 - Aviso de privacidad listo.
 - RLS/multi-tenant antes de vender a varios consultorios.
@@ -335,4 +354,77 @@ Terceros involucrados:
 - Supabase
 - Render
 
-Recomendacion: antes de usarlo con pacientes reales, prepara un aviso de privacidad del consultorio. Evita pedir sintomas, diagnosticos o informacion intima por WhatsApp. No uses este bot como expediente medico.
+Recomendacion: antes de usarlo con pacientes reales, prepara un aviso de privacidad del consultorio. Evita pedir sintomas, diagnosticos o informacion intima por WhatsApp. No uses este bot como expediente medico. Por default, el motivo que escriba el paciente no se manda a Google Calendar ni al aviso de admin; se recomienda revisar detalles sensibles solo en el inbox con personal autorizado.
+
+## Hardening técnico agregado
+
+Esta versión endurecida agrega varias protecciones para poder probar el robot con menos riesgo en un consultorio real:
+
+- `/health` ahora responde JSON y marca `503` si falta configuración crítica o si la base es obligatoria y no está disponible.
+- `/health/live` queda como liveness simple para saber si el proceso está vivo.
+- Las llamadas externas a Google, Supabase y WhatsApp usan timeout configurable con `EXTERNAL_REQUEST_TIMEOUT_MS`.
+- Los reintentos se aplican solo donde son prudentes. No se reintenta automáticamente el envío de WhatsApp ni la creación de eventos para evitar duplicados.
+- El inbox ya no permite acceso por `?token=` ni `Authorization: Bearer` salvo que se active explícitamente `INBOX_ALLOW_LEGACY_TOKEN_ACCESS=true`.
+- La firma de Meta se valida con helper aislado y pruebas automatizadas.
+- Los errores redactan tokens, claves y teléfonos antes de mostrarse en logs.
+- El inbox muestra estado visual de DB, Google y firma Meta en la barra superior.
+
+### Variables nuevas
+
+```env
+EXTERNAL_REQUEST_TIMEOUT_MS=8000
+EXTERNAL_REQUEST_RETRIES=2
+INBOX_ALLOW_LEGACY_TOKEN_ACCESS=false
+FORWARD_CONVERSATION_BODIES=false
+MASK_PATIENT_PHONE_IN_CALENDAR=true
+INCLUDE_PATIENT_CONTACT_IN_CALENDAR=false
+```
+
+Mantén `INBOX_ALLOW_LEGACY_TOKEN_ACCESS=false`, `FORWARD_CONVERSATION_BODIES=false`, `MASK_PATIENT_PHONE_IN_CALENDAR=true` e `INCLUDE_PATIENT_CONTACT_IN_CALENDAR=false` en producción. El acceso seguro al inbox debe ser por login y cookie `HttpOnly`.
+
+### Pruebas
+
+```bash
+npm test
+npm run test:watch
+```
+
+Las pruebas cubren parser básico, reglas de horario, firma Meta válida/inválida y redacción de secretos en logs.
+
+### Segunda ronda técnica
+
+Esta versión agrega módulos pequeños para hacer el robot más mantenible sin reescribirlo:
+
+- `src/appointments.js`: valida selección de horario, arma mensajes seguros y clasifica errores de confirmación.
+- `src/health.js`: arma el reporte operativo de `/health` con `app`, `checks`, `counters` y `problems`.
+- `tests/appointments.test.js`: pruebas del flujo de confirmación sin tocar WhatsApp ni Calendar real.
+- `tests/health.test.js`: pruebas del health operativo.
+
+`/health` ahora sirve mejor para producción porque indica exactamente si el sistema está `ok` o `degraded`, y lista problemas como `database_required_unavailable`, `google_missing_config` o `webhook_signature_not_enforced`.
+
+Total actual de pruebas: 20.
+
+
+### Tercera ronda técnica: readiness y privacidad por default
+
+Esta ronda agrega controles para acercar el robot a una prueba real con consultorio:
+
+- `src/readiness.js` calcula si el entorno está `ready`, `almost-ready` o `not-ready`.
+- `/health` ahora incluye un bloque `readiness` con score y checks bloqueantes.
+- `/health/live` responde `503` durante cierre elegante para reinicios/deploys más seguros.
+- El servidor escucha `SIGTERM` y `SIGINT` para cerrar de forma ordenada en Render.
+- `npm run doctor` valida configuración y salud antes de usar pacientes reales.
+- `npm run hash:password -- <clave>` genera `INBOX_PASSWORD_HASH=sha256:...`.
+- Por default no se reenvía el contenido completo de conversaciones al admin; se recomienda revisar el inbox.
+- Por default no se guarda el motivo médico en Supabase ni se manda a Calendar.
+- Por default el teléfono queda enmascarado en Calendar, salvo que se active explícitamente `INCLUDE_PATIENT_CONTACT_IN_CALENDAR=true`.
+
+Comandos útiles:
+
+```bash
+npm test
+npm run doctor
+npm run hash:password -- una-clave-larga-y-segura
+```
+
+Antes de producción real, `npm run doctor` debe pasar en Render con variables reales y Supabase conectado.

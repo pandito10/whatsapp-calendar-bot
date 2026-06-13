@@ -1,4 +1,5 @@
 import { config } from "./config.js";
+import { resilientFetch, readResponseTextSafe, buildHttpError } from "./http.js";
 
 const maxConversations = 50;
 const maxMessagesPerConversation = 100;
@@ -291,6 +292,64 @@ export async function deleteSession(phoneNumber) {
   });
 }
 
+
+export async function acquireAppointmentLock({ slotStart, slotEnd, phoneNumber }) {
+  if (!isDatabaseEnabled()) return null;
+
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + Math.max(1, config.appointmentLockMinutes) * 60_000).toISOString();
+  const token = cryptoRandomToken();
+
+  await safeSupabaseFetch(`/rest/v1/appointment_locks?expires_at=lt.${encodeURIComponent(now.toISOString())}`, {
+    method: "DELETE"
+  });
+
+  try {
+    const rows = await supabaseFetch("/rest/v1/appointment_locks?select=id,lock_token,slot_start,slot_end,expires_at", {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({
+        slot_start: slotStart,
+        slot_end: slotEnd,
+        lock_token: token,
+        phone_number: phoneNumber,
+        expires_at: expiresAt
+      })
+    });
+
+    const row = rows?.[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      token: row.lock_token,
+      slotStart: row.slot_start,
+      slotEnd: row.slot_end,
+      expiresAt: row.expires_at
+    };
+  } catch (error) {
+    if (error.message?.includes("409") || error.message?.includes("duplicate key")) return null;
+    throw error;
+  }
+}
+
+export async function releaseAppointmentLock(lockToken) {
+  if (!isDatabaseEnabled() || !lockToken) return;
+  await safeSupabaseFetch(`/rest/v1/appointment_locks?lock_token=eq.${encodeURIComponent(lockToken)}`, {
+    method: "DELETE"
+  });
+}
+
+export async function markCitaFailedByGoogleEvent(googleEventId, errorMessage) {
+  if (!isDatabaseEnabled() || !googleEventId) return;
+  await safeSupabaseFetch(`/rest/v1/citas?google_event_id=eq.${encodeURIComponent(googleEventId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      status: "failed",
+      error_message: String(errorMessage ?? "").slice(0, 500)
+    })
+  });
+}
+
 export async function saveCita(citaData) {
   if (!isDatabaseEnabled()) return null;
 
@@ -309,7 +368,8 @@ export async function saveCita(citaData) {
       status: citaData.status ?? "confirmed",
       first_visit: citaData.firstVisit,
       payment_type: citaData.paymentType,
-      reason: citaData.reason
+      reason: citaData.reason,
+      error_message: citaData.errorMessage
     })
   });
 
@@ -424,6 +484,16 @@ export async function markReminderFailed(reminderId, errorMessage) {
   });
 }
 
+export async function checkDatabaseHealth() {
+  if (!isDatabaseEnabled()) return { ok: false, status: "disabled" };
+  try {
+    await supabaseFetch("/rest/v1/conversations?select=phone_number&limit=1");
+    return { ok: true, status: "ok" };
+  } catch (error) {
+    return { ok: false, status: "error", message: error?.message };
+  }
+}
+
 async function safeSupabaseFetch(path, options = {}) {
   try {
     return await supabaseFetch(path, options);
@@ -434,7 +504,8 @@ async function safeSupabaseFetch(path, options = {}) {
 }
 
 async function supabaseFetch(path, options = {}) {
-  const response = await fetch(`${config.supabaseUrl.replace(/\/$/, "")}${path}`, {
+  const method = String(options.method ?? "GET").toUpperCase();
+  const response = await resilientFetch(`${config.supabaseUrl.replace(/\/$/, "")}${path}`, {
     ...options,
     headers: {
       apikey: config.supabaseServiceRoleKey,
@@ -442,13 +513,22 @@ async function supabaseFetch(path, options = {}) {
       "Content-Type": "application/json",
       ...(options.headers ?? {})
     }
+  }, {
+    label: "Supabase",
+    timeoutMs: config.externalRequestTimeoutMs,
+    retries: method === "GET" ? config.externalRequestRetries : 0
   });
 
   if (!response.ok) {
-    throw new Error(`Supabase request failed: ${response.status} ${await response.text()}`);
+    throw buildHttpError("Supabase request", response, await readResponseTextSafe(response));
   }
 
   if (response.status === 204) return undefined;
   const text = await response.text();
   return text ? JSON.parse(text) : undefined;
+}
+
+function cryptoRandomToken() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
