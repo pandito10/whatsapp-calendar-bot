@@ -2246,7 +2246,7 @@ async function handleConfirmAppointmentRequest(from) {
 
   await replyToPatient(
     from,
-    `✅ Tu cita queda confirmada para el dia ${formatAppointmentFull(cita.slotStart)}.\n\nTe esperamos en Plaza de la Paz #20, 2o. Piso, Consultorio 14, Guanajuato, Gto.`
+    `✅ Tu cita queda confirmada para el dia ${formatAppointmentFull(cita.slotStart)}.${config.clinicAddress ? `\n\nTe esperamos en ${config.clinicAddress}.` : "\n\nPor ahora el consultorio compartira la ubicacion directamente."}`
   );
 }
 

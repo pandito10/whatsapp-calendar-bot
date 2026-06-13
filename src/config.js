@@ -57,7 +57,7 @@ export const config = {
     externalRequestTimeoutMs: Number(process.env.EXTERNAL_REQUEST_TIMEOUT_MS ?? 8000),
     externalRequestRetries: Number(process.env.EXTERNAL_REQUEST_RETRIES ?? 2),
     botPauseTimeoutMinutes: Number(process.env.BOT_PAUSE_TIMEOUT_MINUTES ?? 120),
-    enableReminderWorker: process.env.ENABLE_REMINDER_WORKER !== "false",
+    enableReminderWorker: process.env.ENABLE_REMINDER_WORKER === "true",
     enablePatientReminderTemplates: process.env.ENABLE_PATIENT_REMINDER_TEMPLATES === "true",
     requireDatabaseForAppointments: process.env.REQUIRE_DB_FOR_APPOINTMENTS === "true" || process.env.NODE_ENV === "production",
     appointmentLockMinutes: Number(process.env.APPOINTMENT_LOCK_MINUTES ?? 10),

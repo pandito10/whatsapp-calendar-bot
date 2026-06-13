@@ -63,7 +63,7 @@ services:
       - key: EXTERNAL_REQUEST_RETRIES
         value: "2"
       - key: ENABLE_REMINDER_WORKER
-        value: "true"
+        value: "false"
       - key: ENABLE_PATIENT_REMINDER_TEMPLATES
         value: "false"
       - key: WHATSAPP_REMINDER_TEMPLATE_24H

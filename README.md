@@ -278,6 +278,7 @@ WhatsApp Cloud API no permite mandar mensajes libres cuando ya paso la ventana d
 Modo seguro por default:
 
 ```env
+ENABLE_REMINDER_WORKER=false
 ENABLE_PATIENT_REMINDER_TEMPLATES=false
 WHATSAPP_REMINDER_TEMPLATE_24H=
 WHATSAPP_REMINDER_TEMPLATE_2H=
@@ -287,6 +288,7 @@ WHATSAPP_TEMPLATE_LANGUAGE=es_MX
 Cuando Meta apruebe tus templates, puedes activar:
 
 ```env
+ENABLE_REMINDER_WORKER=true
 ENABLE_PATIENT_REMINDER_TEMPLATES=true
 WHATSAPP_REMINDER_TEMPLATE_24H=nombre_template_24h
 WHATSAPP_REMINDER_TEMPLATE_2H=nombre_template_2h
@@ -294,6 +296,8 @@ WHATSAPP_TEMPLATE_LANGUAGE=es_MX
 ```
 
 Los templates actuales reciben dos variables en el cuerpo: nombre del paciente y fecha/hora de la cita. Si tu template usa otro orden o mas variables, ajusta `sendReminder` antes de activarlo.
+
+Para pacientes reales, manten `ENABLE_REMINDER_WORKER=false` hasta tener templates aprobados y probados. Los recordatorios a pacientes con templates quedan como segunda fase operativa segura.
 
 ## Guardar conversaciones en Supabase
 
@@ -387,6 +391,7 @@ Incluye pruebas de:
 - `INCLUDE_SENSITIVE_APPOINTMENT_NOTES=false` para no enviar motivos delicados a Google Calendar.
 - `MASK_PATIENT_PHONE_IN_CALENDAR=true`.
 - `ENABLE_PATIENT_REMINDER_TEMPLATES=false` hasta tener templates aprobados por Meta.
+- `ENABLE_REMINDER_WORKER=false` hasta validar templates de WhatsApp.
 - `npm test` pasando.
 - Logs sin datos sensibles completos.
 - Aviso de privacidad listo.
@@ -464,7 +469,7 @@ Esta versión agrega módulos pequeños para hacer el robot más mantenible sin 
 
 `/health` ahora sirve mejor para producción porque indica exactamente si el sistema está `ok` o `degraded`, y lista problemas como `database_required_unavailable`, `google_missing_config` o `webhook_signature_not_enforced`.
 
-Total actual de pruebas: 29.
+Total actual de pruebas: 30.
 
 
 ### Tercera ronda técnica: readiness y privacidad por default
