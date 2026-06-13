@@ -33,6 +33,28 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(html, /Inbox del bot/);
     assert.match(html, /Clave/);
 
+    const csrf = html.match(/name="csrf" type="hidden" value="([^"]+)"/)?.[1];
+    const loginCookie = login.headers.get("set-cookie")?.split(";")[0];
+    const loginResponse = await fetch("http://127.0.0.1:32131/inbox/login", {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Cookie: loginCookie
+      },
+      body: new URLSearchParams({
+        csrf,
+        password: baseEnv.INBOX_PASSWORD
+      })
+    });
+    assert.equal(loginResponse.status, 303);
+    const inboxCookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+    const inboxHtml = await (await fetch("http://127.0.0.1:32131/inbox", { headers: { Cookie: inboxCookie } })).text();
+    assert.match(inboxHtml, /Sin conversacion seleccionada/);
+    assert.match(inboxHtml, /Sin cita/);
+    assert.match(inboxHtml, /Primera vez/);
+    assert.match(inboxHtml, /Guardar FAQ/);
+
     const inboxScript = await fetch("http://127.0.0.1:32131/inbox.js");
     assert.equal(inboxScript.status, 200);
     assert.match(await inboxScript.text(), /scrollMessagesToBottom/);

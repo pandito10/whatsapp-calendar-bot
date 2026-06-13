@@ -181,6 +181,11 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/inbox/knowledge/create") {
+      await handleKnowledgeCreate(req, url, res);
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/oauth/google/callback") {
       handleGoogleOAuthCallback(url, res);
       return;
@@ -391,7 +396,7 @@ async function handleInbox(req, url, res) {
 
   const selectedPhone = url.searchParams.get("phone");
   const list = await getInboxConversations();
-  const selected = selectedPhone ? conversations.get(selectedPhone) : list[0];
+  const selected = selectedPhone ? conversations.get(selectedPhone) : undefined;
   const knowledgeSuggestions = await loadKnowledgeSuggestions("pending", 8);
 
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderInboxPage(list, selected, req, url, knowledgeSuggestions));
@@ -533,6 +538,35 @@ async function handleKnowledgeReview(req, url, res) {
 
   await reviewKnowledgeSuggestion(id, status);
   await redirectInbox(res, form.get("phone") ?? "");
+}
+
+async function handleKnowledgeCreate(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) return;
+  if (!checkRateLimit(req, url, "inbox-action")) {
+    res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8" }).end("too many requests");
+    return;
+  }
+  const form = await readForm(req, { maxBytes: config.maxRequestBytes });
+  if (!isValidCsrf(req, form.get("csrf"))) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const phone = normalizePhone(form.get("phone") ?? "");
+  const question = String(form.get("question") ?? "").trim();
+  const answer = String(form.get("answer") ?? "").trim();
+  if (question.length < 4 || answer.length < 4 || question.length > 1000 || answer.length > 2000) {
+    await redirectInbox(res, phone, "Pregunta o respuesta invalida.");
+    return;
+  }
+
+  await saveKnowledgeSuggestion({
+    question,
+    answer,
+    sourcePhone: phone || undefined,
+    status: "approved"
+  });
+  await redirectInbox(res, phone);
 }
 
 async function handleInboxTakeover(req, url, res) {
@@ -1274,6 +1308,16 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       padding: 7px 9px;
       font-size: 12px;
     }
+    .knowledge-form {
+      display: grid;
+      gap: 8px;
+    }
+    .knowledge-form textarea {
+      min-height: 64px;
+      font-size: 13px;
+      resize: vertical;
+    }
+    .knowledge-form button { font-size: 12px; }
     .conversation-tools {
       display: flex;
       flex-wrap: wrap;
@@ -1369,6 +1413,9 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
             ${renderFilterOption("all", "Todas", filter)}
             ${renderFilterOption("pending", "Pendientes", filter)}
             ${renderFilterOption("confirmed", "Cita agendada", filter)}
+            ${renderFilterOption("no_appointment", "Sin cita", filter)}
+            ${renderFilterOption("new_patient", "Primera vez", filter)}
+            ${renderFilterOption("returning_patient", "Recurrentes", filter)}
             ${renderFilterOption("human", "Modo humano", filter)}
           </select>
           <button type="submit">Filtrar</button>
@@ -1385,6 +1432,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
           ${
             selected
               ? `<div class="conversation-tools">
+                  <a class="button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">Cerrar conversacion</a>
                   <a class="button-link button-secondary" href="https://wa.me/${encodeURIComponent(selectedPhone)}" target="_blank" rel="noreferrer">Abrir WhatsApp</a>
                   <button type="button" class="button-secondary" onclick="navigator.clipboard?.writeText('${escapeHtml(selectedPhone)}')">Copiar telefono</button>
                   ${
@@ -1457,6 +1505,16 @@ function buildInboxStats(list) {
 }
 
 function renderKnowledgePanel(suggestions, csrf, selectedPhone) {
+  const createForm = `<div class="knowledge-card">
+    <strong>Agregar respuesta frecuente</strong>
+    <form class="knowledge-form" method="post" action="/inbox/knowledge/create">
+      <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+      <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+      <textarea name="question" rows="2" maxlength="1000" placeholder="Pregunta futura: ej. ¿Atienden sabados?"></textarea>
+      <textarea name="answer" rows="3" maxlength="2000" placeholder="Respuesta del bot para esa pregunta"></textarea>
+      <button type="submit">Guardar FAQ</button>
+    </form>
+  </div>`;
   const cards =
     suggestions.length === 0
       ? `<div class="empty-state">Sin respuestas pendientes por aprobar.</div>`
@@ -1485,6 +1543,7 @@ function renderKnowledgePanel(suggestions, csrf, selectedPhone) {
 
   return `<div class="knowledge">
     <h2>Aprendizaje supervisado</h2>
+    ${createForm}
     ${cards}
   </div>`;
 }
@@ -1513,7 +1572,10 @@ function filterInboxConversations(list, q, filter) {
       filter === "all" ||
       (filter === "pending" && status.key === "followup") ||
       (filter === "confirmed" && status.key === "confirmed") ||
-      (filter === "human" && conversation.botPaused);
+      (filter === "human" && conversation.botPaused) ||
+      (filter === "no_appointment" && !conversation.appointment) ||
+      (filter === "new_patient" && normalizeText(conversation.appointment?.firstVisit ?? "") === "si") ||
+      (filter === "returning_patient" && normalizeText(conversation.appointment?.firstVisit ?? "") === "no");
     return matchesQuery && matchesFilter;
   });
 }

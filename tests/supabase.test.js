@@ -9,7 +9,7 @@ process.env.DOCTOR_WHATSAPP_NUMBER = "5210000000000";
 process.env.SUPABASE_URL = "https://example.supabase.co";
 process.env.SUPABASE_SERVICE_ROLE_KEY = "sb-service-role-test";
 
-const { acquireAppointmentLock, rememberProcessedWhatsAppMessage } = await import("../src/db.js");
+const { acquireAppointmentLock, rememberProcessedWhatsAppMessage, saveKnowledgeSuggestion } = await import("../src/db.js");
 
 test("dedupe persistente detecta message_id duplicado", async () => {
   const originalFetch = globalThis.fetch;
@@ -42,6 +42,29 @@ test("lock de cita devuelve null cuando Supabase rechaza horario duplicado", asy
     });
     assert.equal(lock, null);
     assert.ok(calls.some((call) => call.method === "DELETE"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("guarda FAQ manual como aprobada", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), body: options?.body });
+    return new Response(JSON.stringify([]), { status: 201 });
+  };
+
+  try {
+    await saveKnowledgeSuggestion({
+      question: "Atienden sabado?",
+      answer: "No, por el momento solo atendemos de lunes a viernes.",
+      sourcePhone: "5214771234567",
+      status: "approved"
+    });
+    const body = JSON.parse(calls[0].body);
+    assert.equal(body.status, "approved");
+    assert.ok(body.reviewed_at);
   } finally {
     globalThis.fetch = originalFetch;
   }

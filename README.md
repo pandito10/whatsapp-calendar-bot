@@ -126,9 +126,10 @@ El inbox permite:
 
 - Ver conversaciones.
 - Buscar por nombre o telefono.
-- Filtrar por pendientes, cita agendada o modo humano.
+- Filtrar por pendientes, cita agendada, sin cita, primera vez, recurrentes o modo humano.
 - Responder desde `/inbox` como humano.
 - Enviar un adjunto por respuesta: foto, video, PDF, Word, Excel, PowerPoint, TXT o CSV.
+- Cerrar la conversacion seleccionada para volver a la vista neutral de pacientes.
 - Tomar una conversacion para pausar el bot.
 - Devolver la conversacion al bot.
 - Ver aviso cuando la ultima interaccion del paciente fue hace mas de 24 horas.
@@ -143,6 +144,7 @@ Si una conversacion queda en modo humano mas de `BOT_PAUSE_TIMEOUT_MINUTES`, el 
 Cuando el personal responde desde el inbox, el sistema guarda una sugerencia con la ultima pregunta del paciente y la respuesta humana.
 La sugerencia queda en estado `pending`: el bot no la usa automaticamente.
 Desde el inbox se puede aprobar o rechazar. Solo las respuestas `approved` pueden usarse para contestar preguntas parecidas.
+Tambien puedes agregar una FAQ manual desde el panel de aprendizaje: escribe la pregunta futura y la respuesta, y se guarda como `approved`.
 
 Esto evita que el bot aprenda datos privados, errores humanos o informacion medica no revisada.
 

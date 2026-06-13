@@ -177,7 +177,7 @@ export async function markConversationHumanReply(phoneNumber) {
   });
 }
 
-export async function saveKnowledgeSuggestion({ question, answer, sourcePhone }) {
+export async function saveKnowledgeSuggestion({ question, answer, sourcePhone, status = "pending" }) {
   if (!isDatabaseEnabled() || !answer) return;
 
   await safeSupabaseFetch("/rest/v1/knowledge_suggestions", {
@@ -186,7 +186,8 @@ export async function saveKnowledgeSuggestion({ question, answer, sourcePhone })
       question,
       answer,
       source_phone: sourcePhone,
-      status: "pending"
+      status: ["pending", "approved", "rejected"].includes(status) ? status : "pending",
+      reviewed_at: status === "approved" ? new Date().toISOString() : undefined
     })
   });
 }
