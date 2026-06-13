@@ -1790,10 +1790,51 @@ async function offerAvailableSlots(from, session, options = {}) {
 
   await replyToPatient(
     from,
-    `🕒 Tengo estos horarios disponibles:\n${slots
+    `${buildAvailabilityIntro(session, slots)}\n${slots
       .map((slot, index) => `${index + 1}. ${slot.label}`)
       .join("\n")}\n\n${allowSelection ? "Responde con el numero del horario que prefieras para confirmar. Si ninguno te acomoda, dime otra fecha." : "Si alguno te acomoda, escribe \"quiero agendar\" y te ayudo a apartarlo. Si no, dime otra fecha."}`
   );
+}
+
+function buildAvailabilityIntro(session, slots) {
+  const requestedDateISO = session.preferredDateISO;
+  const requestedDate = requestedDateISO ? dateOnlyFromISO(requestedDateISO) : undefined;
+  const firstSlotDate = slots[0]?.start ? zonedDateOnly(slots[0].start) : undefined;
+
+  if (requestedDate && firstSlotDate && requestedDate !== firstSlotDate) {
+    const requestedLabel = formatDateOnlyFull(requestedDateISO);
+    if (!isClinicWorkDate(requestedDateISO)) {
+      return `📅 No, el ${requestedLabel} no trabajamos. Por el momento atendemos de lunes a viernes de 4:40 p.m. a 8:00 p.m.\n\nTe comparto opciones cercanas:`;
+    }
+    return `📅 No tengo horarios disponibles para el ${requestedLabel}.\n\nTe comparto opciones cercanas:`;
+  }
+
+  return "🕒 Tengo estos horarios disponibles:";
+}
+
+function dateOnlyFromISO(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? "")) ? value : undefined;
+}
+
+function zonedDateOnly(value) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: config.clinicTimezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date(value));
+}
+
+function formatDateOnlyFull(value) {
+  return new Intl.DateTimeFormat("es-MX", {
+    dateStyle: "full",
+    timeZone: config.clinicTimezone
+  }).format(new Date(`${value}T12:00:00`));
+}
+
+function isClinicWorkDate(value) {
+  const weekday = new Date(`${value}T12:00:00`).getDay();
+  return config.workDays.includes(weekday);
 }
 
 async function resetSlotSelection(from, session) {
