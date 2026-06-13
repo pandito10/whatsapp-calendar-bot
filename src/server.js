@@ -1638,6 +1638,68 @@ async function handleIncomingText(from, text) {
   };
 
   if (session.step === "confirmingAppointment") {
+    if (parsed.email && parsed.email !== session.email) {
+      const updated = { ...session, email: parsed.email };
+      await setPatientSession(from, updated);
+      await replyToPatient(
+        from,
+        `Listo, actualice el correo 😊\n\n${buildAppointmentReviewMessage({ ...updated, slot: updated.pendingSlot })}`
+      );
+      return;
+    }
+
+    if (parsed.name && parsed.name !== session.name) {
+      const updated = { ...session, name: parsed.name };
+      await setPatientSession(from, updated);
+      await replyToPatient(
+        from,
+        `Listo, actualice el nombre 😊\n\n${buildAppointmentReviewMessage({ ...updated, slot: updated.pendingSlot })}`
+      );
+      return;
+    }
+
+    if (parsed.firstVisit && parsed.firstVisit !== session.firstVisit) {
+      const updated = { ...session, firstVisit: parsed.firstVisit };
+      await setPatientSession(from, updated);
+      await replyToPatient(
+        from,
+        `Listo, actualice ese dato 😊\n\n${buildAppointmentReviewMessage({ ...updated, slot: updated.pendingSlot })}`
+      );
+      return;
+    }
+
+    if (parsed.paymentType && parsed.paymentType !== session.paymentType) {
+      const updated = { ...session, paymentType: parsed.paymentType };
+      await setPatientSession(from, updated);
+      await replyToPatient(
+        from,
+        `Listo, actualice el tipo de consulta 😊\n\n${buildAppointmentReviewMessage({ ...updated, slot: updated.pendingSlot })}`
+      );
+      return;
+    }
+
+    if (parsed.preferredDateText) {
+      await setPatientSession(from, {
+        ...session,
+        step: "collecting",
+        preferredDateText: parsed.preferredDateText,
+        preferredDateISO: parsed.preferredDateISO,
+        offeredSlots: undefined,
+        pendingSlot: undefined,
+        pendingSlotSelectedIndex: undefined
+      });
+      await offerAvailableSlots(from, {
+        ...session,
+        step: "collecting",
+        preferredDateText: parsed.preferredDateText,
+        preferredDateISO: parsed.preferredDateISO,
+        offeredSlots: undefined,
+        pendingSlot: undefined,
+        pendingSlotSelectedIndex: undefined
+      });
+      return;
+    }
+
     if (isAffirmativeConfirmation(normalized)) {
       await confirmAppointmentFromSession(from, session);
       return;
@@ -1649,7 +1711,7 @@ async function handleIncomingText(from, text) {
       return;
     }
 
-    await replyToPatient(from, "Para confirmar la cita responde SI. Si prefieres otro horario, responde NO.");
+    await replyToPatient(from, "Para confirmar la cita responde SI. Si algun dato esta mal, puedes mandarme el dato correcto. Por ejemplo: \"correo nuevo@correo.com\". Si prefieres otro horario, responde NO.");
     return;
   }
 

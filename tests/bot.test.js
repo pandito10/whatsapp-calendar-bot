@@ -39,6 +39,14 @@ test("parser local entiende fecha con mes dentro de una pregunta", async () => {
   assert.equal(result.preferredDateISO, "2026-10-25");
 });
 
+test("parser local extrae correo corregido durante confirmacion", async () => {
+  const result = await understandMessage("Perdon es paciente.correcto@gmail.com", {
+    step: "confirmingAppointment",
+    email: "mal@gmail.com"
+  });
+  assert.equal(result.email, "paciente.correcto@gmail.com");
+});
+
 test("valida horario dentro de reglas del consultorio", () => {
   assert.equal(
     isSlotWithinClinicRules({ start: "2030-06-17T22:40:00.000Z", end: "2030-06-17T23:20:00.000Z" }),

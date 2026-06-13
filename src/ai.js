@@ -197,7 +197,7 @@ function parseSlotSelection(text) {
 function parseName(original, normalized, session) {
   if (session?.name && !looksLikeNameOnly(original)) return undefined;
 
-  const nameMatch = normalized.match(/\b(?:soy|me llamo|mi nombre es|nombre es)\s+([a-záéíóúñ ]{2,60})/i);
+  const nameMatch = normalized.match(/\b(?:soy|me llamo|mi nombre es|nombre es|nombre correcto es|el nombre correcto es)\s+([a-záéíóúñ ]{2,60})/i);
   if (nameMatch) return cleanName(nameMatch[1]);
 
   if (session && !session.name && looksLikeNameOnly(original)) {
