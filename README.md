@@ -73,6 +73,8 @@ ALLOW_UNSIGNED_WEBHOOKS=false
 WEBHOOK_PATH_SECRET=un-secreto-largo-de-24-o-mas-caracteres
 ```
 
+- `ALLOW_UNSIGNED_WEBHOOKS=false` es el **default seguro**. Si la variable no existe o tiene cualquier valor distinto de `true`, los webhooks sin firma son rechazados.
+- El modo piloto implicito fue eliminado. Ya no se acepta ningun webhook sin firma por el solo hecho de no tener `WHATSAPP_APP_SECRET` configurado.
 - Si `WHATSAPP_APP_SECRET` no existe y `ALLOW_UNSIGNED_WEBHOOKS` no es `true`, el servidor rechaza webhooks POST con `403`.
 - Si `UNSIGNED_WEBHOOK_EXPIRES_AT` ya vencio, el servidor rechaza webhooks sin firma.
 - El webhook valida `object`, `entry`, `changes`, `phone_number_id`, y opcionalmente `WHATSAPP_BUSINESS_ACCOUNT_ID` y `WHATSAPP_DISPLAY_PHONE_NUMBER`.
