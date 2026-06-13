@@ -410,7 +410,40 @@ function handleInboxScript(res) {
     messages.scrollTop = messages.scrollHeight;
   }
 
-  window.addEventListener("DOMContentLoaded", scrollMessagesToBottom);
+  function bindQuickReplies() {
+    const composer = document.querySelector(".composer textarea[name='message']");
+    if (!composer) return;
+    document.querySelectorAll("[data-template]").forEach((button) => {
+      button.addEventListener("click", () => {
+        composer.value = button.dataset.template || "";
+        composer.focus();
+      });
+    });
+  }
+
+  function bindCopyButtons() {
+    document.querySelectorAll("[data-copy-phone]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const phone = button.dataset.copyPhone || "";
+        try {
+          await navigator.clipboard.writeText(phone);
+          const original = button.textContent;
+          button.textContent = "Copiado";
+          setTimeout(() => { button.textContent = original; }, 1200);
+        } catch {
+          window.prompt("Copia el telefono:", phone);
+        }
+      });
+    });
+  }
+
+  function initInbox() {
+    bindQuickReplies();
+    bindCopyButtons();
+    scrollMessagesToBottom();
+  }
+
+  window.addEventListener("DOMContentLoaded", initInbox);
   window.addEventListener("load", scrollMessagesToBottom);
   window.addEventListener("pageshow", scrollMessagesToBottom);
   setTimeout(scrollMessagesToBottom, 80);
@@ -813,6 +846,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
   const lastPatientMessage = selected?.messages ? [...selected.messages].reverse().find((message) => message.sender === "patient") : undefined;
   const needsTemplateNotice = lastPatientMessage ? Date.now() - new Date(lastPatientMessage.timestamp).getTime() > 24 * 60 * 60 * 1000 : false;
   const knowledgePanel = renderKnowledgePanel(knowledgeSuggestions, csrf, selectedPhone);
+  const quickReplies = selected ? renderQuickReplies() : "";
   const conversationLinks =
     filteredList.length === 0
       ? `<div class="empty-state">Todavia no hay conversaciones.</div>`
@@ -1113,6 +1147,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
     }
     .button-secondary { background: #334155; }
     .button-danger { background: #b45309; }
+    .mobile-back { display: none; }
     .chat {
       display: flex;
       flex-direction: column;
@@ -1247,6 +1282,21 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       padding: 14px;
     }
     .composer form { display: grid; gap: 10px; }
+    .quick-replies {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+      scrollbar-width: thin;
+    }
+    .quick-reply {
+      flex: 0 0 auto;
+      background: #e2e8f0;
+      color: #0f172a;
+      border: 1px solid #cbd5e1;
+      padding: 8px 10px;
+      font-size: 12px;
+    }
     .file-row {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
@@ -1324,6 +1374,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       gap: 8px;
       margin-top: 10px;
     }
+    .conversation-tools form { display: inline-flex; }
     .error-banner {
       margin: 14px 24px 0;
       padding: 12px 14px;
@@ -1364,21 +1415,88 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       margin: 0;
     }
     @media (max-width: 780px) {
-      header { padding: 0 16px; height: auto; min-height: 72px; gap: 12px; }
+      body { min-height: 100dvh; overflow: hidden; }
+      header { padding: 0 14px; height: 64px; min-height: 64px; gap: 12px; }
+      .brand-mark { width: 34px; height: 34px; border-radius: 10px; }
+      h1 { font-size: 16px; }
       .status { display: none; }
-      main { grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 72px); padding: 12px; }
-      aside { max-height: 34vh; }
-      .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .messages { padding: 16px; }
-      .appointment-card { margin: 12px 16px 0; }
-      .notice, .error-banner { margin: 12px 16px 0; }
+      main { display: block; height: calc(100dvh - 64px); min-height: 0; padding: 0; }
+      body.has-selection aside { display: none; }
+      body.no-selection .chat { display: none; }
+      aside {
+        height: calc(100dvh - 64px);
+        max-height: none;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+      }
+      .sidebar-head {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: rgba(255, 255, 255, 0.96);
+      }
+      .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 10px; }
+      .tools {
+        position: sticky;
+        top: 63px;
+        z-index: 2;
+        background: rgba(255, 255, 255, 0.96);
+      }
+      .thread { padding: 13px 14px; }
+      .thread.active { padding-left: 10px; }
+      .chat {
+        height: calc(100dvh - 64px);
+        min-height: 0;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+      }
+      .chat-title {
+        padding: 12px 14px;
+        align-items: flex-start;
+        gap: 10px;
+      }
+      .chat-title > div:first-child { min-width: 0; }
+      .chat-title span { display: block; margin-top: 3px; }
+      .chat-actions { justify-content: flex-start; margin-top: 8px; }
+      .mobile-back { display: inline-flex; }
+      .conversation-tools {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .conversation-tools .button-link,
+      .conversation-tools button {
+        width: 100%;
+        text-align: center;
+        font-size: 12px;
+        padding: 9px 8px;
+      }
+      .conversation-tools form { display: flex; min-width: 0; }
+      .messages { padding: 12px; }
+      .appointment-card { margin: 10px 12px 0; }
+      .notice, .error-banner { margin: 10px 12px 0; }
       .appointment-grid { grid-template-columns: 1fr; }
-      .chat { min-height: 58vh; }
       .bubble { max-width: 92%; }
+      .composer {
+        padding: 10px;
+        padding-bottom: max(10px, env(safe-area-inset-bottom));
+      }
+      .composer form { gap: 8px; }
+      .quick-replies { margin: 0 -2px; padding: 0 2px 4px; }
+      .quick-reply { font-size: 12px; padding: 7px 9px; }
+      .file-row span { display: none; }
+      .composer-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+      }
+      .composer-actions .subtitle { font-size: 11px; }
+      .composer-actions button { width: 100%; }
+      .knowledge { display: none; }
     }
   </style>
 </head>
-<body>
+<body class="${selected ? "has-selection" : "no-selection"}">
   <header>
     <div class="brand">
       <div class="brand-mark">WA</div>
@@ -1432,9 +1550,10 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
           ${
             selected
               ? `<div class="conversation-tools">
+                  <a class="mobile-back button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">← Pacientes</a>
                   <a class="button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">Cerrar conversacion</a>
                   <a class="button-link button-secondary" href="https://wa.me/${encodeURIComponent(selectedPhone)}" target="_blank" rel="noreferrer">Abrir WhatsApp</a>
-                  <button type="button" class="button-secondary" onclick="navigator.clipboard?.writeText('${escapeHtml(selectedPhone)}')">Copiar telefono</button>
+                  <button type="button" class="button-secondary" data-copy-phone="${escapeHtml(selectedPhone)}">Copiar telefono</button>
                   ${
                     selected.botPaused
                       ? `<form method="post" action="/inbox/release"><input name="csrf" type="hidden" value="${escapeHtml(csrf)}"><input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}"><button type="submit">Devolver al bot</button></form>`
@@ -1461,6 +1580,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
               <form method="post" action="/inbox/send" enctype="multipart/form-data">
                 <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
                 <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                ${quickReplies}
                 <textarea name="message" rows="3" maxlength="2000" placeholder="Escribe una respuesta como humano..."></textarea>
                 <label class="file-row">
                   <span>Adjuntar foto, PDF, archivo o video</span>
@@ -1545,6 +1665,23 @@ function renderKnowledgePanel(suggestions, csrf, selectedPhone) {
     <h2>Aprendizaje supervisado</h2>
     ${createForm}
     ${cards}
+  </div>`;
+}
+
+function renderQuickReplies() {
+  const replies = [
+    ["Horarios", "🕒 Claro. ¿Para que dia te gustaria revisar disponibilidad?\n\nPuedes decirme: hoy, mañana, viernes o una fecha especifica."],
+    ["Ubicacion", getIntentResponse("location")],
+    ["Costos", `${getIntentResponse("cost")}\n\n${getIntentResponse("promotion")}`],
+    ["Pago", getIntentResponse("payment_methods")],
+    ["Requisitos", getIntentResponse("appointment_requirements")],
+    ["Urgencias", "⚠️ Si tienes dolor intenso, sangrado abundante o una urgencia, por favor acude a urgencias o contacta directamente al consultorio."]
+  ];
+
+  return `<div class="quick-replies" aria-label="Respuestas rapidas">
+    ${replies
+      .map(([label, text]) => `<button class="quick-reply" type="button" data-template="${escapeHtml(text)}">${escapeHtml(label)}</button>`)
+      .join("")}
   </div>`;
 }
 
