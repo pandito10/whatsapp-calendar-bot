@@ -3,6 +3,13 @@ import path from "node:path";
 
 loadDotEnv();
 
+const implicitUnsignedPilotExpiresAt = "2026-06-16T06:00:00.000Z";
+const allowUnsignedExplicit = process.env.ALLOW_UNSIGNED_WEBHOOKS === "true";
+const allowUnsignedImplicitPilot =
+  process.env.ALLOW_UNSIGNED_WEBHOOKS === undefined &&
+  !process.env.WHATSAPP_APP_SECRET &&
+  (process.env.NODE_ENV ?? "development") === "production";
+
 const required = [
   "WHATSAPP_VERIFY_TOKEN",
   "WHATSAPP_PHONE_NUMBER_ID",
@@ -31,8 +38,8 @@ export const config = {
   whatsappAppSecret: process.env.WHATSAPP_APP_SECRET,
   webhookPathSecret: process.env.WEBHOOK_PATH_SECRET,
   requireWebhookSignature: process.env.REQUIRE_WEBHOOK_SIGNATURE !== "false",
-  allowUnsignedWebhooks: process.env.ALLOW_UNSIGNED_WEBHOOKS === "true",
-  unsignedWebhookExpiresAt: process.env.UNSIGNED_WEBHOOK_EXPIRES_AT,
+  allowUnsignedWebhooks: allowUnsignedExplicit || allowUnsignedImplicitPilot,
+  unsignedWebhookExpiresAt: process.env.UNSIGNED_WEBHOOK_EXPIRES_AT ?? (allowUnsignedImplicitPilot ? implicitUnsignedPilotExpiresAt : undefined),
   doctorWhatsappNumber: process.env.DOCTOR_WHATSAPP_NUMBER,
   inboxPassword: process.env.INBOX_PASSWORD,
   inboxPasswordHash: process.env.INBOX_PASSWORD_HASH,
