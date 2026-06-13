@@ -10,6 +10,30 @@ PHONE_NUMBER_ID="TU_WHATSAPP_PHONE_NUMBER_ID"
 INBOX_PASSWORD="TU_PASSWORD"
 ```
 
+## Smoke automatico recomendado
+
+Antes de probar con pacientes reales, corre:
+
+```bash
+BASE_URL="$BASE_URL" \
+WEBHOOK_PATH_SECRET="$WEBHOOK_SECRET_PATH" \
+WHATSAPP_APP_SECRET="$APP_SECRET" \
+WHATSAPP_PHONE_NUMBER_ID="$PHONE_NUMBER_ID" \
+WHATSAPP_BUSINESS_ACCOUNT_ID="WABA_ID_DE_PRUEBA" \
+WHATSAPP_DISPLAY_PHONE_NUMBER="4778137806" \
+npm run smoke:pilot
+```
+
+Valida:
+
+- `/health/live`
+- `/health/ready`
+- `/inbox` protegido
+- webhook sin firma rechazado
+- webhook con firma aceptado usando payload de status sin mensajes
+
+Este smoke no envia mensajes reales a pacientes; solo verifica que el deploy y la seguridad base esten vivos.
+
 ## Payload de mensaje
 
 Guarda esto como `/tmp/wa-message.json` y cambia `PHONE_NUMBER_ID`.

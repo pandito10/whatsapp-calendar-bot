@@ -16,6 +16,7 @@
     "test:openai": "node scripts/test-ai.js",
     "test:ai": "node scripts/test-ai.js",
     "test:watch": "node --test --watch tests/*.test.js",
+    "smoke:pilot": "node scripts/pilot-smoke.js",
     "doctor": "node scripts/doctor.js",
     "hash:password": "node scripts/hash-password.js"
   }

@@ -491,6 +491,7 @@ Comandos útiles:
 
 ```bash
 npm test
+npm run smoke:pilot
 npm run doctor
 npm run hash:password -- una-clave-larga-y-segura
 ```
