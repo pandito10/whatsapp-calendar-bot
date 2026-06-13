@@ -360,7 +360,7 @@ Recomendacion: antes de usarlo con pacientes reales, prepara un aviso de privaci
 
 Esta versión endurecida agrega varias protecciones para poder probar el robot con menos riesgo en un consultorio real:
 
-- `/health` ahora responde JSON y marca `503` si falta configuración crítica o si la base es obligatoria y no está disponible.
+- `/health` ahora responde JSON diagnóstico con HTTP 200; usa `/health/ready` para readiness estricta con 503 si falta configuración crítica.
 - `/health/live` queda como liveness simple para saber si el proceso está vivo.
 - Las llamadas externas a Google, Supabase y WhatsApp usan timeout configurable con `EXTERNAL_REQUEST_TIMEOUT_MS`.
 - Los reintentos se aplican solo donde son prudentes. No se reintenta automáticamente el envío de WhatsApp ni la creación de eventos para evitar duplicados.
@@ -410,7 +410,7 @@ Total actual de pruebas: 20.
 Esta ronda agrega controles para acercar el robot a una prueba real con consultorio:
 
 - `src/readiness.js` calcula si el entorno está `ready`, `almost-ready` o `not-ready`.
-- `/health` ahora incluye un bloque `readiness` con score y checks bloqueantes.
+- `/health` incluye un bloque `readiness` con score y checks bloqueantes; `/health/ready` usa ese diagnóstico para devolver 503 cuando hay problemas críticos.
 - `/health/live` responde `503` durante cierre elegante para reinicios/deploys más seguros.
 - El servidor escucha `SIGTERM` y `SIGINT` para cerrar de forma ordenada en Render.
 - `npm run doctor` valida configuración y salud antes de usar pacientes reales.

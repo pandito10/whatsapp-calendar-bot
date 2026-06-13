@@ -11,7 +11,7 @@ El bot debe correr en una URL HTTPS fija. Render funciona bien para el piloto pr
 ```text
 Build command: npm install
 Start command: npm start
-Health check path: /health
+Health check path: /health/live
 Plan: starter
 ```
 

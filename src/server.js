@@ -111,13 +111,18 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/health") {
-      await handleHealth(req, res);
+      await handleHealth(req, res, { strict: false });
       return;
     }
 
     if (req.method === "GET" && url.pathname === "/health/live") {
       const status = isShuttingDown ? 503 : 200;
       res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" }).end(JSON.stringify({ app: isShuttingDown ? "shutting_down" : "ok", time: new Date().toISOString() }));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/health/ready") {
+      await handleHealth(req, res, { strict: true });
       return;
     }
 
@@ -330,7 +335,7 @@ function validateWhatsAppPayload(body) {
   return { ok: true };
 }
 
-async function handleHealth(req, res) {
+async function handleHealth(req, res, options = {}) {
   const db = await checkDatabaseHealth();
   const health = buildOperationalHealth({
     db,
@@ -340,7 +345,7 @@ async function handleHealth(req, res) {
   });
 
   res
-    .writeHead(isOperationallyUnhealthy(health) ? 503 : 200, { "Content-Type": "application/json; charset=utf-8" })
+    .writeHead(options.strict && isOperationallyUnhealthy(health) ? 503 : 200, { "Content-Type": "application/json; charset=utf-8" })
     .end(JSON.stringify(health));
 }
 

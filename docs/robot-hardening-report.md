@@ -24,7 +24,7 @@ Dejar el robot más estable, seguro y presentable para probarlo con un consultor
 ### Health check
 
 - `/health` ahora responde JSON con estado de app, base de datos, WhatsApp, Google, inbox y firma de webhook.
-- `/health` devuelve `503` si falta configuración crítica o si la DB es obligatoria y falla.
+- `/health/ready` devuelve `503` si falta configuración crítica o si la DB es obligatoria y falla; `/health` queda como diagnóstico HTTP 200.
 - `/health/live` queda como liveness simple.
 
 ### Inbox
@@ -199,4 +199,4 @@ Pendiente real para poder decir 10/10 operativo:
 - Ejecutar `npm run doctor` en Render con variables reales.
 - Hacer prueba real WhatsApp → Calendar → Supabase → Inbox con el número oficial.
 - Probar doble booking con dos conversaciones simultáneas reales o con test de integración usando Supabase de staging.
-- Configurar monitoreo externo contra `/health` y `/health/live`.
+- Configurar monitoreo externo contra `/health`, `/health/live` y `/health/ready`.
