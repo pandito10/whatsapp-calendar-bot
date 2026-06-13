@@ -4,6 +4,7 @@ import { URL } from "node:url";
 import { understandMessage } from "./ai.js";
 import { cancelAppointment, createAppointment, findAvailableSlots, isClinicWorkDateISO, isSlotAvailable } from "./calendar.js";
 import { config } from "./config.js";
+import { readForm, readRawBody } from "./form.js";
 import { redactSecrets } from "./http.js";
 import {
   buildAdminAppointmentNotification,
@@ -43,7 +44,7 @@ import {
   setConversationHumanMode,
   setSession
 } from "./db.js";
-import { sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.js";
+import { sendWhatsAppMedia, sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.js";
 
 const sessions = new Map();
 const processedMessages = new Map();
@@ -89,7 +90,7 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(415, { "Content-Type": "text/plain; charset=utf-8" }).end("unsupported media type");
         return;
       }
-      const rawBody = await readRawBody(req);
+      const rawBody = await readRawBody(req, config.maxRequestBytes);
       if (!isValidWebhookSignature(req, rawBody)) {
         res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
         return;
@@ -398,7 +399,7 @@ async function handleInboxSend(req, url, res) {
     return;
   }
 
-  const form = await readForm(req);
+  const form = await readForm(req, { maxBytes: config.inboxMediaMaxBytes + config.maxRequestBytes });
   if (!isValidCsrf(req, form.get("csrf"))) {
     res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
     return;
@@ -406,16 +407,47 @@ async function handleInboxSend(req, url, res) {
 
   const phone = normalizePhone(form.get("phone") ?? "");
   const message = String(form.get("message") ?? "").trim();
-  if (!isValidWhatsAppPhone(phone) || !message || message.length > 2000) {
+  const attachment = form.getFile?.("attachment");
+  const validAttachment = attachment && attachment.size > 0 ? attachment : undefined;
+  const attachmentValidation = validAttachment ? validateInboxAttachment(validAttachment) : undefined;
+
+  if (!isValidWhatsAppPhone(phone) || (!message && !validAttachment) || message.length > 2000) {
     await redirectInbox(res, phone, "Mensaje invalido o telefono invalido.");
+    return;
+  }
+  if (message && validAttachment && message.length > 1024) {
+    await redirectInbox(res, phone, "El texto con archivo debe ser de maximo 1024 caracteres.");
+    return;
+  }
+  if (attachmentValidation) {
+    await redirectInbox(res, phone, attachmentValidation);
     return;
   }
 
   try {
-    await sendWhatsAppText(phone, message);
-    await recordConversationMessage(phone, "human", message, { source: "inbox" });
+    if (validAttachment) {
+      const mediaResult = await sendWhatsAppMedia(phone, validAttachment, { caption: message });
+      await recordConversationMessage(
+        phone,
+        "human",
+        buildInboxAttachmentBody(validAttachment, mediaResult.mediaType, message),
+        {
+          source: "inbox",
+          media: {
+            id: mediaResult.mediaId,
+            type: mediaResult.mediaType,
+            filename: validAttachment.filename,
+            contentType: validAttachment.contentType,
+            size: validAttachment.size
+          }
+        }
+      );
+    } else {
+      await sendWhatsAppText(phone, message);
+      await recordConversationMessage(phone, "human", message, { source: "inbox" });
+      await saveHumanKnowledgeSuggestion(phone, message);
+    }
     await markConversationHumanReply(phone);
-    await saveHumanKnowledgeSuggestion(phone, message);
     console.log(`Inbox human reply sent to ${maskPhone(phone)}`);
     await redirectInbox(res, phone);
   } catch (error) {
@@ -424,9 +456,49 @@ async function handleInboxSend(req, url, res) {
   }
 }
 
+function validateInboxAttachment(file) {
+  if (file.size > config.inboxMediaMaxBytes) {
+    return `El archivo supera el limite de ${formatFileSize(config.inboxMediaMaxBytes)}.`;
+  }
+
+  const contentType = String(file.contentType ?? "").toLowerCase();
+  const filename = String(file.filename ?? "").toLowerCase();
+  const extension = filename.includes(".") ? filename.slice(filename.lastIndexOf(".")) : "";
+  const allowedTypes = new Set([
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "video/mp4",
+    "video/3gpp",
+    "application/pdf",
+    "text/plain",
+    "text/csv",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+  ]);
+  const allowedExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".mp4", ".3gp", ".pdf", ".txt", ".csv", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"]);
+
+  if (!allowedTypes.has(contentType) && !(contentType === "application/octet-stream" && allowedExtensions.has(extension))) {
+    return "Tipo de archivo no permitido. Usa foto, video, PDF, Word, Excel, PowerPoint, TXT o CSV.";
+  }
+
+  return undefined;
+}
+
+function buildInboxAttachmentBody(file, mediaType, caption) {
+  const label = mediaType === "image" ? "Imagen enviada" : mediaType === "video" ? "Video enviado" : "Archivo enviado";
+  const lines = [`${mediaType === "image" ? "🖼️" : mediaType === "video" ? "🎥" : "📎"} ${label}: ${file.filename}`];
+  if (caption) lines.push("", caption);
+  return lines.join("\n");
+}
+
 async function handleKnowledgeReview(req, url, res) {
   if (!hasInboxAccess(req, url, res)) return;
-  const form = await readForm(req);
+  const form = await readForm(req, { maxBytes: config.maxRequestBytes });
   if (!isValidCsrf(req, form.get("csrf"))) {
     res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
     return;
@@ -450,7 +522,7 @@ async function handleInboxTakeover(req, url, res) {
     return;
   }
 
-  const form = await readForm(req);
+  const form = await readForm(req, { maxBytes: config.maxRequestBytes });
   if (!isValidCsrf(req, form.get("csrf"))) {
     res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
     return;
@@ -474,7 +546,7 @@ async function handleInboxRelease(req, url, res) {
     return;
   }
 
-  const form = await readForm(req);
+  const form = await readForm(req, { maxBytes: config.maxRequestBytes });
   if (!isValidCsrf(req, form.get("csrf"))) {
     res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
     return;
@@ -575,7 +647,7 @@ async function handleInboxLogin(req, res) {
     return;
   }
 
-  const params = await readForm(req);
+  const params = await readForm(req, { maxBytes: config.maxRequestBytes });
   if (!isValidLoginCsrf(req, params.get("csrf"))) {
     handleInboxLoginPage(req, res, "No se pudo iniciar sesion.");
     return;
@@ -720,10 +792,12 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
         .map((message) => {
           const side = message.sender === "bot" ? "bot" : message.sender === "human" || message.sender === "admin" ? "human" : "patient";
           const label = message.sender === "bot" ? "Bot" : message.sender === "human" || message.sender === "admin" ? "Humano" : "Paciente";
+          const media = renderInboxMessageMedia(message.metadata?.media);
           return `<div class="message ${side}">
             <div class="bubble">
               <div class="meta">${label} · ${formatInboxDate(message.timestamp)}</div>
               <div class="body">${escapeHtml(message.body).replaceAll("\n", "<br>")}</div>
+              ${media}
             </div>
           </div>`;
         })
@@ -1087,6 +1161,21 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       margin-bottom: 6px;
     }
     .body { font-size: 14px; }
+    .attachment-card {
+      display: grid;
+      gap: 2px;
+      margin-top: 10px;
+      padding: 10px 11px;
+      border: 1px solid rgba(15, 118, 110, 0.2);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.72);
+      font-size: 13px;
+    }
+    .attachment-card span {
+      color: #334155;
+      overflow-wrap: anywhere;
+    }
+    .attachment-card small { color: var(--muted); }
     .notice {
       margin: 14px 24px 0;
       padding: 12px 14px;
@@ -1103,6 +1192,21 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       padding: 14px;
     }
     .composer form { display: grid; gap: 10px; }
+    .file-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 6px;
+      color: #475569;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .file-row input {
+      border: 1px dashed #94a3b8;
+      border-radius: 10px;
+      padding: 10px;
+      background: #f8fafc;
+      font: inherit;
+    }
     .composer-actions {
       display: flex;
       flex-wrap: wrap;
@@ -1285,12 +1389,16 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       ${
         selected
           ? `<div class="composer">
-              <form method="post" action="/inbox/send">
+              <form method="post" action="/inbox/send" enctype="multipart/form-data">
                 <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
                 <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
-                <textarea name="message" rows="3" maxlength="2000" placeholder="Escribe una respuesta como humano..." required></textarea>
+                <textarea name="message" rows="3" maxlength="2000" placeholder="Escribe una respuesta como humano..."></textarea>
+                <label class="file-row">
+                  <span>Adjuntar foto, PDF, archivo o video</span>
+                  <input name="attachment" type="file" accept="image/*,video/mp4,video/3gpp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv">
+                </label>
                 <div class="composer-actions">
-                  <span class="subtitle">Se enviara por WhatsApp y se guardara como Humano.</span>
+                  <span class="subtitle">Se enviara por WhatsApp y se guardara como Humano. Max ${formatFileSize(config.inboxMediaMaxBytes)} por archivo.</span>
                   <button type="submit">Enviar respuesta</button>
                 </div>
               </form>
@@ -1446,6 +1554,18 @@ function renderAppointmentCard(appointment) {
       <div><span>Primera vez</span>${escapeHtml(appointment.firstVisit ?? "No capturado")}</div>
       <div><span>Estado</span>${escapeHtml(appointment.status ?? "confirmed")}</div>
     </div>
+  </div>`;
+}
+
+function renderInboxMessageMedia(media) {
+  if (!media) return "";
+  const label = media.type === "image" ? "Imagen" : media.type === "video" ? "Video" : "Archivo";
+  const icon = media.type === "image" ? "🖼️" : media.type === "video" ? "🎥" : "📎";
+  const detail = [media.contentType, media.size ? formatFileSize(media.size) : undefined].filter(Boolean).join(" · ");
+  return `<div class="attachment-card">
+    <strong>${icon} ${escapeHtml(label)}</strong>
+    <span>${escapeHtml(media.filename ?? "archivo")}</span>
+    ${detail ? `<small>${escapeHtml(detail)}</small>` : ""}
   </div>`;
 }
 
@@ -2476,6 +2596,13 @@ function formatMoney(value) {
   return `$${new Intl.NumberFormat("es-MX", { maximumFractionDigits: 0 }).format(amount)}`;
 }
 
+function formatFileSize(bytes) {
+  const size = Number(bytes);
+  if (!Number.isFinite(size) || size <= 0) return "0 MB";
+  if (size < 1024 * 1024) return `${Math.ceil(size / 1024)} KB`;
+  return `${Math.round((size / 1024 / 1024) * 10) / 10} MB`;
+}
+
 async function answerFromApprovedKnowledge(normalizedText) {
   if (!normalizedText || isAppointmentLikeQuestion(normalizedText)) return undefined;
 
@@ -2622,19 +2749,6 @@ function isValidWebhookSignature(req, rawBody) {
   });
 }
 
-async function readRawBody(req) {
-  const chunks = [];
-  let size = 0;
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size > config.maxRequestBytes) {
-      throw new Error(`Request body too large: ${size} bytes`);
-    }
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
-}
-
 function setSecurityHeaders(res) {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
@@ -2729,11 +2843,6 @@ function isUnsignedWebhookExpired() {
   if (!config.unsignedWebhookExpiresAt) return false;
   const expiresAt = new Date(config.unsignedWebhookExpiresAt).getTime();
   return Number.isFinite(expiresAt) && Date.now() > expiresAt;
-}
-
-async function readForm(req) {
-  const rawBody = await readRawBody(req);
-  return new URLSearchParams(rawBody.toString("utf8"));
 }
 
 function redirectInbox(res, phone, error) {

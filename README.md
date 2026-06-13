@@ -128,12 +128,14 @@ El inbox permite:
 - Buscar por nombre o telefono.
 - Filtrar por pendientes, cita agendada o modo humano.
 - Responder desde `/inbox` como humano.
+- Enviar un adjunto por respuesta: foto, video, PDF, Word, Excel, PowerPoint, TXT o CSV.
 - Tomar una conversacion para pausar el bot.
 - Devolver la conversacion al bot.
 - Ver aviso cuando la ultima interaccion del paciente fue hace mas de 24 horas.
 - Revisar respuestas humanas como sugerencias de aprendizaje supervisado.
 
 Las acciones del inbox requieren sesion y CSRF. Los mensajes humanos se envian por WhatsApp desde backend y se guardan solo despues de respuesta exitosa de la API.
+Los adjuntos se suben primero a la Media API de WhatsApp y despues se envian como `image`, `video` o `document`. Supabase solo guarda metadata del envio (nombre, tipo, tamano e id de Meta), no el archivo completo. Esto reduce el riesgo de almacenar resultados medicos en la base del bot.
 Si una conversacion queda en modo humano mas de `BOT_PAUSE_TIMEOUT_MINUTES`, el bot la libera automaticamente al recibir un nuevo mensaje.
 
 ## Aprendizaje supervisado
@@ -420,6 +422,8 @@ Terceros involucrados:
 
 Recomendacion: antes de usarlo con pacientes reales, prepara un aviso de privacidad del consultorio. Evita pedir sintomas, diagnosticos o informacion intima por WhatsApp. No uses este bot como expediente medico. Por default, el motivo que escriba el paciente no se manda a Google Calendar ni al aviso de admin; se recomienda revisar detalles sensibles solo en el inbox con personal autorizado.
 
+Si el personal envia resultados, fotos o archivos desde el inbox, recuerda que viajan por WhatsApp/Meta y quedan sujetos a las politicas y retencion de esa plataforma. El bot no guarda el archivo completo en Supabase; solo guarda metadata del envio para auditoria basica.
+
 ## Hardening técnico agregado
 
 Esta versión endurecida agrega varias protecciones para poder probar el robot con menos riesgo en un consultorio real:
@@ -439,6 +443,7 @@ Esta versión endurecida agrega varias protecciones para poder probar el robot c
 EXTERNAL_REQUEST_TIMEOUT_MS=8000
 EXTERNAL_REQUEST_RETRIES=2
 INBOX_ALLOW_LEGACY_TOKEN_ACCESS=false
+INBOX_MEDIA_MAX_BYTES=16000000
 FORWARD_CONVERSATION_BODIES=false
 MASK_PATIENT_PHONE_IN_CALENDAR=true
 INCLUDE_PATIENT_CONTACT_IN_CALENDAR=false
