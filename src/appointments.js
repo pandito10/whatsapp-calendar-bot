@@ -34,6 +34,24 @@ export function buildPatientConfirmationMessage({ name, slot, email }) {
   return `✅ Listo, ${safeName}. Tu cita quedo agendada para ${slot.label}.${config.clinicAddress ? `\n\n📍 Ubicacion: ${config.clinicAddress}` : ""}${email ? "\n\n📩 Google Calendar tambien enviara la confirmacion a tu correo." : ""}\n\n⚠️ Si tienes dolor intenso, sangrado abundante o una urgencia, por favor acude a urgencias o contacta directamente al consultorio.`;
 }
 
+export function buildAppointmentReviewMessage({ name, slot, email, firstVisit, paymentType }) {
+  const lines = [
+    "Antes de confirmar, revisa que todo este correcto 😊",
+    "",
+    `👤 Paciente: ${sanitizeShortText(name || "Paciente", 80)}`,
+    `📅 Fecha y hora: ${slot.label}`,
+    email ? `📩 Correo: ${sanitizeShortText(email, 120)}` : undefined,
+    firstVisit ? `📝 Primera vez: ${sanitizeShortText(firstVisit, 40)}` : undefined,
+    paymentType ? `💳 Tipo: ${sanitizeShortText(paymentType, 80)}` : undefined,
+    config.clinicAddress ? `📍 Ubicacion: ${config.clinicAddress}` : undefined,
+    "",
+    "¿Confirmo esta cita?",
+    "Responde SI para agendarla o NO para elegir otro horario."
+  ];
+
+  return lines.filter(Boolean).join("\n");
+}
+
 export function buildAdminAppointmentNotification({ name, from, slot, session }) {
   const lines = [
     "📅 Nueva cita por WhatsApp:",

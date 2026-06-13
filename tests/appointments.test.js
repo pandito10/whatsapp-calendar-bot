@@ -16,6 +16,7 @@ process.env.CLINIC_END_TIME = "20:00";
 const {
   validateSlotSelection,
   buildAdminAppointmentNotification,
+  buildAppointmentReviewMessage,
   buildPatientConfirmationMessage,
   classifyAppointmentError,
   sanitizeShortText
@@ -54,6 +55,19 @@ test("confirmacion al paciente incluye advertencia de urgencias", () => {
   const message = buildPatientConfirmationMessage({ name: "Ana", slot: validSlot, email: "ana@example.com" });
   assert.match(message, /quedo agendada/i);
   assert.match(message, /urgencias/i);
+});
+
+test("resumen previo pide confirmacion antes de agendar", () => {
+  const message = buildAppointmentReviewMessage({
+    name: "Ana",
+    slot: validSlot,
+    email: "ana@example.com",
+    firstVisit: "Si",
+    paymentType: "Particular"
+  });
+  assert.match(message, /antes de confirmar/i);
+  assert.match(message, /responde SI/i);
+  assert.match(message, /NO para elegir otro horario/i);
 });
 
 test("clasifica errores de calendario y base de datos", () => {

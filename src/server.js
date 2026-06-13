@@ -7,6 +7,7 @@ import { config } from "./config.js";
 import { redactSecrets } from "./http.js";
 import {
   buildAdminAppointmentNotification,
+  buildAppointmentReviewMessage,
   buildManualReviewMessage,
   buildPatientConfirmationMessage,
   classifyAppointmentError,
@@ -1535,6 +1536,8 @@ async function handleIncomingText(from, text) {
     }
   }
 
+  const existing = await getPatientSession(from);
+
   if (detectedIntent.intent === "medical_urgent") {
     await replyToPatient(from, getIntentResponse("medical_urgent"));
     return;
@@ -1561,12 +1564,12 @@ async function handleIncomingText(from, text) {
     return;
   }
 
-  if (detectedIntent.intent === "confirm_appointment") {
+  if (detectedIntent.intent === "confirm_appointment" && existing?.step !== "confirmingAppointment") {
     await handleConfirmAppointmentRequest(from);
     return;
   }
 
-  if (detectedIntent.intent === "closing") {
+  if (detectedIntent.intent === "closing" && existing?.step !== "confirmingAppointment") {
     await deletePatientSession(from);
     await replyToPatient(from, getIntentResponse("closing"));
     return;
@@ -1577,7 +1580,6 @@ async function handleIncomingText(from, text) {
     return;
   }
 
-  const existing = await getPatientSession(from);
   const dateLikeRequest = looksLikeDateRequest(normalized);
   if (!existing && !dateLikeRequest) {
     const menuHandled = await handleMenuOption(from, normalized, detectedIntent.intent);
@@ -1629,14 +1631,30 @@ async function handleIncomingText(from, text) {
     preferredDateText: parsed.preferredDateText ?? existing?.preferredDateText,
     preferredDateISO: parsed.preferredDateISO ?? existing?.preferredDateISO,
     offeredSlots: existing?.offeredSlots,
+    pendingSlot: existing?.pendingSlot,
     rescheduleFromCitaId: existing?.rescheduleFromCitaId,
     rescheduleFromGoogleEventId: existing?.rescheduleFromGoogleEventId,
     availabilityOnly: existing?.availabilityOnly ?? (!existing && parsed.intent === "check_availability")
   };
 
+  if (session.step === "confirmingAppointment") {
+    if (isAffirmativeConfirmation(normalized)) {
+      await confirmAppointmentFromSession(from, session);
+      return;
+    }
+
+    if (isNegativeConfirmation(normalized)) {
+      await resetSlotSelection(from, session);
+      await replyToPatient(from, "Sin problema 😊 No agende esa cita. Dime que otra fecha quieres revisar y te paso horarios disponibles.");
+      return;
+    }
+
+    await replyToPatient(from, "Para confirmar la cita responde SI. Si prefieres otro horario, responde NO.");
+    return;
+  }
+
   if (session.step === "choosingSlot" && parsed.selectedSlotIndex) {
     const slot = session.offeredSlots?.[parsed.selectedSlotIndex - 1];
-    const name = session.name ?? "Paciente";
     const slotValidation = validateSlotSelection({ slot, session, selectedSlotIndex: parsed.selectedSlotIndex });
 
     if (!slotValidation.ok) {
@@ -1645,69 +1663,14 @@ async function handleIncomingText(from, text) {
       return;
     }
 
-    let lock;
-    let event;
-    try {
-      lock = await lockAppointmentSlot(from, slot);
-      if (lock === false) {
-        await resetSlotSelection(from, session);
-        await replyToPatient(
-          from,
-          "😕 Ese horario se acaba de apartar. Dime que dia te gustaria revisar y te paso nuevos horarios disponibles."
-        );
-        return;
-      }
-
-      const stillAvailable = await isSlotAvailable(slot);
-      if (!stillAvailable) {
-        await resetSlotSelection(from, session);
-        await replyToPatient(
-          from,
-          "😕 Ese horario se acaba de ocupar. Dime que dia te gustaria revisar y te paso nuevos horarios disponibles."
-        );
-        return;
-      }
-
-      event = await createAppointment(slot, {
-        name,
-        phone: from,
-        email: session.email,
-        firstVisit: session.firstVisit,
-        paymentType: session.paymentType,
-        reason: config.includeSensitiveAppointmentNotes ? session.reason : undefined
-      });
-
-      const cita = await saveConfirmedCita(from, session, slot, event);
-      await scheduleAppointmentReminder(from, session, slot, cita);
-      await cancelPreviousRescheduledAppointment(session);
-      await deletePatientSession(from);
-
-      await replyToPatient(from, buildPatientConfirmationMessage({ name, slot, email: session.email }));
-      await sendWhatsAppText(
-        config.doctorWhatsappNumber,
-        buildAdminAppointmentNotification({ name, from, slot, session })
-      );
-      return;
-    } catch (error) {
-      if (event?.id) {
-        try {
-          await cancelAppointment(event.id);
-        } catch (cancelError) {
-          logSafeError("Could not rollback Google Calendar event after appointment failure", cancelError);
-        }
-      }
-      const failureType = classifyAppointmentError(error);
-      logSafeError(`Could not confirm appointment for ${maskPhone(from)} [${failureType}]`, error);
-      await resetSlotSelection(from, session);
-      await replyToPatient(from, buildManualReviewMessage());
-      await safeSendWhatsAppText(
-        config.doctorWhatsappNumber,
-        `⚠️ Error al confirmar cita por WhatsApp (${failureType}). Telefono: ${maskPhone(from)}. Revisa Calendar/Supabase antes de confirmar manualmente.`
-      );
-      return;
-    } finally {
-      if (lock && typeof lock === "object") await releaseAppointmentLock(lock.token);
-    }
+    await setPatientSession(from, {
+      ...session,
+      step: "confirmingAppointment",
+      pendingSlot: slot,
+      pendingSlotSelectedIndex: parsed.selectedSlotIndex
+    });
+    await replyToPatient(from, buildAppointmentReviewMessage({ ...session, slot }));
+    return;
   }
 
   if (session.availabilityOnly && session.preferredDateText) {
@@ -1796,6 +1759,84 @@ async function offerAvailableSlots(from, session, options = {}) {
   );
 }
 
+async function confirmAppointmentFromSession(from, session) {
+  const slot = session.pendingSlot;
+  const name = session.name ?? "Paciente";
+  const slotValidation = validateSlotSelection({
+    slot,
+    session: { ...session, offeredSlots: [slot] },
+    selectedSlotIndex: 1
+  });
+
+  if (!slotValidation.ok) {
+    await resetSlotSelection(from, session);
+    await replyToPatient(from, "Ese horario ya no es valido. Dime que dia quieres revisar y te paso nuevos horarios disponibles.");
+    return;
+  }
+
+  let lock;
+  let event;
+  try {
+    lock = await lockAppointmentSlot(from, slot);
+    if (lock === false) {
+      await resetSlotSelection(from, session);
+      await replyToPatient(
+        from,
+        "😕 Ese horario se acaba de apartar. Dime que dia te gustaria revisar y te paso nuevos horarios disponibles."
+      );
+      return;
+    }
+
+    const stillAvailable = await isSlotAvailable(slot);
+    if (!stillAvailable) {
+      await resetSlotSelection(from, session);
+      await replyToPatient(
+        from,
+        "😕 Ese horario se acaba de ocupar. Dime que dia te gustaria revisar y te paso nuevos horarios disponibles."
+      );
+      return;
+    }
+
+    event = await createAppointment(slot, {
+      name,
+      phone: from,
+      email: session.email,
+      firstVisit: session.firstVisit,
+      paymentType: session.paymentType,
+      reason: config.includeSensitiveAppointmentNotes ? session.reason : undefined
+    });
+
+    const cita = await saveConfirmedCita(from, session, slot, event);
+    await scheduleAppointmentReminder(from, session, slot, cita);
+    await cancelPreviousRescheduledAppointment(session);
+    await deletePatientSession(from);
+
+    await replyToPatient(from, buildPatientConfirmationMessage({ name, slot, email: session.email }));
+    await sendWhatsAppText(
+      config.doctorWhatsappNumber,
+      buildAdminAppointmentNotification({ name, from, slot, session })
+    );
+  } catch (error) {
+    if (event?.id) {
+      try {
+        await cancelAppointment(event.id);
+      } catch (cancelError) {
+        logSafeError("Could not rollback Google Calendar event after appointment failure", cancelError);
+      }
+    }
+    const failureType = classifyAppointmentError(error);
+    logSafeError(`Could not confirm appointment for ${maskPhone(from)} [${failureType}]`, error);
+    await resetSlotSelection(from, session);
+    await replyToPatient(from, buildManualReviewMessage());
+    await safeSendWhatsAppText(
+      config.doctorWhatsappNumber,
+      `⚠️ Error al confirmar cita por WhatsApp (${failureType}). Telefono: ${maskPhone(from)}. Revisa Calendar/Supabase antes de confirmar manualmente.`
+    );
+  } finally {
+    if (lock && typeof lock === "object") await releaseAppointmentLock(lock.token);
+  }
+}
+
 function buildAvailabilityIntro(session, slots) {
   const requestedDateISO = session.preferredDateISO;
   const requestedDate = requestedDateISO ? dateOnlyFromISO(requestedDateISO) : undefined;
@@ -1843,7 +1884,9 @@ async function resetSlotSelection(from, session) {
     step: "collecting",
     preferredDateText: undefined,
     preferredDateISO: undefined,
-    offeredSlots: undefined
+    offeredSlots: undefined,
+    pendingSlot: undefined,
+    pendingSlotSelectedIndex: undefined
   });
 }
 
@@ -2155,22 +2198,52 @@ async function cancelPreviousRescheduledAppointment(session) {
 }
 
 async function scheduleAppointmentReminder(phoneNumber, session, slot, cita) {
-  const remindAt = new Date(new Date(slot.start).getTime() - 24 * 60 * 60 * 1000);
-  if (remindAt <= new Date()) return;
-
-  try {
-    await scheduleReminder({
-      citaId: cita?.id,
+  const slotStartMs = new Date(slot.start).getTime();
+  const reminders = [
+    {
       phoneNumber: config.doctorWhatsappNumber,
       reminderType: "admin_24h",
-      remindAt: remindAt.toISOString(),
+      remindAt: new Date(slotStartMs - 24 * 60 * 60 * 1000),
       payload: {
         patientPhone: phoneNumber,
         patientName: session.name,
         slotLabel: slot.label,
         slotStart: slot.start
       }
-    });
+    },
+    {
+      phoneNumber,
+      reminderType: "patient_24h",
+      remindAt: new Date(slotStartMs - 24 * 60 * 60 * 1000),
+      payload: {
+        patientName: session.name,
+        slotLabel: slot.label,
+        slotStart: slot.start
+      }
+    },
+    {
+      phoneNumber,
+      reminderType: "patient_2h",
+      remindAt: new Date(slotStartMs - 2 * 60 * 60 * 1000),
+      payload: {
+        patientName: session.name,
+        slotLabel: slot.label,
+        slotStart: slot.start
+      }
+    }
+  ];
+
+  try {
+    for (const reminder of reminders) {
+      if (reminder.remindAt <= new Date()) continue;
+      await scheduleReminder({
+        citaId: cita?.id,
+        phoneNumber: reminder.phoneNumber,
+        reminderType: reminder.reminderType,
+        remindAt: reminder.remindAt.toISOString(),
+        payload: reminder.payload
+      });
+    }
   } catch (error) {
     logSafeError("Could not schedule appointment reminder", error);
   }
@@ -2210,6 +2283,22 @@ async function sendReminder(reminder) {
       `⏰ Recordatorio de cita mañana:\nPaciente: ${reminder.payload.patientName ?? "Paciente"}\nFecha: ${
         reminder.payload.slotLabel ?? formatAppointmentFull(reminder.payload.slotStart)
       }\nTelefono: ${reminder.payload.patientPhone ?? "No capturado"}`
+    );
+    return;
+  }
+
+  if (reminder.reminderType === "patient_24h") {
+    await sendWhatsAppText(
+      reminder.phoneNumber,
+      `⏰ Hola ${reminder.payload.patientName ?? ""}. Te recordamos tu cita de mañana:\n${reminder.payload.slotLabel ?? formatAppointmentFull(reminder.payload.slotStart)}.\n\nSi necesitas cancelar o cambiar tu cita, responde CANCELAR o REAGENDAR.`
+    );
+    return;
+  }
+
+  if (reminder.reminderType === "patient_2h") {
+    await sendWhatsAppText(
+      reminder.phoneNumber,
+      `⏰ Te recordamos que tu cita es en aproximadamente 2 horas:\n${reminder.payload.slotLabel ?? formatAppointmentFull(reminder.payload.slotStart)}.\n\nTe esperamos 😊`
     );
   }
 }
@@ -2390,6 +2479,14 @@ function isResetCommand(text) {
 
 function isConversationClosing(text) {
   return /^(?:gracias|muchas gracias|ok gracias|okay gracias|listo gracias|perfecto gracias|esta bien gracias|sale gracias|va gracias|ya gracias|no gracias|por ahora no|seria todo|eso es todo|listo|ok|okay|va|sale|perfecto)$/.test(text);
+}
+
+function isAffirmativeConfirmation(text) {
+  return /^(?:si|sí|confirmo|confirmar|correcto|asi esta bien|esta bien|ok|okay|va|sale|adelante)$/.test(text);
+}
+
+function isNegativeConfirmation(text) {
+  return /^(?:no|nel|mejor no|no confirmar|cambiar|otro horario|otra fecha|no gracias)$/.test(text);
 }
 
 function isCancellationRequest(text) {
