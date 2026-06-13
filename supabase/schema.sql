@@ -189,3 +189,22 @@ select
   error_message,
   created_at
 from public.citas;
+
+grant usage on schema public to service_role;
+
+grant select, insert, update, delete on table
+  public.conversations,
+  public.messages,
+  public.sessions,
+  public.citas,
+  public.appointment_locks,
+  public.appointment_reminders,
+  public.processed_whatsapp_messages,
+  public.knowledge_suggestions
+to service_role;
+
+grant select on table public.appointments to service_role;
+grant usage, select on all sequences in schema public to service_role;
+
+grant execute on function public.cleanup_processed_whatsapp_messages(integer) to service_role;
+grant execute on function public.cleanup_expired_appointment_locks() to service_role;
