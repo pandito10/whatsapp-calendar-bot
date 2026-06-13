@@ -14,6 +14,8 @@ services:
         sync: false
       - key: WHATSAPP_ACCESS_TOKEN
         sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
       - key: WHATSAPP_PHONE_NUMBER_ID
         sync: false
       - key: WHATSAPP_BUSINESS_ACCOUNT_ID
@@ -25,7 +27,7 @@ services:
       - key: REQUIRE_WEBHOOK_SIGNATURE
         value: "true"
       - key: ALLOW_UNSIGNED_WEBHOOKS
-        value: "true"
+        value: "false"
       - key: UNSIGNED_WEBHOOK_EXPIRES_AT
         sync: false
       - key: WEBHOOK_PATH_SECRET
@@ -41,15 +43,17 @@ services:
       - key: INBOX_SESSION_HOURS
         value: "8"
       - key: MAX_REQUEST_BYTES
-        value: "256000"
+        value: "128000"
       - key: WEBHOOK_RATE_LIMIT_PER_MINUTE
-        value: "600"
+        value: "120"
       - key: WEBHOOK_PHONE_RATE_LIMIT_PER_MINUTE
-        value: "30"
+        value: "10"
       - key: INBOX_RATE_LIMIT_PER_MINUTE
         value: "60"
       - key: INBOX_SEND_RATE_LIMIT_PER_MINUTE
         value: "20"
+      - key: INBOX_ACTION_RATE_LIMIT_PER_MINUTE
+        value: "30"
       - key: INBOX_LOGIN_RATE_LIMIT_PER_15_MINUTES
         value: "5"
       - key: ENABLE_REMINDER_WORKER
@@ -76,11 +80,27 @@ services:
         value: Consultorio Ginecologico
       - key: APPOINTMENT_MINUTES
         value: 40
+      - key: APPOINTMENT_DURATION_MINUTES
+        value: 40
       - key: MAX_OFFERED_SLOTS
         value: 6
       - key: WORK_DAYS
         value: 1,2,3,4,5
+      - key: CLINIC_WORK_DAYS
+        value: 1,2,3,4,5
       - key: WORK_START
+        value: 16:40
+      - key: CLINIC_START_TIME
         value: 16:40
       - key: WORK_END
         value: 20:00
+      - key: CLINIC_END_TIME
+        value: 20:00
+      - key: CONSULTATION_PRICE
+        value: 1000
+      - key: PROMOTION_PRICE
+        value: 1200
+      - key: CLINIC_ADDRESS
+        sync: false
+      - key: BOT_PAUSE_TIMEOUT_MINUTES
+        value: "120"

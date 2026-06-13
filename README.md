@@ -24,7 +24,7 @@ MVP para que un consultorio agende citas automaticamente por WhatsApp y cree eve
 
 ```bash
 cp .env.example .env
-node src/server.js
+npm start
 ```
 
 No usa dependencias externas de npm; solo necesita Node.js moderno con `fetch`.
@@ -63,7 +63,7 @@ El link viejo con `?token=...` solo debe usarse para entrar una vez; despues red
 - Configura `INBOX_PASSWORD` con una clave larga y diferente al verify token de Meta. En produccion es mejor usar `INBOX_PASSWORD_HASH=sha256:...`.
 - Configura `COOKIE_SECRET` con al menos 32 caracteres.
 - Configura `WHATSAPP_APP_SECRET` desde Meta Developers y usa `REQUIRE_WEBHOOK_SIGNATURE=true`.
-- Modo temporal sin App Secret: usa `ALLOW_UNSIGNED_WEBHOOKS=true`, idealmente con `WEBHOOK_PATH_SECRET` y `UNSIGNED_WEBHOOK_EXPIRES_AT`.
+- Modo temporal sin App Secret: usa `ALLOW_UNSIGNED_WEBHOOKS=true`, `WEBHOOK_PATH_SECRET` obligatorio y `UNSIGNED_WEBHOOK_EXPIRES_AT` con fecha corta.
 - Modo final seguro:
 
 ```text
@@ -73,11 +73,46 @@ ALLOW_UNSIGNED_WEBHOOKS=false
 WEBHOOK_PATH_SECRET=un-secreto-largo-de-24-o-mas-caracteres
 ```
 
+- Si `WHATSAPP_APP_SECRET` no existe y `ALLOW_UNSIGNED_WEBHOOKS` no es `true`, el servidor rechaza webhooks POST con `403`.
+- Si `UNSIGNED_WEBHOOK_EXPIRES_AT` ya vencio, el servidor rechaza webhooks sin firma.
 - El webhook valida `object`, `entry`, `changes`, `phone_number_id`, y opcionalmente `WHATSAPP_BUSINESS_ACCOUNT_ID` y `WHATSAPP_DISPLAY_PHONE_NUMBER`.
 - No pongas `SUPABASE_SERVICE_ROLE_KEY`, tokens de Meta ni secretos de Google en frontend o capturas publicas.
 - El servidor limita requests por minuto, rechaza cuerpos grandes y agrega headers basicos de seguridad.
 - Para datos medicos/personales, comparte acceso al inbox solo con personal autorizado.
 - Este canal es solo para agendar, cancelar y resolver dudas generales. No sustituye consulta medica.
+
+### URLs de Meta Developers
+
+Temporal sin App Secret:
+
+```text
+https://TU-DOMINIO/webhook/TU_WEBHOOK_PATH_SECRET
+```
+
+Variables temporales:
+
+```text
+ALLOW_UNSIGNED_WEBHOOKS=true
+UNSIGNED_WEBHOOK_EXPIRES_AT=2026-06-15T06:00:00.000Z
+WEBHOOK_PATH_SECRET=un-secreto-largo-de-24-o-mas-caracteres
+```
+
+Produccion segura:
+
+```text
+https://TU-DOMINIO/webhook/TU_WEBHOOK_PATH_SECRET
+```
+
+Variables de produccion:
+
+```text
+WHATSAPP_APP_SECRET=...
+REQUIRE_WEBHOOK_SIGNATURE=true
+ALLOW_UNSIGNED_WEBHOOKS=false
+WEBHOOK_PATH_SECRET=un-secreto-largo-de-24-o-mas-caracteres
+WHATSAPP_PHONE_NUMBER_ID=...
+WHATSAPP_BUSINESS_ACCOUNT_ID=...
+```
 
 ## Inbox operativo
 
@@ -93,6 +128,7 @@ El inbox permite:
 - Revisar respuestas humanas como sugerencias de aprendizaje supervisado.
 
 Las acciones del inbox requieren sesion y CSRF. Los mensajes humanos se envian por WhatsApp desde backend y se guardan solo despues de respuesta exitosa de la API.
+Si una conversacion queda en modo humano mas de `BOT_PAUSE_TIMEOUT_MINUTES`, el bot la libera automaticamente al recibir un nuevo mensaje.
 
 ## Aprendizaje supervisado
 
@@ -185,19 +221,22 @@ npm run test:google -- "mañana"
 
 Edita estas variables en `.env`:
 
-- `APPOINTMENT_MINUTES`: duracion de cada cita. Para este consultorio queda en 40.
-- `WORK_DAYS`: dias laborales, donde 1=lunes y 5=viernes.
-- `WORK_START`: hora de inicio.
-- `WORK_END`: hora de cierre.
+- `APPOINTMENT_DURATION_MINUTES`: duracion de cada cita. Para este consultorio queda en 40.
+- `CLINIC_WORK_DAYS`: dias laborales, donde 1=lunes y 5=viernes.
+- `CLINIC_START_TIME`: hora de inicio.
+- `CLINIC_END_TIME`: hora de cierre.
 - `DOCTOR_WHATSAPP_NUMBER`: numero de tu tia con codigo de pais.
 
 Defaults actuales del consultorio:
 
 ```text
-APPOINTMENT_MINUTES=40
-WORK_DAYS=1,2,3,4,5
-WORK_START=16:40
-WORK_END=20:00
+APPOINTMENT_DURATION_MINUTES=40
+CLINIC_WORK_DAYS=1,2,3,4,5
+CLINIC_START_TIME=16:40
+CLINIC_END_TIME=20:00
+MAX_OFFERED_SLOTS=6
+CONSULTATION_PRICE=1000
+PROMOTION_PRICE=1200
 ```
 
 ## Guardar conversaciones en Supabase
@@ -216,9 +255,47 @@ SUPABASE_SERVICE_ROLE_KEY=TU_SERVICE_ROLE_KEY
 
 5. Redeploya el servicio.
 
-El bot seguira funcionando aunque Supabase falle; en ese caso usa memoria temporal como respaldo.
+Si Supabase falla, el inbox puede usar memoria temporal como respaldo. Para citas confirmadas, si Supabase esta configurado y falla el guardado, el bot no confirma al paciente y trata de cancelar el evento recien creado en Google Calendar.
 
 El schema tambien agrega un indice unico para evitar dos citas confirmadas con el mismo `slot_start`.
+
+Para instalar desde cero, corre todo:
+
+```text
+supabase/schema.sql
+```
+
+Para una base existente, corre:
+
+```text
+supabase/migration-existing.sql
+```
+
+Para limpiar dedupe viejo:
+
+```sql
+select public.cleanup_processed_whatsapp_messages(30);
+```
+
+## Pruebas manuales
+
+La guia completa esta en:
+
+```text
+docs/manual-tests.md
+```
+
+Incluye pruebas de:
+
+- webhook con firma valida e invalida
+- ruta secreta
+- `phone_number_id`
+- payload de status sin mensajes
+- dedupe
+- inbox
+- modo humano
+- agenda
+- cancelacion
 
 ## Checklist antes de produccion
 
@@ -236,6 +313,24 @@ El schema tambien agrega un indice unico para evitar dos citas confirmadas con e
 - Aviso de privacidad listo.
 - RLS/multi-tenant antes de vender a varios consultorios.
 
-## Nota medica
+## Privacidad y uso responsable
 
-El bot no debe diagnosticar ni pedir informacion sensible innecesaria. Para urgencias, siempre debe indicar que el paciente contacte directamente al consultorio o acuda a urgencias.
+Este canal es solo para agendar, cancelar citas y resolver dudas generales. No sustituye una consulta medica. Si hay urgencia, el paciente debe acudir a urgencias o comunicarse directamente con el consultorio.
+
+Datos que puede guardar:
+
+- telefono
+- mensajes de WhatsApp
+- nombre del paciente
+- correo para Google Calendar
+- fecha/hora de cita
+- datos administrativos como primera vez o tipo de pago
+
+Terceros involucrados:
+
+- Meta/WhatsApp
+- Google Calendar
+- Supabase
+- Render
+
+Recomendacion: antes de usarlo con pacientes reales, prepara un aviso de privacidad del consultorio. Evita pedir sintomas, diagnosticos o informacion intima por WhatsApp. No uses este bot como expediente medico.

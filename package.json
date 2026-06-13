@@ -10,6 +10,7 @@
     "start": "node src/server.js",
     "google:auth-url": "node scripts/google-auth-url.js",
     "google:token": "node scripts/google-token.js",
+    "sign:webhook": "node scripts/sign-webhook.js",
     "test:google": "node scripts/test-google.js",
     "test:openai": "node scripts/test-ai.js",
     "test:ai": "node scripts/test-ai.js"

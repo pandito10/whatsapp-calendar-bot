@@ -174,8 +174,15 @@ function warnAboutSecurityMode() {
     if (config.nodeEnv === "production") console.warn(`WARNING: ${message}`);
   }
 
-  if (!config.whatsappAppSecret && config.allowUnsignedWebhooks) {
-    console.warn("WARNING: WhatsApp webhook is running in unsigned temporary mode. Configure WHATSAPP_APP_SECRET as soon as Meta allows it.");
+  if (config.allowUnsignedWebhooks) {
+    const expiry = config.unsignedWebhookExpiresAt ? ` Expires at: ${config.unsignedWebhookExpiresAt}.` : " No expiry configured.";
+    console.warn(
+      `WARNING: WhatsApp webhook is running in UNSIGNED TEMPORARY MODE.${expiry} Configure WHATSAPP_APP_SECRET and set ALLOW_UNSIGNED_WEBHOOKS=false before production traffic.`
+    );
+  }
+
+  if (config.nodeEnv === "production" && !config.whatsappAppSecret && !config.allowUnsignedWebhooks) {
+    console.warn("WARNING: WHATSAPP_APP_SECRET is missing and unsigned webhooks are disabled. WhatsApp POST webhooks will be rejected.");
   }
 
   if (!config.cookieSecret || config.cookieSecret.length < 32) {
@@ -295,13 +302,11 @@ function handleDebugConfig(req, url, res) {
         maxOfferedSlots: config.maxOfferedSlots,
         workStart: config.workStart,
         workEnd: config.workEnd,
-        whatsappTokenLength: config.whatsappAccessToken?.length ?? 0,
-        whatsappTokenSha12: hashShort(config.whatsappAccessToken ?? ""),
         whatsappPhoneNumberId: config.whatsappPhoneNumberId,
         whatsappBusinessAccountId: config.whatsappBusinessAccountId,
         webhookSignatureMode: config.whatsappAppSecret && config.requireWebhookSignature ? "signed" : config.allowUnsignedWebhooks ? "unsigned-temporary" : "blocked",
         webhookPathSecretEnabled: Boolean(config.webhookPathSecret),
-        doctorWhatsappNumber: config.doctorWhatsappNumber,
+        doctorWhatsappNumber: maskPhone(config.doctorWhatsappNumber),
         databaseEnabled: isDatabaseEnabled()
       })
     );
@@ -1387,10 +1392,6 @@ function formatAppointmentFull(value) {
   }).format(new Date(value));
 }
 
-function hashShort(value) {
-  return crypto.createHash("sha256").update(value).digest("hex").slice(0, 12);
-}
-
 async function handleWhatsAppWebhook(body) {
   const messages = extractWhatsAppMessages(body);
   for (const message of messages) {
@@ -1431,8 +1432,14 @@ async function handleIncomingText(from, text) {
 
   const conversationState = (await getConversationState(from)) ?? conversations.get(from);
   if (conversationState?.botPaused) {
-    console.log(`Bot paused for ${maskPhone(from)}; message stored without auto-reply.`);
-    return;
+    if (isHumanPauseExpired(conversationState)) {
+      await setConversationHumanMode(from, false);
+      setMemoryHumanMode(from, false);
+      console.log(`Bot pause expired for ${maskPhone(from)}; auto-released conversation.`);
+    } else {
+      console.log(`Bot paused for ${maskPhone(from)}; message stored without auto-reply.`);
+      return;
+    }
   }
 
   if (detectedIntent.intent === "medical_urgent") {
@@ -1559,7 +1566,13 @@ async function handleIncomingText(from, text) {
       paymentType: session.paymentType,
       reason: session.reason
     });
-    const cita = await saveConfirmedCita(from, session, slot, event);
+    let cita;
+    try {
+      cita = await saveConfirmedCita(from, session, slot, event);
+    } catch (error) {
+      await cancelAppointment(event?.id);
+      throw error;
+    }
     await scheduleAppointmentReminder(from, session, slot, cita);
     await cancelPreviousRescheduledAppointment(session);
     await deletePatientSession(from);
@@ -1748,6 +1761,12 @@ function setMemoryHumanMode(phoneNumber, enabled) {
   conversations.set(phoneNumber, existing);
 }
 
+function isHumanPauseExpired(conversationState) {
+  if (!config.botPauseTimeoutMinutes || config.botPauseTimeoutMinutes <= 0) return false;
+  if (!conversationState.botPausedAt) return false;
+  return Date.now() - new Date(conversationState.botPausedAt).getTime() > config.botPauseTimeoutMinutes * 60_000;
+}
+
 async function getPatientSession(phoneNumber) {
   const cached = sessions.get(phoneNumber);
   if (cached) return cached;
@@ -1800,8 +1819,7 @@ async function saveConfirmedCita(phoneNumber, session, slot, event) {
   if (!isDatabaseEnabled()) return fallback;
 
   try {
-    return (
-      (await saveCita({
+    const saved = await saveCita({
       phoneNumber,
       patientName: session.name,
       patientEmail: session.email,
@@ -1811,11 +1829,12 @@ async function saveConfirmedCita(phoneNumber, session, slot, event) {
       firstVisit: session.firstVisit,
       paymentType: session.paymentType,
       reason: session.reason
-      })) ?? fallback
-    );
+    });
+    if (!saved) throw new Error("Supabase did not return saved appointment");
+    return saved;
   } catch (error) {
     console.warn("Could not save cita to Supabase:", error.message);
-    return fallback;
+    throw new Error("Could not persist confirmed appointment");
   }
 }
 
@@ -2263,15 +2282,23 @@ function checkRateLimit(req, url, scope) {
   const now = Date.now();
   const isLogin = scope === "inbox-login";
   const windowMs = isLogin ? 15 * 60_000 : 60_000;
-  const limit =
-    scope === "inbox-login"
-      ? config.inboxLoginRateLimitPer15Minutes
-      : scope === "inbox-send" || scope === "inbox-action"
-        ? config.inboxSendRateLimitPerMinute
-        : url.pathname.startsWith("/inbox") || url.pathname.startsWith("/debug")
-          ? config.inboxRateLimitPerMinute
-          : config.webhookRateLimitPerMinute;
+  const limit = getRateLimitForScope(url, scope);
   const key = `${scope ?? url.pathname}:${getClientIp(req)}`;
+  if (url.pathname.startsWith("/webhook") && !checkBucket(`webhook-global:${Math.floor(now / windowMs)}`, config.webhookRateLimitPerMinute, windowMs, now)) {
+    return false;
+  }
+  return checkBucket(key, limit, windowMs, now);
+}
+
+function getRateLimitForScope(url, scope) {
+  if (scope === "inbox-login") return config.inboxLoginRateLimitPer15Minutes;
+  if (scope === "inbox-send") return config.inboxSendRateLimitPerMinute;
+  if (scope === "inbox-action") return config.inboxActionRateLimitPerMinute;
+  if (url.pathname.startsWith("/inbox") || url.pathname.startsWith("/debug")) return config.inboxRateLimitPerMinute;
+  return config.webhookRateLimitPerMinute;
+}
+
+function checkBucket(key, limit, windowMs, now = Date.now()) {
   const bucket = rateLimitBuckets.get(key) ?? { count: 0, resetAt: now + windowMs };
 
   if (now > bucket.resetAt) {
