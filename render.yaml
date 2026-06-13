@@ -27,7 +27,7 @@ services:
       - key: REQUIRE_WEBHOOK_SIGNATURE
         value: "true"
       - key: ALLOW_UNSIGNED_WEBHOOKS
-        value: "false"
+        value: "true"
       - key: UNSIGNED_WEBHOOK_EXPIRES_AT
         sync: false
       - key: WEBHOOK_PATH_SECRET
