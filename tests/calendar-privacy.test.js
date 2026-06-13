@@ -15,7 +15,7 @@ process.env.CLINIC_END_TIME = "20:00";
 process.env.INCLUDE_SENSITIVE_APPOINTMENT_NOTES = "false";
 process.env.INCLUDE_PATIENT_CONTACT_IN_CALENDAR = "false";
 
-const { buildCalendarEventPayload, resolveClinicDateISO } = await import("../src/calendar.js");
+const { buildCalendarEventPayload, isClinicWorkDateISO, resolveClinicDateISO } = await import("../src/calendar.js");
 
 const slot = {
   start: "2030-06-17T22:40:00.000Z",
@@ -42,4 +42,9 @@ test("calendar minimiza telefono y no manda motivo sensible por default", () => 
 test("resuelve mañana usando zona horaria del consultorio, no UTC del servidor", () => {
   const nearMidnightUtc = new Date("2026-06-14T04:30:00.000Z");
   assert.equal(resolveClinicDateISO("mañana", undefined, nearMidnightUtc), "2026-06-14");
+});
+
+test("valida dia laboral con fecha pura y no con zona del servidor", () => {
+  assert.equal(isClinicWorkDateISO("2026-10-25"), false);
+  assert.equal(isClinicWorkDateISO("2026-10-26"), true);
 });

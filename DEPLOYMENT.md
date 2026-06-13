@@ -60,8 +60,11 @@ MAX_REQUEST_BYTES=128000
 
 INBOX_SESSION_HOURS=8
 BOT_PAUSE_TIMEOUT_MINUTES=120
-ENABLE_REMINDER_WORKER=true
+ENABLE_REMINDER_WORKER=false
+ENABLE_PATIENT_REMINDER_TEMPLATES=false
 REMINDER_WORKER_INTERVAL_MS=60000
+REQUIRE_DB_FOR_APPOINTMENTS=true
+REQUIRE_SUPABASE_FOR_APPOINTMENTS=true
 
 AI_PROVIDER=local
 CLINIC_TIMEZONE=America/Mexico_City
@@ -74,7 +77,12 @@ MAX_OFFERED_SLOTS=6
 CONSULTATION_PRICE=1000
 PROMOTION_PRICE=1200
 CLINIC_ADDRESS=
+INCLUDE_SENSITIVE_APPOINTMENT_NOTES=false
+MASK_PATIENT_PHONE_IN_CALENDAR=true
+INCLUDE_PATIENT_CONTACT_IN_CALENDAR=false
 ```
+
+No actives `ENABLE_REMINDER_WORKER=true` para pacientes reales hasta tener templates de WhatsApp aprobados y probados.
 
 ## Modo temporal sin App Secret
 
@@ -153,10 +161,10 @@ Inbox:
 https://TU-SERVICIO.onrender.com/inbox
 ```
 
-Debug config requiere login o bearer:
+Debug config requiere login en `/inbox`. El modo bearer solo funciona si activas explicitamente `INBOX_ALLOW_LEGACY_TOKEN_ACCESS=true`, cosa que no se recomienda en produccion.
 
 ```bash
-curl -H "Authorization: Bearer TU_INBOX_PASSWORD" https://TU-SERVICIO.onrender.com/debug/config
+curl -i https://TU-SERVICIO.onrender.com/debug/config
 ```
 
 Pruebas completas:

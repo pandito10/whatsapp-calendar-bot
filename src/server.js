@@ -2,7 +2,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { URL } from "node:url";
 import { understandMessage } from "./ai.js";
-import { cancelAppointment, createAppointment, findAvailableSlots, isSlotAvailable } from "./calendar.js";
+import { cancelAppointment, createAppointment, findAvailableSlots, isClinicWorkDateISO, isSlotAvailable } from "./calendar.js";
 import { config } from "./config.js";
 import { redactSecrets } from "./http.js";
 import {
@@ -1938,8 +1938,7 @@ function formatDateOnlyFull(value) {
 }
 
 function isClinicWorkDate(value) {
-  const weekday = new Date(`${value}T12:00:00`).getDay();
-  return config.workDays.includes(weekday);
+  return isClinicWorkDateISO(value);
 }
 
 async function resetSlotSelection(from, session) {

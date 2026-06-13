@@ -74,6 +74,8 @@ services:
         value: es_MX
       - key: REQUIRE_DB_FOR_APPOINTMENTS
         value: "true"
+      - key: REQUIRE_SUPABASE_FOR_APPOINTMENTS
+        value: "true"
       - key: APPOINTMENT_LOCK_MINUTES
         value: "10"
       - key: REMINDER_WORKER_INTERVAL_MS

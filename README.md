@@ -351,7 +351,7 @@ Ejecuta pruebas del parser, reglas de agenda, seguridad y privacidad:
 npm test
 ```
 
-Estas pruebas cubren intencion de agendar, seleccion de horario, horario valido, fin de semana, duracion incorrecta, firma Meta, redaccion de secretos, salud del servicio, timezone del consultorio, privacidad en Google Calendar, ubicacion configurable, recordatorios seguros y configuracion critica de produccion.
+Estas pruebas cubren intencion de agendar, seleccion de horario, horario valido, fin de semana, duracion incorrecta, firma Meta, webhook firmado/sin firma, dedupe persistente, locks de Supabase, inbox protegido, redaccion de secretos, salud del servicio, timezone del consultorio, privacidad en Google Calendar, ubicacion configurable, recordatorios seguros y configuracion critica de produccion.
 
 ## Pruebas manuales
 
@@ -386,6 +386,7 @@ Incluye pruebas de:
 - Supabase con backups.
 - `supabase/schema.sql` ejecutado.
 - `REQUIRE_DB_FOR_APPOINTMENTS=true` en produccion.
+- `REQUIRE_SUPABASE_FOR_APPOINTMENTS=true` tambien es soportado como alias explicito.
 - `CLINIC_TIMEZONE=America/Mexico_City`.
 - `CLINIC_ADDRESS` configurada o fallback aprobado por el consultorio.
 - `INCLUDE_SENSITIVE_APPOINTMENT_NOTES=false` para no enviar motivos delicados a Google Calendar.
@@ -469,7 +470,7 @@ Esta versión agrega módulos pequeños para hacer el robot más mantenible sin 
 
 `/health` ahora sirve mejor para producción porque indica exactamente si el sistema está `ok` o `degraded`, y lista problemas como `database_required_unavailable`, `google_missing_config` o `webhook_signature_not_enforced`.
 
-Total actual de pruebas: 30.
+Total actual de pruebas: 36.
 
 
 ### Tercera ronda técnica: readiness y privacidad por default

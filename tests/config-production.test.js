@@ -43,6 +43,20 @@ test("produccion exige Supabase cuando las citas requieren base de datos", () =>
   assert.match(result.stderr, /SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/);
 });
 
+test("produccion acepta alias REQUIRE_SUPABASE_FOR_APPOINTMENTS para exigir Supabase", () => {
+  const result = importConfigWith({
+    ...baseEnv,
+    WHATSAPP_APP_SECRET: "app-secret",
+    REQUIRE_DB_FOR_APPOINTMENTS: "false",
+    REQUIRE_SUPABASE_FOR_APPOINTMENTS: "true",
+    SUPABASE_URL: "",
+    SUPABASE_SERVICE_ROLE_KEY: ""
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/);
+});
+
 function importConfigWith(env) {
   return spawnSync(process.execPath, ["--input-type=module", "-e", "await import('./src/config.js')"], {
     cwd: fileURLToPath(new URL("..", import.meta.url)),

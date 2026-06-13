@@ -205,6 +205,11 @@ export function resolveClinicDateISO(text, dateISO, now = new Date()) {
   return today;
 }
 
+export function isClinicWorkDateISO(dateISO) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateISO ?? ""))) return false;
+  return config.workDays.includes(getWeekdayFromDateISO(dateISO));
+}
+
 function getZonedWeekday(date) {
   const shortDay = new Intl.DateTimeFormat("en-US", {
     timeZone: config.clinicTimezone,

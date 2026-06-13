@@ -59,7 +59,10 @@ export const config = {
     botPauseTimeoutMinutes: Number(process.env.BOT_PAUSE_TIMEOUT_MINUTES ?? 120),
     enableReminderWorker: process.env.ENABLE_REMINDER_WORKER === "true",
     enablePatientReminderTemplates: process.env.ENABLE_PATIENT_REMINDER_TEMPLATES === "true",
-    requireDatabaseForAppointments: process.env.REQUIRE_DB_FOR_APPOINTMENTS === "true" || process.env.NODE_ENV === "production",
+    requireDatabaseForAppointments:
+          process.env.REQUIRE_SUPABASE_FOR_APPOINTMENTS === "true" ||
+          process.env.REQUIRE_DB_FOR_APPOINTMENTS === "true" ||
+          process.env.NODE_ENV === "production",
     appointmentLockMinutes: Number(process.env.APPOINTMENT_LOCK_MINUTES ?? 10),
     reminderWorkerIntervalMs: Number(process.env.REMINDER_WORKER_INTERVAL_MS ?? 60_000),
     forwardConversationCopies: process.env.FORWARD_CONVERSATION_COPIES === "true",
