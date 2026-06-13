@@ -8,8 +8,11 @@ MVP para que un consultorio agende citas automaticamente por WhatsApp y cree eve
 - Pregunta nombre y fecha deseada.
 - Consulta disponibilidad en Google Calendar.
 - Ofrece hasta 6 horarios de 40 minutos.
-- Agenda automaticamente cuando el paciente elige.
+- Pide confirmacion antes de agendar.
+- Agenda automaticamente cuando el paciente confirma.
 - Notifica a la doctora por WhatsApp.
+- Guarda conversaciones y citas en Supabase cuando esta configurado.
+- Muestra un inbox web con modo humano.
 
 ## Lo que necesitas crear
 
@@ -78,6 +81,7 @@ WEBHOOK_PATH_SECRET=un-secreto-largo-de-24-o-mas-caracteres
 - Si `WHATSAPP_APP_SECRET` no existe y `ALLOW_UNSIGNED_WEBHOOKS` no es `true`, el servidor rechaza webhooks POST con `403`.
 - Si `UNSIGNED_WEBHOOK_EXPIRES_AT` ya vencio, el servidor rechaza webhooks sin firma.
 - El webhook valida `object`, `entry`, `changes`, `phone_number_id`, y opcionalmente `WHATSAPP_BUSINESS_ACCOUNT_ID` y `WHATSAPP_DISPLAY_PHONE_NUMBER`.
+- El webhook deduplica mensajes por `message_id` para evitar reprocesar el mismo WhatsApp si Meta reintenta.
 - No pongas `SUPABASE_SERVICE_ROLE_KEY`, tokens de Meta ni secretos de Google en frontend o capturas publicas.
 - El servidor limita requests por minuto, rechaza cuerpos grandes y agrega headers basicos de seguridad.
 - Para datos medicos/personales, comparte acceso al inbox solo con personal autorizado.
@@ -227,6 +231,8 @@ Edita estas variables en `.env`:
 - `CLINIC_WORK_DAYS`: dias laborales, donde 1=lunes y 5=viernes.
 - `CLINIC_START_TIME`: hora de inicio.
 - `CLINIC_END_TIME`: hora de cierre.
+- `CLINIC_TIMEZONE`: zona horaria del consultorio. Default: `America/Mexico_City`.
+- `CLINIC_ADDRESS`: direccion mostrada al paciente. Si queda vacia, el bot responde que el consultorio la compartira directamente.
 - `DOCTOR_WHATSAPP_NUMBER`: numero de tu tia con codigo de pais.
 
 Defaults actuales del consultorio:
@@ -236,10 +242,58 @@ APPOINTMENT_DURATION_MINUTES=40
 CLINIC_WORK_DAYS=1,2,3,4,5
 CLINIC_START_TIME=16:40
 CLINIC_END_TIME=20:00
+CLINIC_TIMEZONE=America/Mexico_City
 MAX_OFFERED_SLOTS=6
 CONSULTATION_PRICE=1000
 PROMOTION_PRICE=1200
+CLINIC_ADDRESS=
 ```
+
+Las fechas relativas como `hoy`, `mañana` y `pasado mañana` se interpretan con `CLINIC_TIMEZONE`, no con la zona horaria del servidor de Render.
+
+## Privacidad en Google Calendar
+
+El evento se crea con un titulo neutral:
+
+```text
+Cita medica - Nombre
+```
+
+Por default no se manda motivo medico a Google Calendar. Tampoco se incluye telefono completo salvo que actives variables explicitas.
+
+Para mantener privacidad en un consultorio medico, deja en produccion:
+
+```env
+INCLUDE_SENSITIVE_APPOINTMENT_NOTES=false
+INCLUDE_PATIENT_CONTACT_IN_CALENDAR=false
+MASK_PATIENT_PHONE_IN_CALENDAR=true
+```
+
+Si decides guardar mas datos en Calendar, hazlo solo con autorizacion del consultorio y aviso de privacidad.
+
+## Recordatorios por WhatsApp
+
+WhatsApp Cloud API no permite mandar mensajes libres cuando ya paso la ventana de atencion de 24 horas. Para evitar bloqueos o fallos, los recordatorios al paciente estan desactivados por default salvo que configures templates aprobados por Meta.
+
+Modo seguro por default:
+
+```env
+ENABLE_PATIENT_REMINDER_TEMPLATES=false
+WHATSAPP_REMINDER_TEMPLATE_24H=
+WHATSAPP_REMINDER_TEMPLATE_2H=
+WHATSAPP_TEMPLATE_LANGUAGE=es_MX
+```
+
+Cuando Meta apruebe tus templates, puedes activar:
+
+```env
+ENABLE_PATIENT_REMINDER_TEMPLATES=true
+WHATSAPP_REMINDER_TEMPLATE_24H=nombre_template_24h
+WHATSAPP_REMINDER_TEMPLATE_2H=nombre_template_2h
+WHATSAPP_TEMPLATE_LANGUAGE=es_MX
+```
+
+Los templates actuales reciben dos variables en el cuerpo: nombre del paciente y fecha/hora de la cita. Si tu template usa otro orden o mas variables, ajusta `sendReminder` antes de activarlo.
 
 ## Guardar conversaciones en Supabase
 
@@ -287,13 +341,13 @@ select public.cleanup_expired_appointment_locks();
 
 ## Pruebas automatizadas
 
-Ejecuta pruebas basicas del parser y reglas de agenda:
+Ejecuta pruebas del parser, reglas de agenda, seguridad y privacidad:
 
 ```bash
 npm test
 ```
 
-Estas pruebas cubren intencion de agendar, seleccion de horario, horario valido, fin de semana y duracion incorrecta.
+Estas pruebas cubren intencion de agendar, seleccion de horario, horario valido, fin de semana, duracion incorrecta, firma Meta, redaccion de secretos, salud del servicio, timezone del consultorio, privacidad en Google Calendar, ubicacion configurable, recordatorios seguros y configuracion critica de produccion.
 
 ## Pruebas manuales
 
@@ -328,7 +382,11 @@ Incluye pruebas de:
 - Supabase con backups.
 - `supabase/schema.sql` ejecutado.
 - `REQUIRE_DB_FOR_APPOINTMENTS=true` en produccion.
+- `CLINIC_TIMEZONE=America/Mexico_City`.
+- `CLINIC_ADDRESS` configurada o fallback aprobado por el consultorio.
 - `INCLUDE_SENSITIVE_APPOINTMENT_NOTES=false` para no enviar motivos delicados a Google Calendar.
+- `MASK_PATIENT_PHONE_IN_CALENDAR=true`.
+- `ENABLE_PATIENT_REMINDER_TEMPLATES=false` hasta tener templates aprobados por Meta.
 - `npm test` pasando.
 - Logs sin datos sensibles completos.
 - Aviso de privacidad listo.
@@ -378,6 +436,10 @@ INBOX_ALLOW_LEGACY_TOKEN_ACCESS=false
 FORWARD_CONVERSATION_BODIES=false
 MASK_PATIENT_PHONE_IN_CALENDAR=true
 INCLUDE_PATIENT_CONTACT_IN_CALENDAR=false
+ENABLE_PATIENT_REMINDER_TEMPLATES=false
+WHATSAPP_REMINDER_TEMPLATE_24H=
+WHATSAPP_REMINDER_TEMPLATE_2H=
+WHATSAPP_TEMPLATE_LANGUAGE=es_MX
 ```
 
 Mantén `INBOX_ALLOW_LEGACY_TOKEN_ACCESS=false`, `FORWARD_CONVERSATION_BODIES=false`, `MASK_PATIENT_PHONE_IN_CALENDAR=true` e `INCLUDE_PATIENT_CONTACT_IN_CALENDAR=false` en producción. El acceso seguro al inbox debe ser por login y cookie `HttpOnly`.
@@ -389,7 +451,7 @@ npm test
 npm run test:watch
 ```
 
-Las pruebas cubren parser básico, reglas de horario, firma Meta válida/inválida y redacción de secretos en logs.
+Las pruebas cubren parser básico, reglas de horario, firma Meta válida/inválida, redacción de secretos en logs y privacidad operativa.
 
 ### Segunda ronda técnica
 
@@ -402,7 +464,7 @@ Esta versión agrega módulos pequeños para hacer el robot más mantenible sin 
 
 `/health` ahora sirve mejor para producción porque indica exactamente si el sistema está `ok` o `degraded`, y lista problemas como `database_required_unavailable`, `google_missing_config` o `webhook_signature_not_enforced`.
 
-Total actual de pruebas: 20.
+Total actual de pruebas: 29.
 
 
 ### Tercera ronda técnica: readiness y privacidad por default

@@ -64,6 +64,14 @@ services:
         value: "2"
       - key: ENABLE_REMINDER_WORKER
         value: "true"
+      - key: ENABLE_PATIENT_REMINDER_TEMPLATES
+        value: "false"
+      - key: WHATSAPP_REMINDER_TEMPLATE_24H
+        sync: false
+      - key: WHATSAPP_REMINDER_TEMPLATE_2H
+        sync: false
+      - key: WHATSAPP_TEMPLATE_LANGUAGE
+        value: es_MX
       - key: REQUIRE_DB_FOR_APPOINTMENTS
         value: "true"
       - key: APPOINTMENT_LOCK_MINUTES

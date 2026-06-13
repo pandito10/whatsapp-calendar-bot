@@ -12,11 +12,15 @@ process.env.APPOINTMENT_DURATION_MINUTES = "40";
 process.env.CLINIC_WORK_DAYS = "1,2,3,4,5";
 process.env.CLINIC_START_TIME = "16:40";
 process.env.CLINIC_END_TIME = "20:00";
+process.env.CLINIC_ADDRESS = "Consultorio Seguro 123";
+process.env.ENABLE_PATIENT_REMINDER_TEMPLATES = "false";
 
 const {
   validateSlotSelection,
   buildAdminAppointmentNotification,
   buildAppointmentReviewMessage,
+  buildLocationMessage,
+  buildPatientReminderJobs,
   buildPatientConfirmationMessage,
   classifyAppointmentError,
   sanitizeShortText
@@ -68,6 +72,20 @@ test("resumen previo pide confirmacion antes de agendar", () => {
   assert.match(message, /antes de confirmar/i);
   assert.match(message, /responde SI/i);
   assert.match(message, /NO para elegir otro horario/i);
+});
+
+test("ubicacion usa CLINIC_ADDRESS configurable", () => {
+  assert.match(buildLocationMessage(), /Consultorio Seguro 123/);
+});
+
+test("no programa recordatorios de paciente sin templates aprobados", () => {
+  const jobs = buildPatientReminderJobs({
+    phoneNumber: "5214771234567",
+    session: { name: "Ana" },
+    slot: validSlot,
+    slotStartMs: new Date(validSlot.start).getTime()
+  });
+  assert.deepEqual(jobs, []);
 });
 
 test("clasifica errores de calendario y base de datos", () => {

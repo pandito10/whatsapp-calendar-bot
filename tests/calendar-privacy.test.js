@@ -15,7 +15,7 @@ process.env.CLINIC_END_TIME = "20:00";
 process.env.INCLUDE_SENSITIVE_APPOINTMENT_NOTES = "false";
 process.env.INCLUDE_PATIENT_CONTACT_IN_CALENDAR = "false";
 
-const { buildCalendarEventPayload } = await import("../src/calendar.js");
+const { buildCalendarEventPayload, resolveClinicDateISO } = await import("../src/calendar.js");
 
 const slot = {
   start: "2030-06-17T22:40:00.000Z",
@@ -31,8 +31,15 @@ test("calendar minimiza telefono y no manda motivo sensible por default", () => 
   });
 
   assert.match(payload.summary, /Ana Prueba/);
+  assert.match(payload.summary, /Cita medica/);
+  assert.doesNotMatch(payload.summary, /ginec/i);
   assert.match(payload.description, /52147\*\*\*\*567/);
   assert.doesNotMatch(payload.description, /4771234/);
   assert.doesNotMatch(payload.description, /dolor/);
   assert.doesNotMatch(payload.description, /ana@example.com/);
+});
+
+test("resuelve mañana usando zona horaria del consultorio, no UTC del servidor", () => {
+  const nearMidnightUtc = new Date("2026-06-14T04:30:00.000Z");
+  assert.equal(resolveClinicDateISO("mañana", undefined, nearMidnightUtc), "2026-06-14");
 });

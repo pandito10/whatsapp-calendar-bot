@@ -2,7 +2,7 @@ import { config } from "./config.js";
 import { googleRequest } from "./google.js";
 
 export async function findAvailableSlots(dateText, dateISO) {
-  const target = parseDate(dateText, dateISO);
+  const target = resolveClinicDateISO(dateText, dateISO);
   const windows = buildWorkWindows(target);
   const freeSlots = [];
 
@@ -88,7 +88,7 @@ export async function createAppointment(slot, patient) {
 export function buildCalendarEventPayload(slot, patient) {
   const attendees = patient.email ? [{ email: patient.email }] : undefined;
   return {
-    summary: `Cita ginecologia - ${sanitizeCalendarText(patient.name || "Paciente")}`,
+    summary: `Cita medica - ${sanitizeCalendarText(patient.name || "Paciente")}`,
     description: buildPatientDetails(patient),
     location: config.clinicAddress,
     start: { dateTime: slot.start, timeZone: config.clinicTimezone },
@@ -122,27 +122,28 @@ function buildPatientDetails(patient) {
     .join("\n");
 }
 
-function buildWorkWindows(startDate) {
+function buildWorkWindows(startDateISO) {
   const windows = [];
-  const date = new Date(startDate);
+  let dateISO = startDateISO;
 
   for (let i = 0; windows.length < 5 && i < 14; i += 1) {
-    const day = date.getDay();
+    const day = getWeekdayFromDateISO(dateISO);
     if (config.workDays.includes(day)) {
+      const parts = splitDateISO(dateISO);
       windows.push({
-        start: withTime(date, config.workStart),
-        end: withTime(date, config.workEnd)
+        start: withTime(parts, config.workStart),
+        end: withTime(parts, config.workEnd)
       });
     }
-    date.setDate(date.getDate() + 1);
+    dateISO = addDaysISO(dateISO, 1);
   }
 
   return windows;
 }
 
-function withTime(date, hhmm) {
+function withTime(dateParts, hhmm) {
   const [hours, minutes] = hhmm.split(":").map(Number);
-  return zonedDateTimeToDate(date.getFullYear(), date.getMonth() + 1, date.getDate(), hours, minutes);
+  return zonedDateTimeToDate(dateParts.year, dateParts.month, dateParts.day, hours, minutes);
 }
 
 function zonedDateTimeToDate(year, month, day, hours, minutes) {
@@ -188,22 +189,20 @@ function formatSlot(date) {
   }).format(date);
 }
 
-function parseDate(text, dateISO) {
+export function resolveClinicDateISO(text, dateISO, now = new Date()) {
   if (dateISO && /^\d{4}-\d{2}-\d{2}$/.test(dateISO)) {
-    return new Date(`${dateISO}T12:00:00`);
+    return dateISO;
   }
 
   const lower = (text ?? "").toLowerCase();
-  const date = new Date();
+  const today = getClinicTodayISO(now);
   if (lower.includes("pasado manana") || lower.includes("pasado mañana")) {
-    date.setDate(date.getDate() + 2);
-    return date;
+    return addDaysISO(today, 2);
   }
   if (lower.includes("manana") || lower.includes("mañana")) {
-    date.setDate(date.getDate() + 1);
-    return date;
+    return addDaysISO(today, 1);
   }
-  return date;
+  return today;
 }
 
 function getZonedWeekday(date) {
@@ -212,6 +211,36 @@ function getZonedWeekday(date) {
     weekday: "short"
   }).format(date);
   return { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[shortDay] ?? date.getDay();
+}
+
+function getClinicTodayISO(now = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: config.clinicTimezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(now);
+}
+
+function addDaysISO(dateISO, days) {
+  const { year, month, day } = splitDateISO(dateISO);
+  const date = new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0, 0));
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
+}
+
+function splitDateISO(dateISO) {
+  const [year, month, day] = dateISO.split("-").map(Number);
+  return { year, month, day };
+}
+
+function getWeekdayFromDateISO(dateISO) {
+  const { year, month, day } = splitDateISO(dateISO);
+  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0)).getUTCDay();
 }
 
 function sanitizePhoneForCalendar(value) {

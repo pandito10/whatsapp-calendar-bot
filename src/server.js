@@ -8,7 +8,9 @@ import { redactSecrets } from "./http.js";
 import {
   buildAdminAppointmentNotification,
   buildAppointmentReviewMessage,
+  buildLocationMessage,
   buildManualReviewMessage,
+  buildPatientReminderJobs,
   buildPatientConfirmationMessage,
   classifyAppointmentError,
   validateSlotSelection
@@ -41,7 +43,7 @@ import {
   setConversationHumanMode,
   setSession
 } from "./db.js";
-import { sendWhatsAppText } from "./whatsapp.js";
+import { sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.js";
 
 const sessions = new Map();
 const processedMessages = new Map();
@@ -2273,26 +2275,7 @@ async function scheduleAppointmentReminder(phoneNumber, session, slot, cita) {
         slotStart: slot.start
       }
     },
-    {
-      phoneNumber,
-      reminderType: "patient_24h",
-      remindAt: new Date(slotStartMs - 24 * 60 * 60 * 1000),
-      payload: {
-        patientName: session.name,
-        slotLabel: slot.label,
-        slotStart: slot.start
-      }
-    },
-    {
-      phoneNumber,
-      reminderType: "patient_2h",
-      remindAt: new Date(slotStartMs - 2 * 60 * 60 * 1000),
-      payload: {
-        patientName: session.name,
-        slotLabel: slot.label,
-        slotStart: slot.start
-      }
-    }
+    ...buildPatientReminderJobs({ phoneNumber, session, slot, slotStartMs })
   ];
 
   try {
@@ -2350,17 +2333,23 @@ async function sendReminder(reminder) {
   }
 
   if (reminder.reminderType === "patient_24h") {
-    await sendWhatsAppText(
+    if (!config.whatsappReminderTemplate24h) return;
+    await sendWhatsAppTemplate(
       reminder.phoneNumber,
-      `⏰ Hola ${reminder.payload.patientName ?? ""}. Te recordamos tu cita de mañana:\n${reminder.payload.slotLabel ?? formatAppointmentFull(reminder.payload.slotStart)}.\n\nSi necesitas cancelar o cambiar tu cita, responde CANCELAR o REAGENDAR.`
+      config.whatsappReminderTemplate24h,
+      config.whatsappTemplateLanguage,
+      [reminder.payload.patientName ?? "Paciente", reminder.payload.slotLabel ?? formatAppointmentFull(reminder.payload.slotStart)]
     );
     return;
   }
 
   if (reminder.reminderType === "patient_2h") {
-    await sendWhatsAppText(
+    if (!config.whatsappReminderTemplate2h) return;
+    await sendWhatsAppTemplate(
       reminder.phoneNumber,
-      `⏰ Te recordamos que tu cita es en aproximadamente 2 horas:\n${reminder.payload.slotLabel ?? formatAppointmentFull(reminder.payload.slotStart)}.\n\nTe esperamos 😊`
+      config.whatsappReminderTemplate2h,
+      config.whatsappTemplateLanguage,
+      [reminder.payload.patientName ?? "Paciente", reminder.payload.slotLabel ?? formatAppointmentFull(reminder.payload.slotStart)]
     );
   }
 }
@@ -2383,7 +2372,7 @@ function getIntentResponse(intent) {
       "",
       "Puedes escribirme, por ejemplo: \"quiero agendar\" o \"que citas tienes disponibles\"."
     ].join("\n"),
-    location: "📍 Estamos ubicados en Plaza de la Paz #20, 2o. Piso, Consultorio 14, Guanajuato, Gto.",
+    location: buildLocationMessage(),
     morning_hours: "🌙 No atendemos por la manana. Solo por la tarde, de 4:40 p.m. a 8:00 p.m.\n\n¿Quieres que revise horarios por la tarde?",
     saturday: "📅 No atendemos los sabados ni domingos. Solo de lunes a viernes por la tarde.\n\n¿Quieres que revise disponibilidad entre semana?",
     cost: `💰 La consulta tiene un costo de ${formatMoney(config.consultationPrice)} MXN.\n\n🎁 Tambien contamos con paquete de promocion en ${formatMoney(config.promotionPrice)} MXN.`,

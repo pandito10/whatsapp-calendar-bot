@@ -34,6 +34,12 @@ export function buildPatientConfirmationMessage({ name, slot, email }) {
   return `✅ Listo, ${safeName}. Tu cita quedo agendada para ${slot.label}.${config.clinicAddress ? `\n\n📍 Ubicacion: ${config.clinicAddress}` : ""}${email ? "\n\n📩 Google Calendar tambien enviara la confirmacion a tu correo." : ""}\n\n⚠️ Si tienes dolor intenso, sangrado abundante o una urgencia, por favor acude a urgencias o contacta directamente al consultorio.`;
 }
 
+export function buildLocationMessage() {
+  return config.clinicAddress
+    ? `📍 Estamos ubicados en ${config.clinicAddress}.`
+    : "Por ahora el consultorio compartira la ubicacion directamente.";
+}
+
 export function buildAppointmentReviewMessage({ name, slot, email, firstVisit, paymentType }) {
   const lines = [
     "Antes de confirmar, revisa que todo este correcto 😊",
@@ -50,6 +56,39 @@ export function buildAppointmentReviewMessage({ name, slot, email, firstVisit, p
   ];
 
   return lines.filter(Boolean).join("\n");
+}
+
+export function buildPatientReminderJobs({ phoneNumber, session, slot, slotStartMs }) {
+  if (!config.enablePatientReminderTemplates) return [];
+
+  const jobs = [];
+  if (config.whatsappReminderTemplate24h) {
+    jobs.push({
+      phoneNumber,
+      reminderType: "patient_24h",
+      remindAt: new Date(slotStartMs - 24 * 60 * 60 * 1000),
+      payload: {
+        patientName: session.name,
+        slotLabel: slot.label,
+        slotStart: slot.start
+      }
+    });
+  }
+
+  if (config.whatsappReminderTemplate2h) {
+    jobs.push({
+      phoneNumber,
+      reminderType: "patient_2h",
+      remindAt: new Date(slotStartMs - 2 * 60 * 60 * 1000),
+      payload: {
+        patientName: session.name,
+        slotLabel: slot.label,
+        slotStart: slot.start
+      }
+    });
+  }
+
+  return jobs;
 }
 
 export function buildAdminAppointmentNotification({ name, from, slot, session }) {
