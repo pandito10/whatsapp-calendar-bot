@@ -54,7 +54,7 @@ import {
   setSession,
   updateKnowledgeSuggestion
 } from "./db.js";
-import { sendWhatsAppMedia, sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.js";
+import { sendWhatsAppButtons, sendWhatsAppList, sendWhatsAppMedia, sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.js";
 
 const sessions = new Map();
 const processedMessages = new Map();
@@ -64,6 +64,37 @@ const maxMessagesPerConversation = 100;
 const rateLimitBuckets = new Map();
 let appSecretWarningShown = false;
 let isShuttingDown = false;
+
+const mainMenuRows = [
+  { id: "main_schedule", title: "Agendar cita", description: "Iniciar registro y elegir horario" },
+  { id: "main_availability", title: "Ver horarios", description: "Revisar fechas disponibles" },
+  { id: "main_location", title: "Ubicacion", description: "Direccion del consultorio" },
+  { id: "main_costs", title: "Costos", description: "Consulta y promocion" },
+  { id: "main_payments", title: "Formas de pago", description: "Efectivo o transferencia" },
+  { id: "main_services", title: "Servicios", description: "Dudas generales de servicios" },
+  { id: "main_human", title: "Hablar con persona", description: "Pedir apoyo del consultorio" }
+];
+
+const interactiveReplyMap = {
+  main_schedule: "1",
+  main_availability: "2",
+  main_location: "3",
+  main_costs: "4",
+  main_payments: "5",
+  main_services: "6",
+  main_human: "7",
+  appointment_confirm_yes: "si",
+  appointment_change_time: "no",
+  appointment_cancel_review: "no",
+  cancel_yes: "1",
+  cancel_no: "2",
+  reschedule_yes: "1",
+  reschedule_no: "2",
+  reschedule_human: "3",
+  waitlist_yes: "1",
+  waitlist_other_day: "2",
+  waitlist_human: "3"
+};
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -2048,7 +2079,8 @@ function formatAppointmentFull(value) {
 async function handleWhatsAppWebhook(body) {
   const messages = extractWhatsAppMessages(body);
   for (const message of messages) {
-    if (message.type !== "text") continue;
+    const messageText = extractWhatsAppMessageText(message);
+    if (!messageText) continue;
     if (!checkPhoneRateLimit(message.from)) {
       console.warn(`Phone rate limit exceeded for ${maskPhone(message.from)}`);
       continue;
@@ -2056,7 +2088,7 @@ async function handleWhatsAppWebhook(body) {
     if (await alreadyProcessed(message.id, message.from)) continue;
 
     try {
-      await handleIncomingText(message.from, message.text.body);
+      await handleIncomingText(message.from, messageText);
     } catch (error) {
       logSafeError(`Failed handling WhatsApp message ${message.id ?? "without-id"} from ${maskPhone(message.from)}`, error);
       await safeSendWhatsAppText(
@@ -2073,6 +2105,18 @@ function extractWhatsAppMessages(body) {
       .filter((change) => change.field === "messages")
       .flatMap((change) => change.value?.messages ?? [])
   );
+}
+
+function extractWhatsAppMessageText(message) {
+  if (message.type === "text") return message.text?.body;
+  if (message.type === "interactive") {
+    const reply = message.interactive?.list_reply ?? message.interactive?.button_reply;
+    return interactiveReplyMap[reply?.id] ?? reply?.title;
+  }
+  if (message.type === "button") {
+    return interactiveReplyMap[message.button?.payload] ?? message.button?.text;
+  }
+  return undefined;
 }
 
 async function handleIncomingText(from, text) {
@@ -2126,7 +2170,7 @@ async function handleIncomingText(from, text) {
 
   if (isResetCommand(normalized)) {
     await deletePatientSession(from);
-    await replyToPatient(from, answerFaq("hola"));
+    await sendMainMenuToPatient(from);
     return;
   }
 
@@ -2171,6 +2215,10 @@ async function handleIncomingText(from, text) {
 
   const faqAnswer = getIntentResponse(detectedIntent.intent) ?? answerFaq(normalized);
   if (faqAnswer && !existing && !dateLikeRequest) {
+    if (detectedIntent.intent === "greeting") {
+      await sendMainMenuToPatient(from);
+      return;
+    }
     await replyToPatient(from, faqAnswer);
     return;
   }
@@ -2342,7 +2390,7 @@ async function handleIncomingText(from, text) {
       pendingSlot: slot,
       pendingSlotSelectedIndex: parsed.selectedSlotIndex
     });
-    await replyToPatient(from, buildAppointmentReviewMessage({ ...session, slot }));
+    await replyWithAppointmentReview(from, buildAppointmentReviewMessage({ ...session, slot }));
     return;
   }
 
@@ -2389,7 +2437,7 @@ async function handleIncomingText(from, text) {
       ...session,
       step: "confirmingAppointment"
     });
-    await replyToPatient(from, buildAppointmentReviewMessage({ ...session, slot: session.pendingSlot }));
+    await replyWithAppointmentReview(from, buildAppointmentReviewMessage({ ...session, slot: session.pendingSlot }));
     return;
   }
 
@@ -2431,9 +2479,14 @@ async function offerAvailableSlots(from, session, options = {}) {
   }
   if (slots.length === 0) {
     await setPatientSession(from, { ...session, step: "waitlistOffer", waitlistDateISO: session.preferredDateISO, waitlistDateText: session.preferredDateText });
-    await replyToPatient(
+    await replyToPatientWithButtons(
       from,
-      `${options.prefix ?? ""}Por ahora no tengo horarios disponibles para ese dia 😕\n\n¿Quieres que te agregue a lista de espera por si se libera un espacio?\n\n1. Si\n2. Ver otro dia\n3. Hablar con una persona`
+      `${options.prefix ?? ""}Por ahora no tengo horarios disponibles para ese dia 😕\n\n¿Quieres que te agregue a lista de espera por si se libera un espacio?`,
+      [
+        { id: "waitlist_yes", title: "Si" },
+        { id: "waitlist_other_day", title: "Otro dia" },
+        { id: "waitlist_human", title: "Persona" }
+      ]
     );
     return;
   }
@@ -2761,6 +2814,45 @@ async function replyToPatient(to, body) {
   await notifyBotReply(to, body);
 }
 
+async function sendMainMenuToPatient(to) {
+  const body = "Hola 😊 Soy el asistente virtual del consultorio.\n\nPuedo ayudarte a agendar, revisar horarios, ubicacion, costos, formas de pago, servicios o pasarte con una persona.\n\nElige una opcion:";
+  try {
+    await sendWhatsAppList(to, {
+      body,
+      buttonText: "Opciones",
+      sections: [{ title: "Menu principal", rows: mainMenuRows }]
+    });
+    await recordConversationMessage(to, "bot", `${body}\n\n${mainMenuRows.map((row, index) => `${index + 1}. ${row.title}`).join("\n")}`);
+    await notifyBotReply(to, "Menu interactivo enviado.");
+  } catch (error) {
+    logSafeError(`Failed sending WhatsApp interactive menu to ${maskPhone(to)}`, error);
+    await replyToPatient(to, getIntentResponse("greeting"));
+  }
+}
+
+async function replyWithAppointmentReview(to, body) {
+  await replyToPatientWithButtons(to, body, [
+    { id: "appointment_confirm_yes", title: "Si, agendar" },
+    { id: "appointment_change_time", title: "Cambiar horario" },
+    { id: "appointment_cancel_review", title: "Cancelar" }
+  ]);
+}
+
+async function replyToPatientWithButtons(to, body, buttons) {
+  try {
+    await sendWhatsAppButtons(to, { body, buttons });
+    await recordConversationMessage(
+      to,
+      "bot",
+      `${body}\n\n${buttons.map((button, index) => `${index + 1}. ${button.title}`).join("\n")}`
+    );
+    await notifyBotReply(to, body);
+  } catch (error) {
+    logSafeError(`Failed sending WhatsApp buttons to ${maskPhone(to)}`, error);
+    await replyToPatient(to, `${body}\n\n${buttons.map((button, index) => `${index + 1}. ${button.title}`).join("\n")}`);
+  }
+}
+
 async function notifyIncomingPatientMessage(from, body) {
   if (!shouldForwardConversation(from)) return;
   await safeSendWhatsAppText(
@@ -2992,9 +3084,13 @@ async function handleCancellationRequest(from) {
     cancellationSlotStart: cita.slotStart,
     cancellationPatientName: cita.patientName
   });
-  await replyToPatient(
+  await replyToPatientWithButtons(
     from,
-    `Encontré tu cita para ${formatAppointmentFull(cita.slotStart)}.\n\n¿Seguro que deseas cancelarla?\n\n1. Si, cancelar\n2. No, conservar`
+    `Encontre tu cita para ${formatAppointmentFull(cita.slotStart)}.\n\n¿Seguro que deseas cancelarla?`,
+    [
+      { id: "cancel_yes", title: "Si, cancelar" },
+      { id: "cancel_no", title: "No, conservar" }
+    ]
   );
 }
 
@@ -3055,9 +3151,14 @@ async function handleRescheduleRequest(from) {
     rescheduleFromGoogleEventId: cita.googleEventId,
     rescheduleFromSlotStart: cita.slotStart
   });
-  await replyToPatient(
+  await replyToPatientWithButtons(
     from,
-    `Claro, te ayudo a reagendar 😊\n\nEncontre tu cita para ${formatAppointmentFull(cita.slotStart)}.\n¿Quieres cambiarla?\n\n1. Si, cambiar\n2. No, conservar\n3. Hablar con una persona`
+    `Claro, te ayudo a reagendar 😊\n\nEncontre tu cita para ${formatAppointmentFull(cita.slotStart)}.\n¿Quieres cambiarla?`,
+    [
+      { id: "reschedule_yes", title: "Si, cambiar" },
+      { id: "reschedule_no", title: "No, conservar" },
+      { id: "reschedule_human", title: "Persona" }
+    ]
   );
 }
 

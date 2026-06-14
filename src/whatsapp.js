@@ -10,6 +10,50 @@ export async function sendWhatsAppText(to, body) {
   });
 }
 
+export async function sendWhatsAppList(to, { body, buttonText = "Ver opciones", sections }) {
+  return sendWhatsAppMessage(to, {
+    messaging_product: "whatsapp",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "list",
+      body: { text: String(body ?? "").slice(0, 1024) },
+      action: {
+        button: String(buttonText ?? "Ver opciones").slice(0, 20),
+        sections: sections.map((section) => ({
+          title: String(section.title ?? "Opciones").slice(0, 24),
+          rows: section.rows.slice(0, 10).map((row) => ({
+            id: String(row.id).slice(0, 200),
+            title: String(row.title).slice(0, 24),
+            ...(row.description ? { description: String(row.description).slice(0, 72) } : {})
+          }))
+        }))
+      }
+    }
+  });
+}
+
+export async function sendWhatsAppButtons(to, { body, buttons }) {
+  return sendWhatsAppMessage(to, {
+    messaging_product: "whatsapp",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: String(body ?? "").slice(0, 1024) },
+      action: {
+        buttons: buttons.slice(0, 3).map((button) => ({
+          type: "reply",
+          reply: {
+            id: String(button.id).slice(0, 200),
+            title: String(button.title).slice(0, 20)
+          }
+        }))
+      }
+    }
+  });
+}
+
 export async function sendWhatsAppTemplate(to, templateName, languageCode, bodyParameters = []) {
   const components = bodyParameters.length > 0
     ? [{

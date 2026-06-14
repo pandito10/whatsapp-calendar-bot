@@ -5,6 +5,7 @@ MVP para que un consultorio agende citas automaticamente por WhatsApp y cree eve
 ## Que hace
 
 - Recibe mensajes de WhatsApp Cloud API por webhook.
+- Muestra menu inicial con lista interactiva de WhatsApp y fallback numerado.
 - Pregunta nombre y fecha deseada.
 - Consulta disponibilidad en Google Calendar.
 - Ofrece hasta 6 horarios de 40 minutos.
@@ -167,6 +168,8 @@ AI_PROVIDER=local
 Tambien se acepta `AI_PROVIDER=off`, `AI_PROVIDER=none` o dejarlo vacio; el sistema usara el parser local.
 
 Este modo entiende mensajes reales de WhatsApp con reglas locales: "quiero cita mañana", "kiero cita", "q horarios tienen", "kuanto cuesta", fechas tipo `15/06`, dias de la semana, respuestas `1`, `2` o `3`, cancelacion, reagendar, formas de pago, ubicacion, servicios, requisitos y urgencias medicas administrativas.
+
+Cuando WhatsApp acepta mensajes interactivos, el saludo envia una lista con opciones como agendar, horarios, ubicacion, costos, pagos, servicios y humano. Las confirmaciones importantes usan botones. Si Meta rechaza el formato interactivo o hay algun error temporal, el bot cae automaticamente a texto numerado para no detener la conversacion.
 
 No usa Gemini, OpenAI, embeddings ni modelos externos para responder cuando `AI_PROVIDER=local/off/none`.
 
