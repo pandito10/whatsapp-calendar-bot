@@ -31,6 +31,7 @@ import {
   isDatabaseEnabled,
   loadDueReminders,
   loadConversations,
+  loadWaitingListByDate,
   markReminderFailed,
   markReminderSent,
   markConversationHumanReply,
@@ -42,8 +43,10 @@ import {
   saveCita,
   saveConversationMessage,
   saveKnowledgeSuggestion,
+  saveWaitlistEntry,
   scheduleReminder,
   setConversationHumanMode,
+  setConversationTags,
   setSession,
   updateKnowledgeSuggestion
 } from "./db.js";
@@ -176,6 +179,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/inbox/release") {
       await handleInboxRelease(req, url, res);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/inbox/tags") {
+      await handleInboxTags(req, url, res);
       return;
     }
 
@@ -582,6 +590,7 @@ async function handleKnowledgeReview(req, url, res) {
   const status = form.get("status");
   const answer = String(form.get("answer") ?? "").trim();
   const action = form.get("action") === "human_handoff" ? "human_handoff" : "answer";
+  const intent = String(form.get("intent") ?? "").trim();
   if (!id || !["approved", "rejected", "ignored"].includes(status)) {
     res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" }).end("invalid review");
     return;
@@ -593,6 +602,7 @@ async function handleKnowledgeReview(req, url, res) {
 
   await reviewKnowledgeSuggestion(id, status, {
     answer: answer || undefined,
+    intent: intent || undefined,
     action,
     active: status === "approved"
   });
@@ -615,6 +625,9 @@ async function handleKnowledgeCreate(req, url, res) {
   const question = String(form.get("question") ?? "").trim();
   const answer = String(form.get("answer") ?? "").trim();
   const action = form.get("action") === "human_handoff" ? "human_handoff" : "answer";
+  const intent = String(form.get("intent") ?? "").trim();
+  const variations = parseVariations(form.get("variations"));
+  const priority = Number(form.get("priority") ?? 100);
   if (question.length < 4 || (action === "answer" && answer.length < 4) || question.length > 1000 || answer.length > 2000) {
     await redirectInbox(res, phone, "Pregunta o respuesta invalida.");
     return;
@@ -624,6 +637,9 @@ async function handleKnowledgeCreate(req, url, res) {
     question,
     answer,
     sourcePhone: phone || undefined,
+    intent: intent || undefined,
+    variations,
+    priority: Number.isFinite(priority) ? priority : 100,
     action,
     status: "approved"
   });
@@ -647,6 +663,9 @@ async function handleKnowledgeUpdate(req, url, res) {
   const question = String(form.get("question") ?? "").trim();
   const answer = String(form.get("answer") ?? "").trim();
   const action = form.get("action") === "human_handoff" ? "human_handoff" : "answer";
+  const intent = String(form.get("intent") ?? "").trim();
+  const variations = parseVariations(form.get("variations"));
+  const priority = Number(form.get("priority") ?? 100);
   const activeValue = form.get("active");
   const active = activeValue === "true" ? true : activeValue === "false" ? false : undefined;
   if (!id || question.length < 4 || (action === "answer" && answer.length < 4) || question.length > 1000 || answer.length > 2000) {
@@ -657,6 +676,9 @@ async function handleKnowledgeUpdate(req, url, res) {
   await updateKnowledgeSuggestion(id, {
     question,
     answer,
+    intent: intent || undefined,
+    variations,
+    priority: Number.isFinite(priority) ? priority : 100,
     action,
     active
   });
@@ -726,6 +748,41 @@ async function handleInboxRelease(req, url, res) {
   await setConversationHumanMode(phone, false);
   setMemoryHumanMode(phone, false);
   await redirectInbox(res, phone);
+}
+
+async function handleInboxTags(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) return;
+  if (!checkRateLimit(req, url, "inbox-action")) {
+    res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8" }).end("too many requests");
+    return;
+  }
+
+  const form = await readForm(req, { maxBytes: config.maxRequestBytes });
+  if (!isValidCsrf(req, form.get("csrf"))) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const phone = normalizePhone(form.get("phone") ?? "");
+  const tags = parseTags(form.get("tags"));
+  if (!isValidWhatsAppPhone(phone)) {
+    await redirectInbox(res, "", "Telefono invalido.");
+    return;
+  }
+
+  const existing = conversations.get(phone) ?? { phoneNumber: phone, messages: [], updatedAt: new Date().toISOString() };
+  existing.tags = tags;
+  conversations.set(phone, existing);
+  await setConversationTags(phone, tags);
+  await redirectInbox(res, phone);
+}
+
+function parseTags(value) {
+  return String(value ?? "")
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length >= 2)
+    .slice(0, 12);
 }
 
 function hasInboxAccess(req, url, res, options = {}) {
@@ -946,6 +1003,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
                 <div class="thread-tags">
                   <span class="tag ${status.className}">${status.label}</span>
                   ${conversation.botPaused ? `<span class="tag human">Modo humano</span>` : ""}
+                  ${(conversation.tags ?? []).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}
                   ${conversation.appointment?.slotStart ? `<span class="tag">${formatAppointmentShort(conversation.appointment.slotStart)}</span>` : ""}
                 </div>
               </div>
@@ -1601,6 +1659,9 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
         <div class="stat"><strong>${stats.total}</strong><span>Total</span></div>
         <div class="stat"><strong>${stats.confirmed}</strong><span>Agendadas</span></div>
         <div class="stat"><strong>${stats.followup}</strong><span>Seguimiento</span></div>
+        <div class="stat"><strong>${stats.human}</strong><span>Humano</span></div>
+        <div class="stat"><strong>${stats.urgent}</strong><span>Urgentes</span></div>
+        <div class="stat"><strong>${stats.noReply}</strong><span>No respondio</span></div>
       </div>
       <form class="tools" method="get" action="/inbox">
         <input name="q" value="${escapeHtml(url.searchParams.get("q") ?? "")}" placeholder="Buscar telefono o nombre">
@@ -1637,6 +1698,12 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
                       ? `<form method="post" action="/inbox/release"><input name="csrf" type="hidden" value="${escapeHtml(csrf)}"><input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}"><button type="submit">Devolver al bot</button></form>`
                       : `<form method="post" action="/inbox/takeover"><input name="csrf" type="hidden" value="${escapeHtml(csrf)}"><input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}"><button class="button-danger" type="submit">Tomar conversacion</button></form>`
                   }
+                  <form class="tag-form" method="post" action="/inbox/tags">
+                    <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                    <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                    <input name="tags" maxlength="300" value="${escapeHtml((selected.tags ?? []).join(", "))}" placeholder="Etiquetas">
+                    <button type="submit">Guardar etiquetas</button>
+                  </form>
                 </div>`
               : ""
           }
@@ -1696,9 +1763,12 @@ function buildInboxStats(list) {
       if (status.key === "confirmed") stats.confirmed += 1;
       if (status.key === "followup") stats.followup += 1;
       if (status.key === "open") stats.open += 1;
+      if (conversation.botPaused) stats.human += 1;
+      if ((conversation.tags ?? []).includes("Urgente")) stats.urgent += 1;
+      if ((conversation.messages.at(-1)?.sender ?? "") === "bot") stats.noReply += 1;
       return stats;
     },
-    { total: 0, confirmed: 0, followup: 0, open: 0 }
+    { total: 0, confirmed: 0, followup: 0, open: 0, human: 0, urgent: 0, noReply: 0 }
   );
 }
 
@@ -1710,8 +1780,11 @@ function renderKnowledgePanel(suggestions, csrf, selectedPhone) {
     <form class="knowledge-form" method="post" action="/inbox/knowledge/create">
       <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
       <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+      <input name="intent" maxlength="120" placeholder="Intent: costo_consulta">
       <textarea name="question" rows="2" maxlength="1000" placeholder="Pregunta futura: ej. ¿Atienden sabados?"></textarea>
+      <textarea name="variations" rows="2" maxlength="1000" placeholder="Variaciones, una por linea"></textarea>
       <textarea name="answer" rows="3" maxlength="2000" placeholder="Respuesta del bot para esa pregunta"></textarea>
+      <input name="priority" type="number" min="1" max="999" value="100" placeholder="Prioridad">
       <select name="action">
         <option value="answer">Responder automaticamente</option>
         <option value="human_handoff">Pasar siempre a humano</option>
@@ -1732,6 +1805,7 @@ function renderKnowledgePanel(suggestions, csrf, selectedPhone) {
                 <input name="id" type="hidden" value="${escapeHtml(suggestion.id)}">
                 <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
                 <textarea name="answer" rows="3" maxlength="2000" placeholder="Escribe la respuesta aprobada">${escapeHtml(suggestion.answer ?? "")}</textarea>
+                <input name="intent" maxlength="120" value="${escapeHtml(suggestion.intent ?? "")}" placeholder="Intent">
                 <select name="action">
                   <option value="answer"${suggestion.action !== "human_handoff" ? " selected" : ""}>Responder automaticamente</option>
                   <option value="human_handoff"${suggestion.action === "human_handoff" ? " selected" : ""}>Pasar siempre a humano</option>
@@ -1756,7 +1830,10 @@ function renderKnowledgePanel(suggestions, csrf, selectedPhone) {
                 <input name="id" type="hidden" value="${escapeHtml(suggestion.id)}">
                 <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
                 <textarea name="question" rows="2" maxlength="1000">${escapeHtml(suggestion.question ?? "")}</textarea>
+                <textarea name="variations" rows="2" maxlength="1000">${escapeHtml((suggestion.variations ?? []).join("\n"))}</textarea>
                 <textarea name="answer" rows="3" maxlength="2000">${escapeHtml(suggestion.answer ?? "")}</textarea>
+                <input name="intent" maxlength="120" value="${escapeHtml(suggestion.intent ?? "")}" placeholder="Intent">
+                <input name="priority" type="number" min="1" max="999" value="${escapeHtml(suggestion.priority ?? 100)}">
                 <select name="action">
                   <option value="answer"${suggestion.action !== "human_handoff" ? " selected" : ""}>Responder automaticamente</option>
                   <option value="human_handoff"${suggestion.action === "human_handoff" ? " selected" : ""}>Pasar siempre a humano</option>
@@ -1984,6 +2061,7 @@ async function handleIncomingText(from, text) {
   const normalized = normalizeText(text);
   const detectedIntent = detectIntent(normalized);
   await recordConversationMessage(from, "patient", text);
+  await addConversationTags(from, suggestTagsFromText(normalized, detectedIntent.intent));
   await notifyIncomingPatientMessage(from, text);
 
   const conversationState = (await getConversationState(from)) ?? conversations.get(from);
@@ -2000,7 +2078,23 @@ async function handleIncomingText(from, text) {
 
   const existing = await getPatientSession(from);
 
+  if (existing?.step === "confirmingCancellation") {
+    await handleCancellationConfirmation(from, normalized, existing);
+    return;
+  }
+
+  if (existing?.step === "confirmingReschedule") {
+    await handleRescheduleConfirmation(from, normalized, existing);
+    return;
+  }
+
+  if (existing?.step === "waitlistOffer") {
+    await handleWaitlistConfirmation(from, normalized, existing);
+    return;
+  }
+
   if (detectedIntent.intent === "medical_urgent") {
+    setMemoryTags(from, suggestTagsFromText(normalized, detectedIntent.intent));
     await replyToPatient(from, getIntentResponse("medical_urgent"));
     return;
   }
@@ -2111,6 +2205,7 @@ async function handleIncomingText(from, text) {
     reason: parsed.reason ?? existing?.reason,
     preferredDateText: parsed.preferredDateText ?? existing?.preferredDateText,
     preferredDateISO: parsed.preferredDateISO ?? existing?.preferredDateISO,
+    preferredTimeRange: parsed.preferredTimeRange ?? existing?.preferredTimeRange,
     offeredSlots: existing?.offeredSlots,
     pendingSlot: existing?.pendingSlot,
     rescheduleFromCitaId: existing?.rescheduleFromCitaId,
@@ -2239,6 +2334,15 @@ async function handleIncomingText(from, text) {
     return;
   }
 
+  if (!session.reason) {
+    await setPatientSession(from, { ...session, step: "collectingService" });
+    await replyToPatient(
+      from,
+      "Gracias 😊 ¿Que servicio o motivo general quieres agendar?\n\nPuedes responder: consulta, ultrasonido, papanicolaou, colposcopia, control prenatal u otro motivo general."
+    );
+    return;
+  }
+
   if (!session.paymentType) {
     await setPatientSession(from, { ...session, step: "collectingPaymentType" });
     await replyToPatient(from, "💳 ¿Tu consulta es particular o por parte de alguna red medica/aseguradora?");
@@ -2268,6 +2372,7 @@ async function offerAvailableSlots(from, session, options = {}) {
   let slots;
   try {
     slots = await findAvailableSlots(session.preferredDateText, session.preferredDateISO);
+    slots = filterSlotsByPreferredRange(slots, session.preferredTimeRange);
   } catch (error) {
     if (error.message?.includes("Missing Google Calendar")) {
       await replyToPatient(
@@ -2279,8 +2384,11 @@ async function offerAvailableSlots(from, session, options = {}) {
     throw error;
   }
   if (slots.length === 0) {
-    await setPatientSession(from, { ...session, preferredDateText: undefined });
-    await replyToPatient(from, "😕 No encontre horarios disponibles en esos dias. ¿Quieres que revise otra fecha?");
+    await setPatientSession(from, { ...session, step: "waitlistOffer", waitlistDateISO: session.preferredDateISO, waitlistDateText: session.preferredDateText });
+    await replyToPatient(
+      from,
+      "Por ahora no tengo horarios disponibles para ese dia 😕\n\n¿Quieres que te agregue a lista de espera por si se libera un espacio?\n\n1. Si\n2. Ver otro dia\n3. Hablar con una persona"
+    );
     return;
   }
 
@@ -2300,6 +2408,22 @@ async function offerAvailableSlots(from, session, options = {}) {
       .map((slot, index) => `${index + 1}. ${slot.label}`)
       .join("\n")}\n\n${allowSelection ? "Responde con el numero del horario que prefieras para confirmar. Si ninguno te acomoda, dime otra fecha." : "Si alguno te acomoda, escribe \"quiero agendar\" y te ayudo a apartarlo. Si no, dime otra fecha."}`
   );
+}
+
+function filterSlotsByPreferredRange(slots, range) {
+  if (!range || !Number.isFinite(range.start) || !Number.isFinite(range.end)) return slots;
+  return slots.filter((slot) => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: config.clinicTimezone,
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23"
+    }).formatToParts(new Date(slot.start));
+    const hour = Number(parts.find((part) => part.type === "hour")?.value);
+    const minute = Number(parts.find((part) => part.type === "minute")?.value);
+    const total = hour * 60 + minute;
+    return total >= range.start && total < range.end;
+  });
 }
 
 async function confirmAppointmentFromSession(from, session) {
@@ -2450,34 +2574,54 @@ async function lockAppointmentSlot(from, slot) {
 }
 
 async function handleMenuOption(from, text, intent = detectIntent(text).intent) {
-  if (/^1$/.test(text) || intent === "schedule_appointment" || intent === "new_patient") {
+  const option = menuOptionNumber(text);
+  if (option === 1 || intent === "schedule_appointment" || intent === "new_patient") {
     await setPatientSession(from, { from, step: "collecting" });
     await replyToPatient(from, getIntentResponse("schedule_appointment"));
     return true;
   }
 
-  if (/^2$/.test(text) || intent === "check_availability") {
+  if (option === 2 || intent === "check_availability") {
     await setPatientSession(from, { from, step: "collectingDateOnly", availabilityOnly: true });
     await replyToPatient(from, getIntentResponse("check_availability"));
     return true;
   }
 
-  if (/^3$/.test(text) || intent === "location") {
+  if (option === 3 || intent === "location") {
     await replyToPatient(from, getIntentResponse("location"));
     return true;
   }
 
-  if (/^4$/.test(text) || intent === "cost" || intent === "promotion") {
+  if (option === 4 || intent === "cost" || intent === "promotion") {
     await replyToPatient(from, `${getIntentResponse("cost")}\n\n${getIntentResponse("promotion")}`);
     return true;
   }
 
-  if (/^5$/.test(text) || intent === "payment_methods") {
+  if (option === 5 || intent === "payment_methods") {
     await replyToPatient(from, getIntentResponse("payment_methods"));
     return true;
   }
 
+  if (option === 6 || intent === "medical_services") {
+    await replyToPatient(from, getIntentResponse("medical_services"));
+    return true;
+  }
+
+  if (option === 7 || intent === "direct_contact") {
+    await setConversationHumanMode(from, true, "patient_request");
+    setMemoryHumanMode(from, true);
+    await replyToPatient(from, getIntentResponse("direct_contact"));
+    return true;
+  }
+
   return false;
+}
+
+function menuOptionNumber(text) {
+  const normalized = normalizeText(text);
+  const words = { uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7 };
+  if (/^[1-7]$/.test(normalized)) return Number(normalized);
+  return words[normalized];
 }
 
 async function replyToPatient(to, body) {
@@ -2564,6 +2708,49 @@ function setMemoryHumanMode(phoneNumber, enabled) {
   existing.assignedTo = enabled ? "consultorio" : undefined;
   existing.updatedAt = new Date().toISOString();
   conversations.set(phoneNumber, existing);
+}
+
+async function addConversationTags(phoneNumber, tags) {
+  const cleanTags = [...new Set((tags ?? []).filter(Boolean))].slice(0, 12);
+  if (cleanTags.length === 0) return;
+
+  const existing = conversations.get(phoneNumber) ?? {
+    phoneNumber,
+    updatedAt: new Date().toISOString(),
+    messages: []
+  };
+  existing.tags = [...new Set([...(existing.tags ?? []), ...cleanTags])].slice(0, 12);
+  conversations.set(phoneNumber, existing);
+
+  try {
+    await setConversationTags(phoneNumber, existing.tags);
+  } catch (error) {
+    logSafeError("Could not save conversation tags", error);
+  }
+}
+
+function setMemoryTags(phoneNumber, tags) {
+  const existing = conversations.get(phoneNumber) ?? {
+    phoneNumber,
+    updatedAt: new Date().toISOString(),
+    messages: []
+  };
+  existing.tags = [...new Set([...(existing.tags ?? []), ...(tags ?? [])])].slice(0, 12);
+  conversations.set(phoneNumber, existing);
+}
+
+function suggestTagsFromText(text, intent) {
+  const tags = [];
+  if (intent === "medical_urgent" || /urgente|emergencia|sangrado|dolor fuerte|me duele mucho/.test(text)) tags.push("Urgente", "Humano requerido");
+  if (intent === "direct_contact") tags.push("Humano requerido");
+  if (intent === "reschedule_appointment") tags.push("Reagendar");
+  if (intent === "cancel_appointment") tags.push("Cancelar");
+  if (/embarazo|prenatal/.test(text)) tags.push("Embarazo", "Control prenatal");
+  if (/ultrasonido/.test(text)) tags.push("Ultrasonido");
+  if (/papanicolaou|papanicolau|papanicolao/.test(text)) tags.push("Papanicolau");
+  if (/colposcopia/.test(text)) tags.push("Colposcopia");
+  if (/primera vez|paciente nueva/.test(text)) tags.push("Primera vez", "Nueva paciente");
+  return tags;
 }
 
 function isHumanPauseExpired(conversationState) {
@@ -2660,15 +2847,42 @@ async function handleCancellationRequest(from) {
     return;
   }
 
-  try {
-    await cancelAppointment(cita.googleEventId);
-    await cancelCita(cita.id);
+  await setPatientSession(from, {
+    from,
+    step: "confirmingCancellation",
+    cancellationCitaId: cita.id,
+    cancellationGoogleEventId: cita.googleEventId,
+    cancellationSlotStart: cita.slotStart,
+    cancellationPatientName: cita.patientName
+  });
+  await replyToPatient(
+    from,
+    `Encontré tu cita para ${formatAppointmentFull(cita.slotStart)}.\n\n¿Seguro que deseas cancelarla?\n\n1. Si, cancelar\n2. No, conservar`
+  );
+}
+
+async function handleCancellationConfirmation(from, normalized, session) {
+  if (isNegativeConfirmation(normalized) || menuOptionNumber(normalized) === 2) {
     await deletePatientSession(from);
-    await replyToPatient(from, `✅ Listo, cancele tu cita del ${formatAppointmentFull(cita.slotStart)}.`);
+    await replyToPatient(from, "Perfecto, conservamos tu cita 😊");
+    return;
+  }
+
+  if (!isAffirmativeConfirmation(normalized) && menuOptionNumber(normalized) !== 1) {
+    await replyToPatient(from, "Para cancelar responde 1 o SI. Para conservar tu cita responde 2 o NO.");
+    return;
+  }
+
+  try {
+    await cancelAppointment(session.cancellationGoogleEventId);
+    await cancelCita(session.cancellationCitaId);
+    await deletePatientSession(from);
+    await replyToPatient(from, "✅ Listo, tu cita fue cancelada. Si quieres, puedo ayudarte a reagendar.");
     await safeSendWhatsAppText(
       config.doctorWhatsappNumber,
-      `🛑 Cita cancelada por WhatsApp:\nPaciente: ${cita.patientName ?? "Paciente"}\nFecha: ${formatAppointmentFull(cita.slotStart)}\nTelefono: ${from}`
+      `🛑 Cita cancelada por WhatsApp:\nPaciente: ${session.cancellationPatientName ?? "Paciente"}\nFecha: ${formatAppointmentFull(session.cancellationSlotStart)}\nTelefono: ${from}`
     );
+    await notifyWaitlistForCancelledSlot(session.cancellationSlotStart);
   } catch (error) {
     logSafeError("Could not cancel appointment", error);
     await replyToPatient(
@@ -2697,13 +2911,92 @@ async function handleRescheduleRequest(from) {
 
   await setPatientSession(from, {
     from,
-    step: "collecting",
+    step: "confirmingReschedule",
     name: cita.patientName,
     email: cita.patientEmail,
     rescheduleFromCitaId: cita.id,
-    rescheduleFromGoogleEventId: cita.googleEventId
+    rescheduleFromGoogleEventId: cita.googleEventId,
+    rescheduleFromSlotStart: cita.slotStart
   });
-  await replyToPatient(from, "Claro 😊 Te ayudo a revisar disponibilidad para reagendar.\n\n¿Me indicas que dia te gustaria revisar?");
+  await replyToPatient(
+    from,
+    `Claro, te ayudo a reagendar 😊\n\nEncontre tu cita para ${formatAppointmentFull(cita.slotStart)}.\n¿Quieres cambiarla?\n\n1. Si, cambiar\n2. No, conservar\n3. Hablar con una persona`
+  );
+}
+
+async function handleRescheduleConfirmation(from, normalized, session) {
+  const option = menuOptionNumber(normalized);
+  if (isNegativeConfirmation(normalized) || option === 2) {
+    await deletePatientSession(from);
+    await replyToPatient(from, "Perfecto, conservamos tu cita actual 😊");
+    return;
+  }
+  if (option === 3 || detectIntent(normalized).intent === "direct_contact") {
+    await setConversationHumanMode(from, true, "reschedule_request");
+    setMemoryHumanMode(from, true);
+    await deletePatientSession(from);
+    await replyToPatient(from, getIntentResponse("direct_contact"));
+    return;
+  }
+  if (!isAffirmativeConfirmation(normalized) && option !== 1) {
+    await replyToPatient(from, "Para cambiarla responde 1 o SI. Para conservarla responde 2 o NO.");
+    return;
+  }
+
+  await setPatientSession(from, { ...session, step: "collecting", preferredDateText: undefined, preferredDateISO: undefined });
+  await replyToPatient(from, "Perfecto 😊 ¿Que dia te gustaria revisar para tu nuevo horario?");
+}
+
+async function handleWaitlistConfirmation(from, normalized, session) {
+  const option = menuOptionNumber(normalized);
+  if (isAffirmativeConfirmation(normalized) || option === 1) {
+    try {
+      await saveWaitlistEntry({
+        phoneNumber: from,
+        patientName: session.name,
+        desiredDate: session.waitlistDateISO,
+        desiredRange: session.preferredTimeRange?.label,
+        service: session.reason
+      });
+      await deletePatientSession(from);
+      await replyToPatient(from, "✅ Listo, te agregue a lista de espera. Si se libera un espacio, el consultorio podra revisarlo.");
+    } catch (error) {
+      logSafeError("Could not save waitlist entry", error);
+      await replyToPatient(from, "No pude agregarte a lista de espera por ahora. Puedo revisar otro dia o pasarte con una persona.");
+    }
+    return;
+  }
+
+  if (option === 2 || /otro dia|otra fecha|ver otro/.test(normalized)) {
+    await setPatientSession(from, { ...session, step: "collecting", preferredDateText: undefined, preferredDateISO: undefined });
+    await replyToPatient(from, "Claro 😊 ¿Que otro dia quieres revisar?");
+    return;
+  }
+
+  if (option === 3 || detectIntent(normalized).intent === "direct_contact") {
+    await setConversationHumanMode(from, true, "waitlist_request");
+    setMemoryHumanMode(from, true);
+    await deletePatientSession(from);
+    await replyToPatient(from, getIntentResponse("direct_contact"));
+    return;
+  }
+
+  await replyToPatient(from, "Responde 1 para lista de espera, 2 para revisar otro dia o 3 para hablar con una persona.");
+}
+
+async function notifyWaitlistForCancelledSlot(slotStart) {
+  const dateISO = slotStart ? zonedDateOnly(slotStart) : undefined;
+  if (!dateISO) return;
+  try {
+    const waiting = await loadWaitingListByDate(dateISO, 5);
+    if (waiting.length === 0) return;
+    await safeSendWhatsAppText(
+      config.doctorWhatsappNumber,
+      `📌 Se libero un horario el ${formatDateOnlyFull(dateISO)} y hay ${waiting.length} paciente(s) en lista de espera. Revisa el inbox para avisar manualmente.`
+    );
+  } catch (error) {
+    logSafeError("Could not inspect waitlist after cancellation", error);
+  }
 }
 
 async function handleConfirmAppointmentRequest(from) {
@@ -2839,16 +3132,18 @@ function answerFaq(text) {
 function getIntentResponse(intent) {
   const responses = {
     greeting: [
-      "Hola 😊 ¿En que te puedo ayudar?",
+      "Hola 😊 Soy el asistente virtual del consultorio.",
       "",
-      "Puedo apoyarte con:",
+      "Puedo ayudarte con:",
       "1. 📅 Agendar una cita",
       "2. 🕒 Ver horarios disponibles",
       "3. 📍 Ubicacion",
-      "4. 💰 Costos y promocion",
+      "4. 💰 Costos",
       "5. 💵 Formas de pago",
+      "6. 🩺 Servicios",
+      "7. 👩‍💼 Hablar con una persona",
       "",
-      "Puedes escribirme, por ejemplo: \"quiero agendar\" o \"que citas tienes disponibles\"."
+      "¿Que necesitas?"
     ].join("\n"),
     location: buildLocationMessage(),
     morning_hours: "🌙 No atendemos por la manana. Solo por la tarde, de 4:40 p.m. a 8:00 p.m.\n\n¿Quieres que revise horarios por la tarde?",
@@ -2875,16 +3170,9 @@ function getIntentResponse(intent) {
       "Gracias por avisar 😊\n\nPor favor contacta directamente al consultorio para confirmar si aun es posible atenderte en tu horario o si es necesario reagendar.",
     invoice: "Para temas de factura, por favor consulta directamente con el consultorio para confirmar disponibilidad y requisitos.",
     fallback: [
-      "Perdon 😊 No logre entender bien tu mensaje.",
+      "Perdon, no entendi bien 😅",
       "",
-      "Puedo ayudarte con:",
-      "1. 📅 Agendar una cita",
-      "2. 🕒 Ver horarios disponibles",
-      "3. 📍 Ubicacion",
-      "4. 💰 Costos y promocion",
-      "5. 💵 Formas de pago",
-      "",
-      "Puedes escribirme, por ejemplo: \"quiero agendar\", \"cuanto cuesta\" o \"ubicacion\"."
+      "¿Quieres agendar, ver costos, ubicacion o hablar con una persona?"
     ].join("\n")
   };
 
@@ -2910,7 +3198,12 @@ async function findApprovedKnowledgeAnswer(normalizedText) {
 
   try {
     const suggestions = await loadKnowledgeSuggestions("approved", 50);
-    const match = suggestions.find((suggestion) => suggestion.active !== false && knowledgeMatches(normalizedText, suggestion.question));
+    const match = suggestions.find(
+      (suggestion) =>
+        suggestion.active !== false &&
+        (knowledgeMatches(normalizedText, suggestion.question) ||
+          (suggestion.variations ?? []).some((variation) => knowledgeMatches(normalizedText, variation)))
+    );
     if (!match) return undefined;
     return {
       answer: match.answer,
@@ -2927,6 +3220,14 @@ function knowledgeMatches(text, question) {
   if (words.length === 0) return false;
   const hits = words.filter((word) => text.includes(word)).length;
   return hits >= Math.min(2, words.length);
+}
+
+function parseVariations(value) {
+  return String(value ?? "")
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 3)
+    .slice(0, 20);
 }
 
 async function saveUnrecognizedQuestion(from, text, category) {

@@ -116,7 +116,7 @@ function parseJson(value) {
 
 function understandLocally(message, session, today) {
   const text = normalize(message);
-  const selectedSlotIndex = parseSlotSelection(text);
+  const selectedSlotIndex = parseSlotSelection(text, session);
   const preferredDateISO = parseDate(text, today);
   const name = parseName(message, text, session);
   const email = parseEmail(message);
@@ -132,16 +132,59 @@ function understandLocally(message, session, today) {
     reason: parseReason(message, text, session),
     preferredDateText: preferredDateISO ? message : undefined,
     preferredDateISO,
+    preferredTimeRange: parsePreferredTimeRange(text),
     selectedSlotIndex
   };
 }
 
-function parseSlotSelection(text) {
+function parseSlotSelection(text, session) {
   const exact = text.match(/^\s*([1-9])\s*$/);
   if (exact) return Number(exact[1]);
 
   const option = text.match(/\b(?:opcion|numero|horario)\s*([1-9])\b/);
-  return option ? Number(option[1]) : undefined;
+  if (option) return Number(option[1]);
+
+  const words = {
+    uno: 1,
+    primera: 1,
+    primer: 1,
+    dos: 2,
+    segunda: 2,
+    tres: 3,
+    tercera: 3,
+    cuatro: 4,
+    cuarta: 4,
+    cinco: 5,
+    quinta: 5,
+    seis: 6,
+    sexta: 6,
+    ultima: session?.offeredSlots?.length
+  };
+  for (const [word, index] of Object.entries(words)) {
+    if (index && new RegExp(`\\b(?:la\\s+)?${word}\\b`).test(text)) return index;
+  }
+
+  const timeMatch = text.match(/\b(?:la de las|a las|las)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
+  if (timeMatch && Array.isArray(session?.offeredSlots)) {
+    const requestedHour = Number(timeMatch[1]);
+    const requestedMinute = timeMatch[2] ? Number(timeMatch[2]) : 0;
+    const requestedPeriod = timeMatch[3];
+    const slotIndex = session.offeredSlots.findIndex((slot) => {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: config.clinicTimezone,
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true
+      }).formatToParts(new Date(slot.start));
+      const hour = Number(parts.find((part) => part.type === "hour")?.value);
+      const minute = Number(parts.find((part) => part.type === "minute")?.value);
+      const period = parts.find((part) => part.type === "dayPeriod")?.value.toLowerCase();
+      return hour === requestedHour && minute === requestedMinute && (!requestedPeriod || period === requestedPeriod);
+    });
+    if (slotIndex >= 0) return slotIndex + 1;
+  }
+
+  return undefined;
 }
 
 function parseName(original, normalized, session) {
@@ -182,8 +225,30 @@ function parsePaymentType(text, session) {
   return undefined;
 }
 
+function parsePreferredTimeRange(text) {
+  if (/\b(?:despues de las|despues de|a partir de las)\s*(\d{1,2})\s*(am|pm)?\b/.test(text)) {
+    const match = text.match(/\b(?:despues de las|despues de|a partir de las)\s*(\d{1,2})\s*(am|pm)?\b/);
+    return { label: match[0], start: normalizeHourRange(Number(match[1]), match[2]), end: 24 * 60 };
+  }
+  if (/\b(?:en la manana|por la manana|temprano)\b/.test(text)) return { label: "manana", start: 9 * 60, end: 12 * 60 };
+  if (/\b(?:medio dia|mediodia|antes de comer)\b/.test(text)) return { label: "medio dia", start: 12 * 60, end: 14 * 60 };
+  if (/\b(?:en la tarde|por la tarde|tarde)\b/.test(text)) return { label: "tarde", start: 12 * 60, end: 18 * 60 };
+  if (/\b(?:al rato)\b/.test(text)) return { label: "al rato", start: 0, end: 24 * 60 };
+  return undefined;
+}
+
+function normalizeHourRange(hour, period) {
+  if (period === "pm" && hour < 12) return (hour + 12) * 60;
+  if (period === "am" && hour === 12) return 0;
+  if (!period && hour <= 8) return (hour + 12) * 60;
+  return hour * 60;
+}
+
 function parseReason(original, normalized, session) {
   if (session?.reason) return undefined;
+  if (session?.step === "collectingService") {
+    return cleanSentence(original).slice(0, 80);
+  }
 
   const reasonMatch = normalized.match(/\b(?:por|para|motivo)\s+([a-záéíóúñ ]{3,80})/i);
   if (!reasonMatch) return undefined;

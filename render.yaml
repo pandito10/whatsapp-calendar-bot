@@ -104,6 +104,10 @@ services:
         value: 40
       - key: APPOINTMENT_DURATION_MINUTES
         value: 40
+      - key: APPOINTMENT_BUFFER_MINUTES
+        value: 0
+      - key: MIN_APPOINTMENT_ADVANCE_HOURS
+        value: 0
       - key: MAX_OFFERED_SLOTS
         value: 6
       - key: WORK_DAYS

@@ -40,12 +40,13 @@ export function buildLocationMessage() {
     : "Por ahora el consultorio compartira la ubicacion directamente.";
 }
 
-export function buildAppointmentReviewMessage({ name, slot, email, firstVisit, paymentType }) {
+export function buildAppointmentReviewMessage({ name, slot, email, firstVisit, paymentType, reason }) {
   const lines = [
     "Antes de confirmar, revisa que todo este correcto 😊",
     "",
     `👤 Paciente: ${sanitizeShortText(name || "Paciente", 80)}`,
     `📅 Fecha y hora: ${slot.label}`,
+    reason ? `🩺 Servicio/motivo general: ${sanitizeShortText(reason, 80)}` : undefined,
     email ? `📩 Correo: ${sanitizeShortText(email, 120)}` : undefined,
     firstVisit ? `📝 Primera vez: ${sanitizeShortText(firstVisit, 40)}` : undefined,
     paymentType ? `💳 Tipo: ${sanitizeShortText(paymentType, 80)}` : undefined,

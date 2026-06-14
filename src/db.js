@@ -54,7 +54,7 @@ export async function loadConversations() {
 
   const conversations =
     (await safeSupabaseFetch(
-      `/rest/v1/conversations?select=phone_number,updated_at,assigned_to,bot_paused,bot_paused_at,last_human_reply_at&order=updated_at.desc&limit=${maxConversations}`
+      `/rest/v1/conversations?select=phone_number,updated_at,assigned_to,bot_paused,bot_paused_at,last_human_reply_at,tags&order=updated_at.desc&limit=${maxConversations}`
     )) ??
     (await supabaseFetch(
       `/rest/v1/conversations?select=phone_number,updated_at&order=updated_at.desc&limit=${maxConversations}`
@@ -88,6 +88,7 @@ export async function loadConversations() {
       botPaused: Boolean(conversation.bot_paused),
       botPausedAt: conversation.bot_paused_at,
       lastHumanReplyAt: conversation.last_human_reply_at,
+      tags: Array.isArray(conversation.tags) ? conversation.tags : [],
       messages: [],
       appointment: undefined
     });
@@ -177,7 +178,23 @@ export async function markConversationHumanReply(phoneNumber) {
   });
 }
 
-export async function saveKnowledgeSuggestion({ question, answer, sourcePhone, status = "pending", category, conversationPhone, action = "answer", active = true }) {
+export async function setConversationTags(phoneNumber, tags = []) {
+  if (!isDatabaseEnabled() || !phoneNumber) return;
+
+  await safeSupabaseFetch("/rest/v1/conversations?on_conflict=phone_number", {
+    method: "POST",
+    headers: {
+      Prefer: "resolution=merge-duplicates"
+    },
+    body: JSON.stringify({
+      phone_number: phoneNumber,
+      tags: [...new Set(tags)].slice(0, 12),
+      updated_at: new Date().toISOString()
+    })
+  });
+}
+
+export async function saveKnowledgeSuggestion({ question, answer, sourcePhone, status = "pending", category, conversationPhone, action = "answer", active = true, intent, variations = [], priority = 100 }) {
   if (!isDatabaseEnabled() || !question) return;
 
   await safeSupabaseFetch("/rest/v1/knowledge_suggestions", {
@@ -188,6 +205,9 @@ export async function saveKnowledgeSuggestion({ question, answer, sourcePhone, s
       source_phone: sourcePhone,
       conversation_phone: conversationPhone ?? sourcePhone,
       category,
+      intent,
+      variations,
+      priority,
       action: ["answer", "human_handoff"].includes(action) ? action : "answer",
       active,
       status: ["pending", "approved", "rejected", "ignored"].includes(status) ? status : "pending",
@@ -201,7 +221,7 @@ export async function loadKnowledgeSuggestions(status = "pending", limit = 20) {
 
   const rows =
     (await safeSupabaseFetch(
-      `/rest/v1/knowledge_suggestions?select=id,question,answer,source_phone,conversation_phone,category,action,active,status,created_at&status=eq.${encodeURIComponent(
+      `/rest/v1/knowledge_suggestions?select=id,question,answer,source_phone,conversation_phone,category,intent,variations,priority,action,active,status,created_at&status=eq.${encodeURIComponent(
         status
       )}&order=created_at.desc&limit=${limit}`
     )) ??
@@ -218,6 +238,9 @@ export async function loadKnowledgeSuggestions(status = "pending", limit = 20) {
     sourcePhone: row.source_phone,
     conversationPhone: row.conversation_phone,
     category: row.category,
+    intent: row.intent,
+    variations: Array.isArray(row.variations) ? row.variations : [],
+    priority: row.priority ?? 100,
     action: row.action ?? "answer",
     active: row.active !== false,
     status: row.status,
@@ -234,6 +257,9 @@ export async function reviewKnowledgeSuggestion(id, status, updates = {}) {
       status,
       answer: updates.answer !== undefined ? updates.answer : undefined,
       category: updates.category !== undefined ? updates.category : undefined,
+      intent: updates.intent !== undefined ? updates.intent : undefined,
+      variations: updates.variations !== undefined ? updates.variations : undefined,
+      priority: updates.priority !== undefined ? updates.priority : undefined,
       action: updates.action !== undefined ? updates.action : undefined,
       active: updates.active !== undefined ? updates.active : undefined,
       reviewed_at: new Date().toISOString()
@@ -250,6 +276,9 @@ export async function updateKnowledgeSuggestion(id, updates = {}) {
       question: updates.question,
       answer: updates.answer,
       category: updates.category,
+      intent: updates.intent,
+      variations: updates.variations,
+      priority: updates.priority,
       action: updates.action,
       active: updates.active,
       reviewed_at: updates.status ? new Date().toISOString() : undefined
@@ -524,6 +553,43 @@ export async function markReminderFailed(reminderId, errorMessage) {
       error_message: String(errorMessage ?? "").slice(0, 500)
     })
   });
+}
+
+export async function saveWaitlistEntry(entry) {
+  if (!isDatabaseEnabled()) return;
+
+  await supabaseFetch("/rest/v1/waitlist_entries", {
+    method: "POST",
+    body: JSON.stringify({
+      phone_number: entry.phoneNumber,
+      patient_name: entry.patientName,
+      desired_date: entry.desiredDate,
+      desired_range: entry.desiredRange,
+      service: entry.service,
+      status: entry.status ?? "waiting"
+    })
+  });
+}
+
+export async function loadWaitingListByDate(dateISO, limit = 5) {
+  if (!isDatabaseEnabled() || !dateISO) return [];
+
+  const rows = await safeSupabaseFetch(
+    `/rest/v1/waitlist_entries?select=id,phone_number,patient_name,desired_date,desired_range,service,status,created_at&desired_date=eq.${encodeURIComponent(
+      dateISO
+    )}&status=eq.waiting&order=created_at.asc&limit=${limit}`
+  );
+
+  return (rows ?? []).map((row) => ({
+    id: row.id,
+    phoneNumber: row.phone_number,
+    patientName: row.patient_name,
+    desiredDate: row.desired_date,
+    desiredRange: row.desired_range,
+    service: row.service,
+    status: row.status,
+    createdAt: row.created_at
+  }));
 }
 
 export async function checkDatabaseHealth() {

@@ -95,6 +95,8 @@ export const config = {
           process.env.MASK_PATIENT_PHONE_IN_CALENDAR === "false",
     promotionPrice: process.env.PROMOTION_PRICE ?? "1200",
     appointmentMinutes: Number(process.env.APPOINTMENT_DURATION_MINUTES ?? process.env.APPOINTMENT_MINUTES ?? 40),
+    appointmentBufferMinutes: Number(process.env.APPOINTMENT_BUFFER_MINUTES ?? 0),
+    minAdvanceHours: Number(process.env.MIN_APPOINTMENT_ADVANCE_HOURS ?? 0),
     maxOfferedSlots: Number(process.env.MAX_OFFERED_SLOTS ?? 6),
     workDays: (process.env.CLINIC_WORK_DAYS ?? process.env.WORK_DAYS ?? "1,2,3,4,5").split(",").map((day) => Number(day.trim())),
     workStart: process.env.CLINIC_START_TIME ?? process.env.WORK_START ?? "16:40",
@@ -115,6 +117,14 @@ function validateStartupConfig() {
 
     if (config.appointmentMinutes <= 0 || config.appointmentMinutes > 240) {
           throw new Error("APPOINTMENT_DURATION_MINUTES must be between 1 and 240");
+    }
+
+    if (config.appointmentBufferMinutes < 0 || config.appointmentBufferMinutes > 120) {
+          throw new Error("APPOINTMENT_BUFFER_MINUTES must be between 0 and 120");
+    }
+
+    if (config.minAdvanceHours < 0 || config.minAdvanceHours > 720) {
+          throw new Error("MIN_APPOINTMENT_ADVANCE_HOURS must be between 0 and 720");
     }
 
     if (config.maxOfferedSlots <= 0 || config.maxOfferedSlots > 20) {

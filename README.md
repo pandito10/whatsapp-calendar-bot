@@ -337,7 +337,7 @@ SUPABASE_SERVICE_ROLE_KEY=TU_SERVICE_ROLE_KEY
 
 Si Supabase falla, el inbox puede usar memoria temporal como respaldo. Para citas confirmadas en produccion, `REQUIRE_DB_FOR_APPOINTMENTS=true` obliga a tener Supabase funcionando antes de confirmar al paciente. Si falla el guardado, el bot no confirma al paciente y trata de cancelar el evento recien creado en Google Calendar.
 
-El schema tambien agrega un indice unico para evitar dos citas confirmadas con el mismo `slot_start` y una tabla `appointment_locks` para apartar temporalmente un horario mientras se revalida Calendar y se confirma la cita.
+El schema tambien agrega un indice unico para evitar dos citas confirmadas con el mismo `slot_start`, una tabla `appointment_locks` para apartar temporalmente un horario mientras se revalida Calendar y una tabla `waitlist_entries` para lista de espera.
 
 Para instalar desde cero, corre todo:
 
@@ -371,7 +371,7 @@ Ejecuta pruebas del parser, reglas de agenda, seguridad y privacidad:
 npm test
 ```
 
-Estas pruebas cubren intencion de agendar, seleccion de horario, horario valido, fin de semana, duracion incorrecta, firma Meta, webhook firmado/sin firma, dedupe persistente, locks de Supabase, inbox protegido, redaccion de secretos, salud del servicio, timezone del consultorio, privacidad en Google Calendar, ubicacion configurable, recordatorios seguros y configuracion critica de produccion.
+Estas pruebas cubren intencion de agendar, menu, seleccion de horario por numero y texto, rangos horarios sin IA, horario valido, fin de semana, duracion incorrecta, anticipacion minima, firma Meta, webhook firmado/sin firma, dedupe persistente, locks de Supabase, lista de espera, etiquetas, inbox protegido, redaccion de secretos, salud del servicio, timezone del consultorio, privacidad en Google Calendar, ubicacion configurable, recordatorios seguros y configuracion critica de produccion.
 
 ## Pruebas manuales
 
@@ -454,6 +454,11 @@ Esta versión endurecida agrega varias protecciones para poder probar el robot c
 - La firma de Meta se valida con helper aislado y pruebas automatizadas.
 - Los errores redactan tokens, claves y teléfonos antes de mostrarse en logs.
 - El inbox muestra estado visual de DB, Google y firma Meta en la barra superior.
+- El inbox muestra estadisticas basicas: conversaciones, citas, seguimiento, modo humano, urgentes y pacientes sin respuesta.
+- El inbox permite editar FAQs, activar/desactivar, borrar, agregar variaciones y asignar etiquetas manuales a conversaciones.
+- El bot guarda preguntas no reconocidas como pendientes para convertirlas en FAQ desde el inbox.
+- La agenda soporta buffer entre citas y minimo de anticipacion configurable.
+- Si no hay horarios disponibles, puede guardar a la paciente en lista de espera.
 
 ### Variables nuevas
 
@@ -462,6 +467,8 @@ EXTERNAL_REQUEST_TIMEOUT_MS=8000
 EXTERNAL_REQUEST_RETRIES=2
 INBOX_ALLOW_LEGACY_TOKEN_ACCESS=false
 INBOX_MEDIA_MAX_BYTES=16000000
+APPOINTMENT_BUFFER_MINUTES=0
+MIN_APPOINTMENT_ADVANCE_HOURS=0
 FORWARD_CONVERSATION_BODIES=false
 MASK_PATIENT_PHONE_IN_CALENDAR=true
 INCLUDE_PATIENT_CONTACT_IN_CALENDAR=false
@@ -493,7 +500,7 @@ Esta versión agrega módulos pequeños para hacer el robot más mantenible sin 
 
 `/health` ahora sirve mejor para producción porque indica exactamente si el sistema está `ok` o `degraded`, y lista problemas como `database_required_unavailable`, `google_missing_config` o `webhook_signature_not_enforced`.
 
-Total actual de pruebas: 36.
+Total actual de pruebas: 54.
 
 
 ### Tercera ronda técnica: readiness y privacidad por default

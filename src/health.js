@@ -31,6 +31,9 @@ export function buildOperationalHealth({ db, conversationCount = 0, memorySessio
     time: new Date().toISOString(),
     uptimeSeconds: Math.round(process.uptime()),
     environment: config.nodeEnv,
+    ready: readiness.ready,
+    missing: readiness.missing,
+    warnings: readiness.warnings,
     checks,
     counters: {
       conversationsInMemory: conversationCount,

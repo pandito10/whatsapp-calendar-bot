@@ -23,17 +23,19 @@ export async function findAvailableSlots(dateText, dateISO) {
     }));
 
     let cursor = new Date(window.start);
+    const stepMinutes = config.appointmentMinutes + config.appointmentBufferMinutes;
     while (cursor.getTime() + config.appointmentMinutes * 60_000 <= window.end.getTime()) {
       const slotEnd = new Date(cursor.getTime() + config.appointmentMinutes * 60_000);
-      const overlaps = busyRanges.some((range) => cursor < range.end && slotEnd > range.start);
-      if (!overlaps && cursor > new Date()) {
+      const bufferEnd = new Date(slotEnd.getTime() + config.appointmentBufferMinutes * 60_000);
+      const overlaps = busyRanges.some((range) => cursor < range.end && bufferEnd > range.start);
+      if (!overlaps && isFutureWithAdvance(cursor)) {
         freeSlots.push({
           start: cursor.toISOString(),
           end: slotEnd.toISOString(),
           label: formatSlot(cursor)
         });
       }
-      cursor = new Date(cursor.getTime() + config.appointmentMinutes * 60_000);
+      cursor = new Date(cursor.getTime() + stepMinutes * 60_000);
     }
   }
 
@@ -45,7 +47,7 @@ export function isSlotWithinClinicRules(slot) {
   const start = new Date(slot.start);
   const end = new Date(slot.end);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
-  if (start <= new Date()) return false;
+  if (!isFutureWithAdvance(start)) return false;
   if (end.getTime() - start.getTime() !== config.appointmentMinutes * 60_000) return false;
 
   const parts = getZonedParts(start);
@@ -60,6 +62,10 @@ export function isSlotWithinClinicRules(slot) {
   const workEndMinutes = workEndHour * 60 + workEndMinute;
 
   return startMinutes >= workStartMinutes && endMinutes <= workEndMinutes;
+}
+
+function isFutureWithAdvance(date) {
+  return date.getTime() >= Date.now() + config.minAdvanceHours * 60 * 60 * 1000;
 }
 
 export async function isSlotAvailable(slot) {

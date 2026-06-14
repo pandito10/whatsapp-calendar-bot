@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 process.env.NODE_ENV = "test";
 process.env.WHATSAPP_VERIFY_TOKEN = "verify-token-test";
@@ -25,6 +27,24 @@ test("parser local detecta solicitud de agendar", async () => {
 test("parser local detecta seleccion de horario", async () => {
   const result = await understandMessage("2", { step: "choosingSlot" });
   assert.equal(result.selectedSlotIndex, 2);
+});
+
+test("parser local detecta seleccion de horario por texto", async () => {
+  const result = await understandMessage("la ultima", {
+    step: "choosingSlot",
+    offeredSlots: [
+      { start: "2030-06-17T22:40:00.000Z" },
+      { start: "2030-06-17T23:20:00.000Z" },
+      { start: "2030-06-18T00:00:00.000Z" }
+    ]
+  });
+  assert.equal(result.selectedSlotIndex, 3);
+});
+
+test("parser local detecta rango despues de las 5 sin IA", async () => {
+  const result = await understandMessage("tienes cita despues de las 5", undefined);
+  assert.equal(result.intent, "check_availability");
+  assert.equal(result.preferredTimeRange.start, 17 * 60);
 });
 
 test("parser local entiende fechas con mes escrito", async () => {
@@ -66,4 +86,34 @@ test("rechaza horario con duracion incorrecta", () => {
     isSlotWithinClinicRules({ start: "2030-06-17T22:40:00.000Z", end: "2030-06-17T23:10:00.000Z" }),
     false
   );
+});
+
+test("rechaza horario que no respeta anticipacion minima", () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      "const { isSlotWithinClinicRules } = await import('./src/calendar.js'); const start = new Date(Date.now() + 2 * 60 * 60 * 1000); const end = new Date(start.getTime() + 40 * 60_000); if (isSlotWithinClinicRules({ start: start.toISOString(), end: end.toISOString() })) process.exit(1);"
+    ],
+    {
+      cwd: fileURLToPath(new URL("..", import.meta.url)),
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        WHATSAPP_VERIFY_TOKEN: "verify-token-test",
+        WHATSAPP_PHONE_NUMBER_ID: "123456789",
+        WHATSAPP_ACCESS_TOKEN: "whatsapp-token-test",
+        DOCTOR_WHATSAPP_NUMBER: "5210000000000",
+        MIN_APPOINTMENT_ADVANCE_HOURS: "24",
+        CLINIC_TIMEZONE: "America/Mexico_City",
+        CLINIC_WORK_DAYS: "0,1,2,3,4,5,6",
+        CLINIC_START_TIME: "00:00",
+        CLINIC_END_TIME: "23:59",
+        APPOINTMENT_DURATION_MINUTES: "40"
+      },
+      encoding: "utf8"
+    }
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
 });

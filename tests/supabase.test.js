@@ -9,7 +9,7 @@ process.env.DOCTOR_WHATSAPP_NUMBER = "5210000000000";
 process.env.SUPABASE_URL = "https://example.supabase.co";
 process.env.SUPABASE_SERVICE_ROLE_KEY = "sb-service-role-test";
 
-const { acquireAppointmentLock, rememberProcessedWhatsAppMessage, saveKnowledgeSuggestion } = await import("../src/db.js");
+const { acquireAppointmentLock, rememberProcessedWhatsAppMessage, saveKnowledgeSuggestion, saveWaitlistEntry, setConversationTags } = await import("../src/db.js");
 
 test("dedupe persistente detecta message_id duplicado", async () => {
   const originalFetch = globalThis.fetch;
@@ -89,6 +89,47 @@ test("guarda pregunta no reconocida pendiente sin respuesta", async () => {
     assert.equal(body.status, "pending");
     assert.equal(body.answer, null);
     assert.equal(body.category, "desconocido");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("guarda entrada de lista de espera", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), body: options?.body });
+    return new Response(JSON.stringify([]), { status: 201 });
+  };
+
+  try {
+    await saveWaitlistEntry({
+      phoneNumber: "5214771234567",
+      patientName: "Ana Lopez",
+      desiredDate: "2030-06-17",
+      desiredRange: "tarde",
+      service: "Consulta"
+    });
+    const body = JSON.parse(calls[0].body);
+    assert.equal(body.phone_number, "5214771234567");
+    assert.equal(body.status, "waiting");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("guarda etiquetas de conversacion", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), body: options?.body });
+    return new Response(JSON.stringify([]), { status: 201 });
+  };
+
+  try {
+    await setConversationTags("5214771234567", ["Urgente", "Humano requerido"]);
+    const body = JSON.parse(calls[0].body);
+    assert.deepEqual(body.tags, ["Urgente", "Humano requerido"]);
   } finally {
     globalThis.fetch = originalFetch;
   }

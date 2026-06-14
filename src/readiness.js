@@ -15,12 +15,23 @@ export function assessProductionReadiness({ dbOk = false } = {}) {
   const passed = checks.filter((check) => check.ok).length;
   const score = Math.round((passed / checks.length) * 100);
   const blocking = checks.filter((check) => !check.ok).map((check) => check.id);
+  const missing = checks.filter((check) => !check.ok).map((check) => check.recommendation);
+  const warnings = [];
+  if (config.enableReminderWorker && !config.enablePatientReminderTemplates) {
+    warnings.push("Reminder worker is enabled, but patient templates are disabled");
+  }
+  if (config.aiProvider !== "local") {
+    warnings.push("AI provider is not local; this pilot is intended to run without external AI");
+  }
 
   return {
+    ready: blocking.length === 0,
     score,
     status: blocking.length === 0 ? "ready" : score >= 75 ? "almost-ready" : "not-ready",
     checks,
-    blocking
+    blocking,
+    missing,
+    warnings
   };
 }
 
