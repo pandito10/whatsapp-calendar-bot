@@ -8,9 +8,9 @@ import { readForm, readRawBody } from "./form.js";
 import { redactSecrets } from "./http.js";
 import {
   buildAdminAppointmentNotification,
+  buildAppointmentFailureMessage,
   buildAppointmentReviewMessage,
   buildLocationMessage,
-  buildManualReviewMessage,
   buildPatientReminderJobs,
   buildPatientConfirmationMessage,
   classifyAppointmentError,
@@ -2518,10 +2518,16 @@ async function confirmAppointmentFromSession(from, session) {
     const failureType = classifyAppointmentError(error);
     logSafeError(`Could not confirm appointment for ${maskPhone(from)} [${failureType}]`, error);
     await resetSlotSelection(from, session);
-    await replyToPatient(from, buildManualReviewMessage());
+    await replyToPatient(from, buildAppointmentFailureMessage(failureType));
+    const adminHint =
+      failureType === "database_schema"
+        ? "Probable migracion pendiente o cache de schema en Supabase. Ejecuta supabase/migration-existing.sql y revisa la tabla citas."
+        : failureType === "double_booking"
+          ? "El horario parece duplicado u ocupado. Ofrece otro horario al paciente."
+          : "Revisa Calendar/Supabase antes de confirmar manualmente.";
     await safeSendWhatsAppText(
       config.doctorWhatsappNumber,
-      `⚠️ Error al confirmar cita por WhatsApp (${failureType}). Telefono: ${maskPhone(from)}. Revisa Calendar/Supabase antes de confirmar manualmente.`
+      `⚠️ Error al confirmar cita por WhatsApp (${failureType}). Telefono: ${maskPhone(from)}. ${adminHint}`
     );
   } finally {
     if (lock && typeof lock === "object") await releaseAppointmentLock(lock.token);

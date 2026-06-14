@@ -111,12 +111,35 @@ export function buildManualReviewMessage() {
   return "No pude confirmar ese horario de forma automatica. Para no darte una cita falsa, el consultorio lo va a revisar manualmente y te confirma por aqui.";
 }
 
+export function buildAppointmentFailureMessage(failureType) {
+  if (failureType === "double_booking") {
+    return "😕 Ese horario se acaba de ocupar. Dime que dia te gustaria revisar y te paso nuevos horarios disponibles.";
+  }
+
+  return buildManualReviewMessage();
+}
+
 export function classifyAppointmentError(error) {
   const message = String(error?.message ?? error ?? "").toLowerCase();
-  if (message.includes("database") || message.includes("supabase")) return "database";
+  if (
+    message.includes("23505") ||
+    message.includes("duplicate") ||
+    message.includes("unique constraint") ||
+    message.includes("409") ||
+    message.includes("lock")
+  ) {
+    return "double_booking";
+  }
+  if (
+    message.includes("pgrst204") ||
+    message.includes("schema cache") ||
+    (message.includes("could not find") && message.includes("column"))
+  ) {
+    return "database_schema";
+  }
   if (message.includes("google") || message.includes("calendar") || message.includes("oauth")) return "calendar";
-  if (message.includes("lock") || message.includes("duplicate") || message.includes("409")) return "double_booking";
   if (message.includes("whatsapp")) return "whatsapp";
+  if (message.includes("database") || message.includes("supabase")) return "database";
   return "unknown";
 }
 

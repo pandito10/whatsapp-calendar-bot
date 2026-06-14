@@ -424,25 +424,13 @@ export async function markCitaFailedByGoogleEvent(googleEventId, errorMessage) {
 export async function saveCita(citaData) {
   if (!isDatabaseEnabled()) return null;
 
-  const rows = await supabaseFetch("/rest/v1/citas?select=id,phone_number,slot_start,slot_end,status", {
-    method: "POST",
-    headers: {
-      Prefer: "return=representation"
-    },
-    body: JSON.stringify({
-      phone_number: citaData.phoneNumber,
-      patient_name: citaData.patientName,
-      patient_email: citaData.patientEmail,
-      google_event_id: citaData.googleEventId,
-      slot_start: citaData.slotStart,
-      slot_end: citaData.slotEnd,
-      status: citaData.status ?? "confirmed",
-      first_visit: citaData.firstVisit,
-      payment_type: citaData.paymentType,
-      reason: citaData.reason,
-      error_message: citaData.errorMessage
-    })
-  });
+  let rows;
+  try {
+    rows = await insertCitaPayload(buildCitaPayload(citaData));
+  } catch (error) {
+    if (!isMissingCitaColumnError(error)) throw error;
+    rows = await insertCitaPayload(buildCitaPayload(citaData, { legacy: true }));
+  }
 
   const row = rows?.[0];
   if (!row) return null;
@@ -453,6 +441,47 @@ export async function saveCita(citaData) {
     slotEnd: row.slot_end,
     status: row.status
   };
+}
+
+function buildCitaPayload(citaData, { legacy = false } = {}) {
+  const basePayload = {
+    phone_number: citaData.phoneNumber,
+    patient_name: citaData.patientName,
+    patient_email: citaData.patientEmail,
+    google_event_id: citaData.googleEventId,
+    slot_start: citaData.slotStart,
+    slot_end: citaData.slotEnd,
+    status: citaData.status ?? "confirmed"
+  };
+
+  if (legacy) return basePayload;
+
+  return {
+    ...basePayload,
+    first_visit: citaData.firstVisit,
+    payment_type: citaData.paymentType,
+    reason: citaData.reason,
+    error_message: citaData.errorMessage
+  };
+}
+
+async function insertCitaPayload(payload) {
+  return await supabaseFetch("/rest/v1/citas?select=id,phone_number,slot_start,slot_end,status", {
+    method: "POST",
+    headers: {
+      Prefer: "return=representation"
+    },
+    body: JSON.stringify(payload)
+  });
+}
+
+function isMissingCitaColumnError(error) {
+  const message = String(error?.message ?? error ?? "").toLowerCase();
+  return (
+    message.includes("pgrst204") ||
+    message.includes("schema cache") ||
+    (message.includes("could not find") && message.includes("column"))
+  );
 }
 
 export async function getLatestConfirmedCitaByPhone(phoneNumber) {

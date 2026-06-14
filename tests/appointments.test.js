@@ -22,6 +22,7 @@ const {
   buildLocationMessage,
   buildPatientReminderJobs,
   buildPatientConfirmationMessage,
+  buildAppointmentFailureMessage,
   classifyAppointmentError,
   sanitizeShortText
 } = await import("../src/appointments.js");
@@ -91,6 +92,20 @@ test("no programa recordatorios de paciente sin templates aprobados", () => {
 test("clasifica errores de calendario y base de datos", () => {
   assert.equal(classifyAppointmentError(new Error("Google Calendar 500")), "calendar");
   assert.equal(classifyAppointmentError(new Error("Supabase request failed")), "database");
+  assert.equal(
+    classifyAppointmentError(new Error("Supabase request failed: 409 duplicate key value violates unique constraint")),
+    "double_booking"
+  );
+  assert.equal(
+    classifyAppointmentError(new Error("PGRST204 Could not find the 'error_message' column in the schema cache")),
+    "database_schema"
+  );
+});
+
+test("mensaje de falla por doble cita ofrece revisar otro horario", () => {
+  const message = buildAppointmentFailureMessage("double_booking");
+  assert.match(message, /se acaba de ocupar/i);
+  assert.match(message, /nuevos horarios/i);
 });
 
 test("sanitiza texto corto para mensajes operativos", () => {
