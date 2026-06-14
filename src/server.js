@@ -512,9 +512,31 @@ function handleInboxScript(res) {
     });
   }
 
+  function bindComposerEnhancements() {
+    const form = document.querySelector(".composer form");
+    const composer = document.querySelector(".composer textarea[name='message']");
+    const counter = document.querySelector("[data-message-count]");
+    if (composer && counter) {
+      const updateCounter = () => {
+        counter.textContent = composer.value.length + "/2000";
+      };
+      composer.addEventListener("input", updateCounter);
+      updateCounter();
+    }
+    if (form) {
+      form.addEventListener("submit", () => {
+        const button = form.querySelector(".send-button");
+        if (!button) return;
+        button.disabled = true;
+        button.textContent = "Enviando...";
+      });
+    }
+  }
+
   function initInbox() {
     bindQuickReplies();
     bindCopyButtons();
+    bindComposerEnhancements();
     scrollMessagesToBottom();
   }
 
@@ -881,15 +903,16 @@ function handleInboxLoginPage(req, res, error = "") {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Entrar al inbox</title>
   <style>
-    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172033; background: #eef3f8; }
+    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #2d1724; background: #fff1f6; }
     * { box-sizing: border-box; }
-    body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: linear-gradient(135deg, #f7fbff, #edf3f8); }
-    main { width: min(420px, 100%); background: white; border: 1px solid #d9e2ec; border-radius: 14px; padding: 28px; box-shadow: 0 16px 40px rgba(23, 32, 51, 0.1); }
+    body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top left, rgba(244, 114, 182, 0.28), transparent 28rem), linear-gradient(135deg, #fff7fb, #ffe4ef); }
+    main { width: min(420px, 100%); background: rgba(255, 255, 255, 0.92); border: 1px solid #f3c9d8; border-radius: 22px; padding: 30px; box-shadow: 0 20px 52px rgba(157, 23, 77, 0.14); }
     h1 { margin: 0 0 8px; font-size: 22px; }
-    p { margin: 0 0 20px; color: #66758a; line-height: 1.45; }
+    p { margin: 0 0 20px; color: #8a5c6e; line-height: 1.45; }
     label { display: block; font-weight: 700; font-size: 14px; margin-bottom: 8px; }
-    input { width: 100%; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px; font: inherit; }
-    button { width: 100%; margin-top: 14px; border: 0; border-radius: 10px; padding: 12px; background: #0f766e; color: white; font: inherit; font-weight: 800; cursor: pointer; }
+    input { width: 100%; border: 1px solid #f1b9cf; border-radius: 14px; padding: 12px; font: inherit; }
+    input:focus { border-color: #db2777; box-shadow: 0 0 0 4px rgba(219, 39, 119, 0.12); outline: none; }
+    button { width: 100%; margin-top: 14px; border: 0; border-radius: 14px; padding: 12px; background: linear-gradient(135deg, #db2777, #f472b6); color: white; font: inherit; font-weight: 800; cursor: pointer; box-shadow: 0 12px 24px rgba(219, 39, 119, 0.2); }
     .error { margin-bottom: 14px; padding: 10px 12px; border-radius: 10px; color: #991b1b; background: #fee2e2; border: 1px solid #fecaca; }
   </style>
 </head>
@@ -1097,22 +1120,26 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
     :root {
       color-scheme: light;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #eef3f8;
-      color: #172033;
-      --line: #d9e2ec;
-      --muted: #66758a;
-      --brand: #0f766e;
-      --brand-dark: #115e59;
+      background: #fff1f6;
+      color: #2d1724;
+      --line: #f3c9d8;
+      --muted: #8a5c6e;
+      --brand: #db2777;
+      --brand-dark: #9d174d;
+      --brand-soft: #fce7f3;
+      --brand-pale: #fff5f8;
       --surface: #ffffff;
-      --soft: #f6f9fc;
+      --soft: #fff7fb;
+      --shadow: rgba(157, 23, 77, 0.12);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
       background:
-        radial-gradient(circle at top left, rgba(15, 118, 110, 0.14), transparent 32rem),
-        linear-gradient(135deg, #f7fbff 0%, #edf3f8 100%);
+        radial-gradient(circle at top left, rgba(244, 114, 182, 0.26), transparent 32rem),
+        radial-gradient(circle at 88% 12%, rgba(251, 207, 232, 0.72), transparent 24rem),
+        linear-gradient(135deg, #fff7fb 0%, #ffe4ef 48%, #fff7fb 100%);
     }
     header {
       height: 72px;
@@ -1120,8 +1147,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       align-items: center;
       justify-content: space-between;
       padding: 0 28px;
-      border-bottom: 1px solid rgba(217, 226, 236, 0.82);
-      background: rgba(255, 255, 255, 0.86);
+      border-bottom: 1px solid rgba(243, 201, 216, 0.86);
+      background: rgba(255, 247, 251, 0.9);
       backdrop-filter: blur(14px);
       position: sticky;
       top: 0;
@@ -1138,10 +1165,10 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       width: 38px;
       height: 38px;
       border-radius: 12px;
-      background: var(--brand);
+      background: linear-gradient(135deg, #db2777, #f472b6);
       color: #ffffff;
       font-weight: 800;
-      box-shadow: 0 10px 24px rgba(15, 118, 110, 0.22);
+      box-shadow: 0 12px 28px rgba(219, 39, 119, 0.26);
     }
     h1 {
       font-size: 18px;
@@ -1166,10 +1193,10 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
     .health-pill {
       border-radius: 999px;
       padding: 7px 10px;
-      border: 1px solid #d6e2ee;
+      border: 1px solid #f3c9d8;
       background: #ffffff;
-      color: #334155;
-      box-shadow: 0 6px 14px rgba(15, 23, 42, 0.05);
+      color: #6b2144;
+      box-shadow: 0 6px 14px rgba(157, 23, 77, 0.06);
     }
     .health-pill.ok { color: #166534; background: #dcfce7; border-color: #bbf7d0; }
     .health-pill.warn { color: #92400e; background: #fef3c7; border-color: #fde68a; }
@@ -1183,14 +1210,14 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
     }
     aside {
       border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.92);
+      background: rgba(255, 255, 255, 0.9);
       overflow: auto;
       border-radius: 18px;
-      box-shadow: 0 16px 40px rgba(23, 32, 51, 0.08);
+      box-shadow: 0 18px 44px var(--shadow);
     }
     .sidebar-head {
       padding: 18px 18px 12px;
-      border-bottom: 1px solid #edf1f6;
+      border-bottom: 1px solid #f9d8e5;
     }
     .sidebar-head strong {
       display: block;
@@ -1207,14 +1234,14 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       grid-template-columns: repeat(3, 1fr);
       gap: 8px;
       padding: 14px;
-      border-bottom: 1px solid #edf1f6;
+      border-bottom: 1px solid #f9d8e5;
     }
     .stat {
       min-width: 0;
       padding: 10px;
       border-radius: 12px;
       background: var(--soft);
-      border: 1px solid #e7edf4;
+      border: 1px solid #f7d3e1;
     }
     .stat strong { display: block; font-size: 18px; line-height: 1; }
     .stat span { display: block; color: var(--muted); font-size: 11px; margin-top: 5px; }
@@ -1225,14 +1252,14 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       padding: 14px 16px;
       color: inherit;
       text-decoration: none;
-      border-bottom: 1px solid #edf1f6;
+      border-bottom: 1px solid #f9d8e5;
       transition: background 0.15s ease, transform 0.15s ease;
     }
     .thread:hover {
-      background: #f4faf8;
+      background: #fff0f6;
     }
     .thread.active {
-      background: #e5f5f0;
+      background: #fce7f3;
       border-left: 4px solid var(--brand);
       padding-left: 12px;
     }
@@ -1244,7 +1271,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       display: grid;
       place-items: center;
       color: #ffffff;
-      background: linear-gradient(135deg, #0f766e, #14b8a6);
+      background: linear-gradient(135deg, #be185d, #f472b6);
       font-weight: 800;
       font-size: 13px;
     }
@@ -1295,8 +1322,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       align-items: center;
       width: fit-content;
       color: #475569;
-      background: #f1f5f9;
-      border: 1px solid #e2e8f0;
+      background: #fff1f6;
+      border: 1px solid #f7d3e1;
       border-radius: 999px;
       padding: 4px 8px;
       font-size: 11px;
@@ -1310,39 +1337,55 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       display: grid;
       gap: 8px;
       padding: 12px 14px;
-      border-bottom: 1px solid #edf1f6;
+      border-bottom: 1px solid #f9d8e5;
     }
     .tools input, .tools select, textarea {
       width: 100%;
-      border: 1px solid #cbd5e1;
-      border-radius: 10px;
+      border: 1px solid #f1b9cf;
+      border-radius: 12px;
       padding: 10px 11px;
       font: inherit;
       background: #ffffff;
     }
+    .tools input:focus, .tools select:focus, textarea:focus {
+      border-color: var(--brand);
+      box-shadow: 0 0 0 4px rgba(219, 39, 119, 0.12);
+      outline: none;
+    }
     .tool-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
     button, .button-link {
       border: 0;
-      border-radius: 10px;
+      border-radius: 12px;
       padding: 10px 12px;
-      background: var(--brand);
+      background: linear-gradient(135deg, var(--brand), #f472b6);
       color: #ffffff;
       font: inherit;
       font-weight: 800;
       text-decoration: none;
       cursor: pointer;
+      box-shadow: 0 10px 18px rgba(219, 39, 119, 0.16);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
     }
-    .button-secondary { background: #334155; }
-    .button-danger { background: #b45309; }
+    button:hover, .button-link:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 14px 24px rgba(219, 39, 119, 0.2);
+    }
+    button:disabled {
+      cursor: wait;
+      opacity: 0.72;
+      transform: none;
+    }
+    .button-secondary { background: #7c2d52; }
+    .button-danger { background: linear-gradient(135deg, #be123c, #f43f5e); }
     .mobile-back { display: none; }
     .chat {
       display: flex;
       flex-direction: column;
       overflow: hidden;
       border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.82);
+      background: rgba(255, 255, 255, 0.86);
       border-radius: 18px;
-      box-shadow: 0 16px 40px rgba(23, 32, 51, 0.08);
+      box-shadow: 0 18px 48px var(--shadow);
     }
     .chat-title {
       display: flex;
@@ -1350,7 +1393,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       justify-content: space-between;
       gap: 16px;
       padding: 18px 22px;
-      background: rgba(255, 255, 255, 0.96);
+      background: rgba(255, 247, 251, 0.96);
       border-bottom: 1px solid var(--line);
     }
     .chat-title strong { display: block; font-size: 16px; }
@@ -1358,8 +1401,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
     .chip {
       flex: 0 0 auto;
       color: var(--brand-dark);
-      background: #e5f5f0;
-      border: 1px solid #bce4dc;
+      background: #fce7f3;
+      border: 1px solid #f9a8d4;
       padding: 7px 10px;
       border-radius: 999px;
       font-size: 12px;
@@ -1375,9 +1418,9 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       margin: 18px 24px 0;
       padding: 14px 16px;
       border-radius: 14px;
-      background: #ecfdf5;
-      border: 1px solid #bbf7d0;
-      color: #064e3b;
+      background: #fff1f6;
+      border: 1px solid #f9a8d4;
+      color: #831843;
     }
     .appointment-card strong {
       display: block;
@@ -1391,7 +1434,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       font-size: 13px;
     }
     .appointment-grid span {
-      color: #047857;
+      color: var(--brand-dark);
       display: block;
       font-size: 11px;
       font-weight: 800;
@@ -1402,8 +1445,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       padding: 24px;
       overflow: auto;
       background:
-        linear-gradient(rgba(246, 249, 252, 0.86), rgba(246, 249, 252, 0.86)),
-        radial-gradient(circle, rgba(15, 118, 110, 0.08) 1px, transparent 1px);
+        linear-gradient(rgba(255, 247, 251, 0.88), rgba(255, 247, 251, 0.88)),
+        radial-gradient(circle, rgba(219, 39, 119, 0.08) 1px, transparent 1px);
       background-size: auto, 18px 18px;
       flex: 1;
     }
@@ -1417,21 +1460,23 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       padding: 11px 13px 10px;
       border-radius: 16px 16px 16px 4px;
       background: var(--surface);
-      box-shadow: 0 8px 22px rgba(23, 32, 51, 0.08);
+      box-shadow: 0 8px 22px rgba(157, 23, 77, 0.08);
       line-height: 1.45;
       white-space: normal;
       overflow-wrap: anywhere;
     }
     .bot .bubble {
-      background: #d9fdd3;
+      color: #831843;
+      background: #fce7f3;
       border-radius: 16px 16px 4px 16px;
     }
     .human { justify-content: flex-end; }
     .human .bubble {
-      color: #3b0764;
-      background: #f3e8ff;
+      color: #ffffff;
+      background: linear-gradient(135deg, #be185d, #ec4899);
       border-radius: 16px 16px 4px 16px;
     }
+    .human .meta { color: rgba(255, 255, 255, 0.78); }
     .meta {
       color: var(--muted);
       font-size: 12px;
@@ -1443,7 +1488,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       gap: 2px;
       margin-top: 10px;
       padding: 10px 11px;
-      border: 1px solid rgba(15, 118, 110, 0.2);
+      border: 1px solid rgba(219, 39, 119, 0.18);
       border-radius: 12px;
       background: rgba(255, 255, 255, 0.72);
       font-size: 13px;
@@ -1465,10 +1510,28 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
     }
     .composer {
       border-top: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.96);
+      background: rgba(255, 247, 251, 0.98);
       padding: 14px;
     }
     .composer form { display: grid; gap: 10px; }
+    .message-input-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: stretch;
+    }
+    .message-input-row textarea {
+      min-height: 58px;
+      max-height: 150px;
+      resize: vertical;
+      border-radius: 16px;
+      background: #ffffff;
+    }
+    .send-button {
+      min-width: 118px;
+      border-radius: 16px;
+      font-size: 15px;
+    }
     .quick-replies {
       display: flex;
       gap: 8px;
@@ -1478,9 +1541,9 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
     }
     .quick-reply {
       flex: 0 0 auto;
-      background: #e2e8f0;
-      color: #0f172a;
-      border: 1px solid #cbd5e1;
+      background: #fff1f6;
+      color: #9d174d;
+      border: 1px solid #f9a8d4;
       padding: 8px 10px;
       font-size: 12px;
     }
@@ -1488,15 +1551,15 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
       gap: 6px;
-      color: #475569;
+      color: #8a5c6e;
       font-size: 13px;
       font-weight: 700;
     }
     .file-row input {
-      border: 1px dashed #94a3b8;
+      border: 1px dashed #f0a3c2;
       border-radius: 10px;
       padding: 10px;
-      background: #f8fafc;
+      background: #fffafd;
       font: inherit;
     }
     .composer-actions {
@@ -1505,6 +1568,18 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       gap: 8px;
       align-items: center;
       justify-content: space-between;
+    }
+    .composer-hint {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .composer-count {
+      color: var(--brand-dark);
+      font-weight: 800;
     }
     .knowledge {
       margin-top: 12px;
@@ -1670,6 +1745,13 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
         padding-bottom: max(10px, env(safe-area-inset-bottom));
       }
       .composer form { gap: 8px; }
+      .message-input-row {
+        grid-template-columns: 1fr;
+      }
+      .send-button {
+        width: 100%;
+        min-height: 48px;
+      }
       .quick-replies { margin: 0 -2px; padding: 0 2px 4px; }
       .quick-reply { font-size: 12px; padding: 7px 9px; }
       .file-row span { display: none; }
@@ -1686,7 +1768,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
 <body class="${selected ? "has-selection" : "no-selection"}">
   <header>
     <div class="brand">
-      <div class="brand-mark">WA</div>
+      <div class="brand-mark">Dra</div>
       <div>
         <h1>Inbox del bot</h1>
         <div class="subtitle">Conversaciones del consultorio</div>
@@ -1777,14 +1859,17 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
                 <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
                 <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
                 ${quickReplies}
-                <textarea name="message" rows="3" maxlength="2000" placeholder="Escribe una respuesta como humano..."></textarea>
+                <div class="message-input-row">
+                  <textarea name="message" rows="3" maxlength="2000" placeholder="Escribe una respuesta como humano..."></textarea>
+                  <button class="send-button" type="submit">Enviar</button>
+                </div>
                 <label class="file-row">
                   <span>Adjuntar foto, PDF, archivo o video</span>
                   <input name="attachment" type="file" accept="image/*,video/mp4,video/3gpp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv">
                 </label>
                 <div class="composer-actions">
                   <span class="subtitle">Se enviara por WhatsApp y se guardara como Humano. Max ${formatFileSize(config.inboxMediaMaxBytes)} por archivo.</span>
-                  <button type="submit">Enviar respuesta</button>
+                  <span class="composer-count" data-message-count>0/2000</span>
                 </div>
               </form>
             </div>`
