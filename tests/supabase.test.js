@@ -11,6 +11,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = "sb-service-role-test";
 
 const {
   acquireAppointmentLock,
+  loadActiveAppointmentLocks,
   loadConfirmedCitasBetween,
   rememberProcessedWhatsAppMessage,
   saveCita,
@@ -35,9 +36,24 @@ test("lock de cita devuelve null cuando Supabase rechaza horario duplicado", asy
   const originalFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, options) => {
-    calls.push({ url: String(url), method: options?.method });
-    if (String(url).includes("appointment_locks") && options?.method === "DELETE") {
+    const href = String(url);
+    calls.push({ url: href, method: options?.method });
+    if (href.includes("appointment_locks") && options?.method === "DELETE") {
       return new Response(null, { status: 204 });
+    }
+    if (href.includes("appointment_locks?select=id,slot_start")) {
+      return new Response(
+        JSON.stringify([
+          {
+            id: 9,
+            slot_start: "2030-06-17T22:40:00.000Z",
+            slot_end: "2030-06-17T23:20:00.000Z",
+            phone_number: "5214771234567",
+            expires_at: "2030-06-17T22:50:00.000Z"
+          }
+        ]),
+        { status: 200 }
+      );
     }
     return new Response(JSON.stringify({ code: "23505" }), { status: 409 });
   };
@@ -50,6 +66,71 @@ test("lock de cita devuelve null cuando Supabase rechaza horario duplicado", asy
     });
     assert.equal(lock, null);
     assert.ok(calls.some((call) => call.method === "DELETE"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("un appointment_lock vencido no bloquea el horario", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    const href = String(url);
+    calls.push({ url: href, method: options?.method, body: options?.body ? JSON.parse(options.body) : undefined });
+
+    if (href.includes("appointment_locks?expires_at=lt.") && options?.method === "DELETE") {
+      return new Response(JSON.stringify({ message: "cleanup failed" }), { status: 500 });
+    }
+
+    if (href.includes("appointment_locks?select=id,lock_token") && options?.method === "POST" && calls.filter((call) => call.method === "POST").length === 1) {
+      return new Response(JSON.stringify({ code: "23505" }), { status: 409 });
+    }
+
+    if (href.includes("appointment_locks?select=id,slot_start")) {
+      return new Response(
+        JSON.stringify([
+          {
+            id: 99,
+            slot_start: "2030-06-17T22:40:00.000Z",
+            slot_end: "2030-06-17T23:20:00.000Z",
+            phone_number: "5214771234567",
+            expires_at: "2000-01-01T00:00:00.000Z"
+          }
+        ]),
+        { status: 200 }
+      );
+    }
+
+    if (href.includes("appointment_locks?id=eq.99") && options?.method === "DELETE") {
+      return new Response(null, { status: 204 });
+    }
+
+    if (href.includes("appointment_locks?select=id,lock_token") && options?.method === "POST") {
+      return new Response(
+        JSON.stringify([
+          {
+            id: 100,
+            lock_token: "lock-token",
+            slot_start: "2030-06-17T22:40:00.000Z",
+            slot_end: "2030-06-17T23:20:00.000Z",
+            expires_at: "2030-06-17T22:50:00.000Z"
+          }
+        ]),
+        { status: 201 }
+      );
+    }
+
+    throw new Error(`Unexpected request ${options?.method} ${href}`);
+  };
+
+  try {
+    const lock = await acquireAppointmentLock({
+      slotStart: "2030-06-17T22:40:00.000Z",
+      slotEnd: "2030-06-17T23:20:00.000Z",
+      phoneNumber: "5214771234567"
+    });
+    assert.equal(lock.id, 100);
+    assert.ok(calls.some((call) => call.url.includes("appointment_locks?id=eq.99") && call.method === "DELETE"));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -79,7 +160,8 @@ test("saveCita reintenta con payload legacy si falta una columna nueva", async (
           phone_number: "5214771234567",
           slot_start: "2030-06-17T22:40:00.000Z",
           slot_end: "2030-06-17T23:20:00.000Z",
-          status: "confirmed"
+          status: "confirmed",
+          google_event_id: "calendar-event-1"
         }
       ]),
       { status: 201 }
@@ -124,7 +206,8 @@ test("carga citas confirmadas en un rango para filtrar disponibilidad", async ()
           id: 3,
           slot_start: "2030-06-17T22:40:00.000Z",
           slot_end: "2030-06-17T23:20:00.000Z",
-          status: "confirmed"
+          status: "confirmed",
+          google_event_id: "calendar-event-1"
         }
       ]),
       { status: 200 }
@@ -138,6 +221,65 @@ test("carga citas confirmadas en un rango para filtrar disponibilidad", async ()
     assert.match(requestedUrl, /slot_end=gt\./);
     assert.equal(citas.length, 1);
     assert.equal(citas[0].slotStart, "2030-06-17T22:40:00.000Z");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("ignora citas confirmed sin google_event_id al filtrar disponibilidad", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify([
+        {
+          id: 3,
+          slot_start: "2030-06-17T22:40:00.000Z",
+          slot_end: "2030-06-17T23:20:00.000Z",
+          status: "confirmed",
+          google_event_id: null
+        },
+        {
+          id: 4,
+          slot_start: "2030-06-17T23:20:00.000Z",
+          slot_end: "2030-06-18T00:00:00.000Z",
+          status: "confirmed",
+          google_event_id: ""
+        }
+      ]),
+      { status: 200 }
+    );
+
+  try {
+    const citas = await loadConfirmedCitasBetween("2030-06-17T22:00:00.000Z", "2030-06-18T01:00:00.000Z");
+    assert.deepEqual(citas, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("diagnostico carga appointment_locks activos", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /expires_at=gt\./);
+    return new Response(
+      JSON.stringify([
+        {
+          id: 5,
+          slot_start: "2030-06-17T22:40:00.000Z",
+          slot_end: "2030-06-17T23:20:00.000Z",
+          phone_number: "5214771234567",
+          expires_at: "2030-06-17T22:50:00.000Z",
+          created_at: "2030-06-17T22:39:00.000Z"
+        }
+      ]),
+      { status: 200 }
+    );
+  };
+
+  try {
+    const locks = await loadActiveAppointmentLocks(10);
+    assert.equal(locks.length, 1);
+    assert.equal(locks[0].expiresAt, "2030-06-17T22:50:00.000Z");
   } finally {
     globalThis.fetch = originalFetch;
   }

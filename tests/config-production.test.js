@@ -57,6 +57,31 @@ test("produccion acepta alias REQUIRE_SUPABASE_FOR_APPOINTMENTS para exigir Supa
   assert.match(result.stderr, /SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/);
 });
 
+test("si falta GOOGLE_CALENDAR_ID usa primary y lo advierte en readiness", () => {
+  const { GOOGLE_CALENDAR_ID: _googleCalendarId, ...envWithoutCalendarId } = baseEnv;
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      "const { config } = await import('./src/config.js'); const { assessProductionReadiness } = await import('./src/readiness.js'); const readiness = assessProductionReadiness({ dbOk: true }); if (config.googleCalendarId !== 'primary') throw new Error(config.googleCalendarId); if (config.googleCalendarIdConfigured !== false) throw new Error('expected fallback'); if (!readiness.warnings.some((warning) => warning.includes('GOOGLE_CALENDAR_ID'))) throw new Error('missing warning');"
+    ],
+    {
+      cwd: fileURLToPath(new URL("..", import.meta.url)),
+      env: {
+        ...envWithoutCalendarId,
+        GOOGLE_CALENDAR_ID: "",
+        WHATSAPP_APP_SECRET: "app-secret",
+        SUPABASE_URL: "https://example.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "sb_secret_test"
+      },
+      encoding: "utf8"
+    }
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
 test("AI_PROVIDER vacio o apagado usa parser local", () => {
   const result = spawnSync(
     process.execPath,

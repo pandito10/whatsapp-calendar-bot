@@ -9,6 +9,7 @@ process.env.DOCTOR_WHATSAPP_NUMBER = "5210000000000";
 process.env.GOOGLE_CLIENT_ID = "google-client";
 process.env.GOOGLE_CLIENT_SECRET = "google-secret";
 process.env.GOOGLE_REFRESH_TOKEN = "refresh-token";
+delete process.env.GOOGLE_CALENDAR_ID;
 process.env.COOKIE_SECRET = "12345678901234567890123456789012";
 process.env.INBOX_PASSWORD = "1234567890123456";
 process.env.WHATSAPP_APP_SECRET = "app-secret";
@@ -22,6 +23,8 @@ test("health reporta app ok cuando lo critico esta configurado", () => {
   const health = buildOperationalHealth({ db: { ok: true, status: "ok" }, conversationCount: 2 });
   assert.equal(health.app, "ok");
   assert.equal(health.checks.webhookSignature, "required");
+  assert.equal(typeof health.calendar.id, "string");
+  assert.ok(["env", "default-primary"].includes(health.calendar.source));
   assert.equal(isOperationallyUnhealthy(health), false);
 });
 

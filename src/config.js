@@ -73,7 +73,8 @@ export const config = {
     googleClientId: process.env.GOOGLE_CLIENT_ID,
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
     googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN,
-    googleCalendarId: process.env.GOOGLE_CALENDAR_ID ?? "primary",
+    googleCalendarId: process.env.GOOGLE_CALENDAR_ID || "primary",
+    googleCalendarIdConfigured: Boolean(process.env.GOOGLE_CALENDAR_ID),
     googleRedirectUri:
           process.env.GOOGLE_REDIRECT_URI ??
           (process.env.PUBLIC_BASE_URL

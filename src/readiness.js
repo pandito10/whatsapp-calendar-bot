@@ -23,6 +23,9 @@ export function assessProductionReadiness({ dbOk = false } = {}) {
   if (config.aiProvider !== "local") {
     warnings.push("AI provider is not local; this pilot is intended to run without external AI");
   }
+  if (!config.googleCalendarIdConfigured) {
+    warnings.push("GOOGLE_CALENDAR_ID is not configured; using Google Calendar 'primary'");
+  }
 
   return {
     ready: blocking.length === 0,

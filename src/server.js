@@ -30,12 +30,14 @@ import {
   getLatestConfirmedCitaByPhone,
   getSession,
   isDatabaseEnabled,
+  loadActiveAppointmentLocks,
   loadDueReminders,
   loadConversations,
   loadConfirmedCitasBetween,
   loadWaitingListByDate,
   markReminderFailed,
   markReminderSent,
+  markCitaFailedByGoogleEvent,
   markConversationHumanReply,
   releaseAppointmentLock,
   rememberProcessedWhatsAppMessage,
@@ -139,7 +141,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/debug/config") {
-      handleDebugConfig(req, url, res);
+      await handleDebugConfig(req, url, res);
       return;
     }
 
@@ -386,9 +388,22 @@ async function handleHealth(req, res, options = {}) {
     .end(JSON.stringify(health));
 }
 
-function handleDebugConfig(req, url, res) {
+async function handleDebugConfig(req, url, res) {
   if (!hasInboxAccess(req, url, res)) {
     return;
+  }
+
+  let activeLocks = [];
+  try {
+    activeLocks = (await loadActiveAppointmentLocks(10)).map((lock) => ({
+      id: lock.id,
+      slotStart: lock.slotStart,
+      slotEnd: lock.slotEnd,
+      expiresAt: lock.expiresAt,
+      phoneNumber: maskPhone(lock.phoneNumber)
+    }));
+  } catch (error) {
+    logSafeError("Could not load active appointment locks for debug config", error);
   }
 
   res
@@ -397,6 +412,8 @@ function handleDebugConfig(req, url, res) {
       JSON.stringify({
         aiProvider: config.aiProvider,
         calendarId: config.googleCalendarId,
+        calendarIdSource: config.googleCalendarIdConfigured ? "env" : "default-primary",
+        usingPrimaryCalendarFallback: !config.googleCalendarIdConfigured,
         clinicTimezone: config.clinicTimezone,
         appointmentMinutes: config.appointmentMinutes,
         maxOfferedSlots: config.maxOfferedSlots,
@@ -407,7 +424,8 @@ function handleDebugConfig(req, url, res) {
         webhookSignatureMode: config.whatsappAppSecret && config.requireWebhookSignature ? "signed" : config.allowUnsignedWebhooks ? "unsigned-temporary" : "blocked",
         webhookPathSecretEnabled: Boolean(config.webhookPathSecret),
         doctorWhatsappNumber: maskPhone(config.doctorWhatsappNumber),
-        databaseEnabled: isDatabaseEnabled()
+        databaseEnabled: isDatabaseEnabled(),
+        activeAppointmentLocks: activeLocks
       })
     );
 }
@@ -2508,27 +2526,28 @@ async function confirmAppointmentFromSession(from, session) {
       throw new Error("double_booking: slot already confirmed in database");
     }
 
-    event = await createAppointment(slot, {
-      name,
-      phone: from,
-      email: session.email,
-      firstVisit: session.firstVisit,
-      paymentType: session.paymentType,
-      reason: config.includeSensitiveAppointmentNotes ? session.reason : undefined
-    });
+    try {
+      event = await createAppointment(slot, {
+        name,
+        phone: from,
+        email: session.email,
+        firstVisit: session.firstVisit,
+        paymentType: session.paymentType,
+        reason: config.includeSensitiveAppointmentNotes ? session.reason : undefined
+      });
+    } catch (calendarError) {
+      logSafeError(`Could not create Google Calendar event for slot ${slot.start} - ${slot.end} on calendar ${config.googleCalendarId}`, calendarError);
+      throw calendarError;
+    }
+    if (!event?.id) {
+      throw new Error("Google Calendar did not return an event id");
+    }
 
     const cita = await saveConfirmedCita(from, session, slot, event);
-    await scheduleAppointmentReminder(from, session, slot, cita);
-    await cancelPreviousRescheduledAppointment(session);
-    await deletePatientSession(from);
-
-    await replyToPatient(from, buildPatientConfirmationMessage({ name, slot, email: session.email }));
-    await sendWhatsAppText(
-      config.doctorWhatsappNumber,
-      buildAdminAppointmentNotification({ name, from, slot, session })
-    );
+    await finishConfirmedAppointment(from, session, slot, cita, name);
   } catch (error) {
     if (event?.id) {
+      await markCitaFailedByGoogleEvent(event.id, error?.message ?? error);
       try {
         await cancelAppointment(event.id);
       } catch (cancelError) {
@@ -2556,6 +2575,27 @@ async function confirmAppointmentFromSession(from, session) {
     );
   } finally {
     if (lock && typeof lock === "object") await releaseAppointmentLock(lock.token);
+  }
+}
+
+async function finishConfirmedAppointment(from, session, slot, cita, name) {
+  await scheduleAppointmentReminder(from, session, slot, cita);
+  await cancelPreviousRescheduledAppointment(session);
+  await deletePatientSession(from);
+
+  try {
+    await replyToPatient(from, buildPatientConfirmationMessage({ name, slot, email: session.email }));
+  } catch (error) {
+    logSafeError(`Could not send confirmed appointment message to ${maskPhone(from)}`, error);
+  }
+
+  try {
+    await sendWhatsAppText(
+      config.doctorWhatsappNumber,
+      buildAdminAppointmentNotification({ name, from, slot, session })
+    );
+  } catch (error) {
+    logSafeError("Could not send admin appointment notification", error);
   }
 }
 
@@ -2587,6 +2627,11 @@ async function isSlotOpenInDatabase(slot) {
   }
 
   const confirmed = await loadConfirmedCitasBetween(slot.start, slot.end);
+  for (const cita of confirmed) {
+    console.warn(
+      `Supabase confirmed cita blocks slot. id=${cita.id} slot_start=${cita.slotStart} slot_end=${cita.slotEnd} google_event_id=${cita.googleEventId}`
+    );
+  }
   return confirmed.length === 0;
 }
 
@@ -2886,9 +2931,14 @@ async function deletePatientSession(phoneNumber) {
 }
 
 async function saveConfirmedCita(phoneNumber, session, slot, event) {
+  if (!event?.id) {
+    throw new Error("Google Calendar event id is required before saving appointment");
+  }
+
   const fallback = {
     id: undefined,
     phoneNumber,
+    googleEventId: event.id,
     slotStart: slot.start,
     slotEnd: slot.end,
     status: "confirmed"
@@ -2909,6 +2959,7 @@ async function saveConfirmedCita(phoneNumber, session, slot, event) {
       reason: config.includeSensitiveAppointmentNotes ? session.reason : undefined
     });
     if (!saved) throw new Error("Supabase did not return saved appointment");
+    if (!saved.googleEventId) throw new Error("Supabase did not persist google_event_id");
     return saved;
   } catch (error) {
     logSafeError("Could not save cita to Supabase", error);

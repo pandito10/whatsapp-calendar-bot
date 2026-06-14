@@ -40,6 +40,11 @@ export function buildOperationalHealth({ db, conversationCount = 0, memorySessio
       sessionsInMemory: memorySessionCount,
       processedMessagesInMemory: processedMessageCount
     },
+    calendar: {
+      id: config.googleCalendarId,
+      source: config.googleCalendarIdConfigured ? "env" : "default-primary",
+      usingPrimaryFallback: !config.googleCalendarIdConfigured
+    },
     readiness,
     problems
   };

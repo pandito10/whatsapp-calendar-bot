@@ -370,37 +370,128 @@ export async function acquireAppointmentLock({ slotStart, slotEnd, phoneNumber }
   const now = new Date();
   const expiresAt = new Date(now.getTime() + Math.max(1, config.appointmentLockMinutes) * 60_000).toISOString();
   const token = cryptoRandomToken();
+  const payload = {
+    slot_start: slotStart,
+    slot_end: slotEnd,
+    lock_token: token,
+    phone_number: phoneNumber,
+    expires_at: expiresAt
+  };
 
-  await safeSupabaseFetch(`/rest/v1/appointment_locks?expires_at=lt.${encodeURIComponent(now.toISOString())}`, {
-    method: "DELETE"
-  });
+  await cleanupExpiredAppointmentLocks(now);
 
   try {
-    const rows = await supabaseFetch("/rest/v1/appointment_locks?select=id,lock_token,slot_start,slot_end,expires_at", {
-      method: "POST",
-      headers: { Prefer: "return=representation" },
-      body: JSON.stringify({
-        slot_start: slotStart,
-        slot_end: slotEnd,
-        lock_token: token,
-        phone_number: phoneNumber,
-        expires_at: expiresAt
-      })
-    });
-
-    const row = rows?.[0];
-    if (!row) return null;
-    return {
-      id: row.id,
-      token: row.lock_token,
-      slotStart: row.slot_start,
-      slotEnd: row.slot_end,
-      expiresAt: row.expires_at
-    };
+    return await insertAppointmentLock(payload);
   } catch (error) {
-    if (error.message?.includes("409") || error.message?.includes("duplicate key")) return null;
+    if (isDuplicateKeyError(error)) {
+      const existing = await getAppointmentLockForSlot(slotStart, slotEnd);
+      if (!existing) return null;
+
+      if (isExpiredLock(existing, now)) {
+        console.warn(
+          `Expired appointment lock blocked slot; deleting before retry. slot_start=${existing.slotStart} slot_end=${existing.slotEnd} expires_at=${existing.expiresAt}`
+        );
+        try {
+          await deleteAppointmentLockById(existing.id);
+        } catch (deleteError) {
+          console.warn(
+            `Could not delete expired appointment lock. slot_start=${existing.slotStart} slot_end=${existing.slotEnd} expires_at=${existing.expiresAt}: ${deleteError.message}`
+          );
+          throw new Error("Expired appointment lock could not be deleted", { cause: deleteError });
+        }
+        return await insertAppointmentLock(payload);
+      }
+
+      console.warn(
+        `Active appointment lock blocked slot. slot_start=${existing.slotStart} slot_end=${existing.slotEnd} expires_at=${existing.expiresAt}`
+      );
+      return null;
+    }
     throw error;
   }
+}
+
+export async function cleanupExpiredAppointmentLocks(now = new Date()) {
+  if (!isDatabaseEnabled()) return { ok: false, status: "disabled" };
+  const cutoff = now.toISOString();
+  try {
+    await supabaseFetch(`/rest/v1/appointment_locks?expires_at=lt.${encodeURIComponent(cutoff)}`, {
+      method: "DELETE"
+    });
+    return { ok: true };
+  } catch (error) {
+    console.warn(`Could not cleanup expired appointment locks before locking. cutoff=${cutoff}: ${error.message}`);
+    return { ok: false, status: "error", error };
+  }
+}
+
+export async function loadActiveAppointmentLocks(limit = 20) {
+  if (!isDatabaseEnabled()) return [];
+  const now = new Date().toISOString();
+  const rows = await supabaseFetch(
+    `/rest/v1/appointment_locks?select=id,slot_start,slot_end,phone_number,expires_at,created_at&expires_at=gt.${encodeURIComponent(
+      now
+    )}&order=expires_at.asc&limit=${limit}`
+  );
+
+  return (rows ?? []).map((row) => ({
+    id: row.id,
+    slotStart: row.slot_start,
+    slotEnd: row.slot_end,
+    phoneNumber: row.phone_number,
+    expiresAt: row.expires_at,
+    createdAt: row.created_at
+  }));
+}
+
+async function insertAppointmentLock(payload) {
+  const rows = await supabaseFetch("/rest/v1/appointment_locks?select=id,lock_token,slot_start,slot_end,expires_at", {
+    method: "POST",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify(payload)
+  });
+
+  const row = rows?.[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    token: row.lock_token,
+    slotStart: row.slot_start,
+    slotEnd: row.slot_end,
+    expiresAt: row.expires_at
+  };
+}
+
+async function getAppointmentLockForSlot(slotStart, slotEnd) {
+  const rows = await supabaseFetch(
+    `/rest/v1/appointment_locks?select=id,slot_start,slot_end,phone_number,expires_at&slot_start=eq.${encodeURIComponent(
+      slotStart
+    )}&slot_end=eq.${encodeURIComponent(slotEnd)}&limit=1`
+  );
+  const row = rows?.[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    slotStart: row.slot_start,
+    slotEnd: row.slot_end,
+    phoneNumber: row.phone_number,
+    expiresAt: row.expires_at
+  };
+}
+
+async function deleteAppointmentLockById(id) {
+  await supabaseFetch(`/rest/v1/appointment_locks?id=eq.${encodeURIComponent(id)}`, {
+    method: "DELETE"
+  });
+}
+
+function isExpiredLock(lock, now = new Date()) {
+  return new Date(lock.expiresAt).getTime() <= now.getTime();
+}
+
+function isDuplicateKeyError(error) {
+  const message = String(error?.message ?? error ?? "").toLowerCase();
+  return message.includes("409") || message.includes("23505") || message.includes("duplicate key") || message.includes("unique constraint");
 }
 
 export async function releaseAppointmentLock(lockToken) {
@@ -437,6 +528,7 @@ export async function saveCita(citaData) {
   return {
     id: row.id,
     phoneNumber: row.phone_number,
+    googleEventId: row.google_event_id,
     slotStart: row.slot_start,
     slotEnd: row.slot_end,
     status: row.status
@@ -466,7 +558,7 @@ function buildCitaPayload(citaData, { legacy = false } = {}) {
 }
 
 async function insertCitaPayload(payload) {
-  return await supabaseFetch("/rest/v1/citas?select=id,phone_number,slot_start,slot_end,status", {
+  return await supabaseFetch("/rest/v1/citas?select=id,phone_number,google_event_id,slot_start,slot_end,status", {
     method: "POST",
     headers: {
       Prefer: "return=representation"
@@ -511,17 +603,20 @@ export async function loadConfirmedCitasBetween(startISO, endISO) {
   if (!isDatabaseEnabled() || !startISO || !endISO) return [];
 
   const rows = await supabaseFetch(
-    `/rest/v1/citas?select=id,slot_start,slot_end,status&status=eq.confirmed&slot_start=lt.${encodeURIComponent(
+    `/rest/v1/citas?select=id,slot_start,slot_end,status,google_event_id&status=eq.confirmed&slot_start=lt.${encodeURIComponent(
       endISO
     )}&slot_end=gt.${encodeURIComponent(startISO)}`
   );
 
-  return (rows ?? []).map((row) => ({
-    id: row.id,
-    slotStart: row.slot_start,
-    slotEnd: row.slot_end,
-    status: row.status
-  }));
+  return (rows ?? [])
+    .filter((row) => String(row.google_event_id ?? "").trim().length > 0)
+    .map((row) => ({
+      id: row.id,
+      slotStart: row.slot_start,
+      slotEnd: row.slot_end,
+      status: row.status,
+      googleEventId: row.google_event_id
+    }));
 }
 
 export async function cancelCita(citaId) {
