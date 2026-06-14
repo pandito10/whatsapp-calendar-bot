@@ -3,12 +3,14 @@
 Usa una URL base:
 
 ```bash
-BASE_URL="https://TU-DOMINIO"
+BASE_URL="https://whatsapp-calendar-bot-gw3e.onrender.com"
 WEBHOOK_SECRET_PATH="TU_WEBHOOK_PATH_SECRET"
 APP_SECRET="TU_WHATSAPP_APP_SECRET"
 PHONE_NUMBER_ID="TU_WHATSAPP_PHONE_NUMBER_ID"
 INBOX_PASSWORD="TU_PASSWORD"
 ```
+
+No uses `https://whatsapp-calendar-bot.onrender.com` para este piloto; no corresponde al servicio Node actual.
 
 ## Smoke automatico recomendado
 

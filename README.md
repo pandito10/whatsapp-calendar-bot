@@ -24,6 +24,24 @@ MVP para que un consultorio agende citas automaticamente por WhatsApp y cree eve
 5. Opcional: una API key de IA. El MVP puede empezar gratis con `AI_PROVIDER=local`.
 6. Un dominio publico HTTPS para el webhook. En desarrollo puedes usar ngrok.
 
+## Produccion actual
+
+El deploy activo de este piloto en Render es:
+
+```text
+https://whatsapp-calendar-bot-gw3e.onrender.com
+```
+
+URLs utiles:
+
+```text
+Health: https://whatsapp-calendar-bot-gw3e.onrender.com/health/ready
+Inbox:  https://whatsapp-calendar-bot-gw3e.onrender.com/inbox/login
+Meta:   https://whatsapp-calendar-bot-gw3e.onrender.com/webhook/TU_WEBHOOK_PATH_SECRET
+```
+
+No uses `https://whatsapp-calendar-bot.onrender.com` para este bot. Ese dominio puede apuntar a otro servicio y no debe configurarse en Meta.
+
 ## Configuracion
 
 ```bash

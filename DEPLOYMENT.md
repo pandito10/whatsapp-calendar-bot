@@ -2,6 +2,24 @@
 
 El bot debe correr en una URL HTTPS fija. Render funciona bien para el piloto privado.
 
+## Servicio actual del piloto
+
+URL base correcta:
+
+```text
+https://whatsapp-calendar-bot-gw3e.onrender.com
+```
+
+Verificaciones rapidas:
+
+```text
+https://whatsapp-calendar-bot-gw3e.onrender.com/health/live
+https://whatsapp-calendar-bot-gw3e.onrender.com/health/ready
+https://whatsapp-calendar-bot-gw3e.onrender.com/inbox/login
+```
+
+No uses `https://whatsapp-calendar-bot.onrender.com` para este proyecto; ese dominio no corresponde al servicio Node actual.
+
 ## Crear servicio
 
 1. Sube el repo a GitHub.
@@ -20,7 +38,7 @@ Plan: starter
 ```text
 NODE_ENV=production
 PORT=10000
-PUBLIC_BASE_URL=https://TU-SERVICIO.onrender.com
+PUBLIC_BASE_URL=https://whatsapp-calendar-bot-gw3e.onrender.com
 
 WHATSAPP_TOKEN=...
 WHATSAPP_PHONE_NUMBER_ID=...
