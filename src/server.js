@@ -19,6 +19,15 @@ import {
 } from "./appointments.js";
 import { buildOperationalHealth, isOperationallyUnhealthy } from "./health.js";
 import { detectIntent, isAppointmentLikeQuestion, looksLikeDateRequest, meaningfulWords, normalizeText } from "./intents.js";
+import {
+  buildInboxStats as buildInboxMetrics,
+  buildLocalConversationSummary,
+  filterInboxConversations as filterInboxConversationList,
+  getConversationStatus as getInboxConversationStatus,
+  getOfferedSlots,
+  getWhatsAppWindowState,
+  sortInboxConversations
+} from "./inbox.js";
 import { verifyMetaSignature } from "./security.js";
 import {
   acquireAppointmentLock,
@@ -46,6 +55,7 @@ import {
   reviewKnowledgeSuggestion,
   saveCita,
   saveConversationMessage,
+  saveConversationNote,
   saveKnowledgeSuggestion,
   saveWaitlistEntry,
   scheduleReminder,
@@ -219,6 +229,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/inbox/tags") {
       await handleInboxTags(req, url, res);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/inbox/notes") {
+      await handleInboxNote(req, url, res);
       return;
     }
 
@@ -850,6 +865,50 @@ async function handleInboxTags(req, url, res) {
   await redirectInbox(res, phone);
 }
 
+async function handleInboxNote(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) return;
+  if (!checkRateLimit(req, url, "inbox-action")) {
+    res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8" }).end("too many requests");
+    return;
+  }
+
+  const form = await readForm(req, { maxBytes: config.maxRequestBytes });
+  if (!isValidCsrf(req, form.get("csrf"))) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const phone = normalizePhone(form.get("phone") ?? "");
+  const body = String(form.get("note") ?? "").trim();
+  if (!isValidWhatsAppPhone(phone)) {
+    await redirectInbox(res, "", "Telefono invalido.");
+    return;
+  }
+  if (body.length < 2) {
+    await redirectInbox(res, phone, "Escribe una nota interna antes de guardarla.");
+    return;
+  }
+
+  const note = {
+    body: body.slice(0, 2000),
+    author: "consultorio",
+    createdAt: new Date().toISOString()
+  };
+  const existing = conversations.get(phone) ?? { phoneNumber: phone, messages: [], updatedAt: new Date().toISOString() };
+  existing.notes = [note, ...(existing.notes ?? [])].slice(0, 20);
+  conversations.set(phone, existing);
+
+  try {
+    await saveConversationNote({ phoneNumber: phone, body: note.body, author: note.author });
+  } catch (error) {
+    logSafeError("Could not save internal note", error);
+    await redirectInbox(res, phone, "No pude guardar la nota interna. Revisa Supabase.");
+    return;
+  }
+
+  await redirectInbox(res, phone);
+}
+
 function parseTags(value) {
   return String(value ?? "")
     .split(",")
@@ -1041,21 +1100,23 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
   const csrf = createSessionCsrfToken(req);
   const q = normalizeText(url.searchParams.get("q") ?? "");
   const filter = url.searchParams.get("filter") ?? "all";
-  const filteredList = filterInboxConversations(list, q, filter);
+  const filteredList = sortInboxConversations(filterInboxConversationList(list, q, filter));
   if (selected && !filteredList.some((conversation) => conversation.phoneNumber === selected.phoneNumber)) {
     filteredList.unshift(selected);
   }
-  const stats = buildInboxStats(filteredList);
+  const stats = buildInboxMetrics(list);
   const operationalStatus = renderOperationalStatusBadges();
-  const selectedStatus = selected ? getConversationStatus(selected) : undefined;
+  const selectedStatus = selected ? getInboxConversationStatus(selected) : undefined;
   const selectedName = selected ? getConversationDisplayName(selected) : "";
   const appointmentCard = selected?.appointment ? renderAppointmentCard(selected.appointment) : "";
   const inboxError = url.searchParams.get("error");
   const selectedPhone = selected?.phoneNumber ?? "";
-  const lastPatientMessage = selected?.messages ? [...selected.messages].reverse().find((message) => message.sender === "patient") : undefined;
-  const needsTemplateNotice = lastPatientMessage ? Date.now() - new Date(lastPatientMessage.timestamp).getTime() > 24 * 60 * 60 * 1000 : false;
-  const knowledgePanel = renderKnowledgePanel(knowledgeSuggestions, csrf, selectedPhone);
+  const windowState = selected ? getWhatsAppWindowState(selected) : undefined;
+  const needsTemplateNotice = windowState?.key === "expired";
+  const closingTemplateNotice = windowState?.key === "closing";
   const quickReplies = selected ? renderQuickReplies() : "";
+  const rightPanel = renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, windowState, knowledgeSuggestions });
+  const filterOptions = renderInboxQuickFilters(filter, url.searchParams.get("q") ?? "");
   const conversationLinks =
     filteredList.length === 0
       ? `<div class="empty-state">Todavia no hay conversaciones.</div>`
@@ -1063,7 +1124,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
           .map((conversation) => {
             const last = conversation.messages.at(-1);
             const active = selected?.phoneNumber === conversation.phoneNumber ? " active" : "";
-            const status = getConversationStatus(conversation);
+            const status = getInboxConversationStatus(conversation);
+            const conversationWindow = getWhatsAppWindowState(conversation);
             const title = getConversationDisplayName(conversation);
             return `<a class="thread${active}" href="/inbox?${buildInboxQuery({ phone: conversation.phoneNumber, q: url.searchParams.get("q"), filter })}">
               <div class="avatar">${escapeHtml(conversation.phoneNumber.slice(-2))}</div>
@@ -1076,6 +1138,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
                 <p>${escapeHtml(last?.body ?? "")}</p>
                 <div class="thread-tags">
                   <span class="tag ${status.className}">${status.label}</span>
+                  ${conversationWindow.key === "closing" ? `<span class="tag closing">24h por cerrar</span>` : ""}
+                  ${conversationWindow.key === "expired" ? `<span class="tag expired">Template Meta</span>` : ""}
                   ${conversation.botPaused ? `<span class="tag human">Modo humano</span>` : ""}
                   ${(conversation.tags ?? []).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}
                   ${conversation.appointment?.slotStart ? `<span class="tag">${formatAppointmentShort(conversation.appointment.slotStart)}</span>` : ""}
@@ -1201,10 +1265,27 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
     .health-pill.ok { color: #166534; background: #dcfce7; border-color: #bbf7d0; }
     .health-pill.warn { color: #92400e; background: #fef3c7; border-color: #fde68a; }
     .health-pill.err { color: #991b1b; background: #fee2e2; border-color: #fecaca; }
+    .metric-strip {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 12px 18px 0;
+    }
+    .metric-pill {
+      flex: 0 0 auto;
+      min-width: 92px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid #f7d3e1;
+      box-shadow: 0 10px 22px rgba(157, 23, 77, 0.08);
+    }
+    .metric-pill strong { display: block; font-size: 18px; line-height: 1; }
+    .metric-pill span { color: var(--muted); display: block; font-size: 11px; margin-top: 5px; }
     main {
       display: grid;
-      grid-template-columns: minmax(300px, 360px) 1fr;
-      height: calc(100vh - 72px);
+      grid-template-columns: minmax(280px, 340px) minmax(0, 1fr) minmax(280px, 340px);
+      height: calc(100vh - 124px);
       padding: 18px;
       gap: 18px;
     }
@@ -1333,11 +1414,42 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
     .tag.followup { color: #854d0e; background: #fef3c7; border-color: #fde68a; }
     .tag.open { color: #075985; background: #e0f2fe; border-color: #bae6fd; }
     .tag.human { color: #6d28d9; background: #ede9fe; border-color: #ddd6fe; }
+    .tag.urgent { color: #991b1b; background: #fee2e2; border-color: #fecaca; }
+    .tag.misunderstood { color: #7c2d12; background: #ffedd5; border-color: #fed7aa; }
+    .tag.confirming { color: #1d4ed8; background: #dbeafe; border-color: #bfdbfe; }
+    .tag.reschedule { color: #6d28d9; background: #ede9fe; border-color: #ddd6fe; }
+    .tag.cancel { color: #9f1239; background: #ffe4e6; border-color: #fecdd3; }
+    .tag.closing { color: #92400e; background: #fef3c7; border-color: #fde68a; }
+    .tag.expired { color: #991b1b; background: #fee2e2; border-color: #fecaca; }
+    .tag.waiting { color: #075985; background: #e0f2fe; border-color: #bae6fd; }
     .tools {
       display: grid;
       gap: 8px;
       padding: 12px 14px;
       border-bottom: 1px solid #f9d8e5;
+    }
+    .quick-filters {
+      display: flex;
+      gap: 7px;
+      overflow-x: auto;
+      padding: 0 14px 12px;
+      border-bottom: 1px solid #f9d8e5;
+    }
+    .filter-chip {
+      flex: 0 0 auto;
+      color: #9d174d;
+      background: #fff7fb;
+      border: 1px solid #f7d3e1;
+      border-radius: 999px;
+      padding: 7px 10px;
+      font-size: 12px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .filter-chip.active {
+      color: #ffffff;
+      background: linear-gradient(135deg, #db2777, #f472b6);
+      border-color: transparent;
     }
     .tools input, .tools select, textarea {
       width: 100%;
@@ -1386,6 +1498,75 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       background: rgba(255, 255, 255, 0.86);
       border-radius: 18px;
       box-shadow: 0 18px 48px var(--shadow);
+    }
+    .patient-panel {
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.92);
+      overflow: auto;
+      border-radius: 18px;
+      box-shadow: 0 18px 44px var(--shadow);
+    }
+    .panel-section {
+      padding: 16px;
+      border-bottom: 1px solid #f9d8e5;
+    }
+    .panel-section h2 {
+      margin: 0 0 10px;
+      font-size: 14px;
+    }
+    .info-grid {
+      display: grid;
+      gap: 9px;
+      font-size: 13px;
+    }
+    .info-row {
+      display: grid;
+      gap: 3px;
+      padding: 9px 10px;
+      border: 1px solid #f7d3e1;
+      border-radius: 12px;
+      background: #fff7fb;
+      overflow-wrap: anywhere;
+    }
+    .info-row span {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .summary-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      font-size: 13px;
+    }
+    .summary-list li {
+      padding: 9px 10px;
+      border-radius: 12px;
+      background: #fff7fb;
+      border: 1px solid #f7d3e1;
+    }
+    .notes-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .note-card {
+      padding: 10px;
+      border-radius: 12px;
+      background: #fff7fb;
+      border: 1px solid #f7d3e1;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .note-card small {
+      color: var(--muted);
+      display: block;
+      margin-bottom: 5px;
+      font-size: 11px;
     }
     .chat-title {
       display: flex;
@@ -1682,9 +1863,11 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       .brand-mark { width: 34px; height: 34px; border-radius: 10px; }
       h1 { font-size: 16px; }
       .status { display: none; }
+      .metric-strip { display: none; }
       main { display: block; height: calc(100dvh - 64px); min-height: 0; padding: 0; }
       body.has-selection aside { display: none; }
       body.no-selection .chat { display: none; }
+      .patient-panel { display: none; }
       aside {
         height: calc(100dvh - 64px);
         max-height: none;
@@ -1782,6 +1965,14 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
       <a class="health-pill" href="/inbox/logout">salir</a>
     </div>
   </header>
+  <div class="metric-strip">
+    <div class="metric-pill"><strong>${stats.total}</strong><span>Total</span></div>
+    <div class="metric-pill"><strong>${stats.followup}</strong><span>Pendientes</span></div>
+    <div class="metric-pill"><strong>${stats.confirmed}</strong><span>Agendadas</span></div>
+    <div class="metric-pill"><strong>${stats.human}</strong><span>Humano</span></div>
+    <div class="metric-pill"><strong>${stats.urgent}</strong><span>Urgentes</span></div>
+    <div class="metric-pill"><strong>${stats.noReply}</strong><span>Sin responder</span></div>
+  </div>
   <main>
     <aside>
       <div class="sidebar-head">
@@ -1797,10 +1988,17 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
         <div class="stat"><strong>${stats.noReply}</strong><span>No respondio</span></div>
       </div>
       <form class="tools" method="get" action="/inbox">
-        <input name="q" value="${escapeHtml(url.searchParams.get("q") ?? "")}" placeholder="Buscar telefono o nombre">
+        <input name="q" value="${escapeHtml(url.searchParams.get("q") ?? "")}" placeholder="Buscar nombre, telefono, etiqueta o estado">
         <div class="tool-row">
           <select name="filter">
             ${renderFilterOption("all", "Todas", filter)}
+            ${renderFilterOption("priority", "Prioridad", filter)}
+            ${renderFilterOption("urgent", "Urgente", filter)}
+            ${renderFilterOption("misunderstood", "Bot no entendio", filter)}
+            ${renderFilterOption("awaiting_confirmation", "Esperando confirmacion", filter)}
+            ${renderFilterOption("reschedule", "Reagendar", filter)}
+            ${renderFilterOption("cancel", "Cancelar", filter)}
+            ${renderFilterOption("closing_window", "Ventana 24h", filter)}
             ${renderFilterOption("pending", "Pendientes", filter)}
             ${renderFilterOption("confirmed", "Cita agendada", filter)}
             ${renderFilterOption("no_appointment", "Sin cita", filter)}
@@ -1811,8 +2009,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
           <button type="submit">Filtrar</button>
         </div>
       </form>
+      ${filterOptions}
       ${conversationLinks}
-      ${knowledgePanel}
     </aside>
     <section class="chat">
       <div class="chat-title">
@@ -1876,6 +2074,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
           : ""
       }
     </section>
+    ${rightPanel}
   </main>
 </body>
 </html>`;
@@ -1891,21 +2090,147 @@ function renderOperationalStatusBadges() {
   return badges.map((badge) => `<span class="health-pill ${badge.className}">${escapeHtml(badge.label)}</span>`).join("");
 }
 
-function buildInboxStats(list) {
-  return list.reduce(
-    (stats, conversation) => {
-      const status = getConversationStatus(conversation);
-      stats.total += 1;
-      if (status.key === "confirmed") stats.confirmed += 1;
-      if (status.key === "followup") stats.followup += 1;
-      if (status.key === "open") stats.open += 1;
-      if (conversation.botPaused) stats.human += 1;
-      if ((conversation.tags ?? []).includes("Urgente")) stats.urgent += 1;
-      if ((conversation.messages.at(-1)?.sender ?? "") === "bot") stats.noReply += 1;
-      return stats;
-    },
-    { total: 0, confirmed: 0, followup: 0, open: 0, human: 0, urgent: 0, noReply: 0 }
-  );
+function renderInboxQuickFilters(current, query = "") {
+  const filters = [
+    ["all", "Todas"],
+    ["priority", "Prioridad"],
+    ["urgent", "Urgentes"],
+    ["misunderstood", "Bot no entendio"],
+    ["awaiting_confirmation", "Por confirmar"],
+    ["reschedule", "Reagendar"],
+    ["cancel", "Cancelar"],
+    ["closing_window", "24h"],
+    ["followup", "Sin responder"],
+    ["confirmed", "Agendadas"],
+    ["human", "Humano"]
+  ];
+
+  return `<div class="quick-filters">
+    ${filters
+      .map(([value, label]) => `<a class="filter-chip${value === current ? " active" : ""}" href="/inbox?${buildInboxQuery({ q: query, filter: value })}">${escapeHtml(label)}</a>`)
+      .join("")}
+  </div>`;
+}
+
+function renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, windowState, knowledgeSuggestions }) {
+  if (!selected) {
+    return `<aside class="patient-panel">
+      <div class="panel-section">
+        <h2>Ficha del paciente</h2>
+        <div class="empty-state">Selecciona una conversacion para ver resumen, cita, notas internas y FAQs.</div>
+      </div>
+      ${renderKnowledgePanel(knowledgeSuggestions, csrf, "")}
+    </aside>`;
+  }
+
+  const summary = buildLocalConversationSummary(selected);
+  const offeredSlots = getOfferedSlots(selected);
+  const appointment = selected.appointment;
+  const notes = selected.notes ?? [];
+  const tagsText = (selected.tags ?? []).join(", ");
+
+  return `<aside class="patient-panel">
+    <div class="panel-section">
+      <h2>Prioridad</h2>
+      <div class="thread-tags">
+        <span class="tag ${selectedStatus.className}">${escapeHtml(selectedStatus.label)}</span>
+        <span class="tag ${windowState.className}">${escapeHtml(windowState.label)}</span>
+        ${selected.botPaused ? `<span class="tag human">Modo humano</span>` : ""}
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h2>Resumen local</h2>
+      <ul class="summary-list">
+        <li><strong>Intencion:</strong> ${escapeHtml(summary.intent)}</li>
+        <li><strong>Fecha mencionada:</strong> ${escapeHtml(summary.dateMention)}</li>
+        <li><strong>Ultimo mensaje:</strong> ${escapeHtml(summary.lastPatientMessage)}</li>
+        <li><strong>Requiere humano:</strong> ${summary.requiresHuman ? "Si" : "No"}</li>
+      </ul>
+    </div>
+
+    <div class="panel-section">
+      <h2>Paciente</h2>
+      <div class="info-grid">
+        <div class="info-row"><span>Nombre</span>${escapeHtml(summary.name)}</div>
+        <div class="info-row"><span>Telefono</span>${escapeHtml(formatPhoneForInbox(selected.phoneNumber))}</div>
+        <div class="info-row"><span>Ultima actividad</span>${escapeHtml(formatInboxDate(selected.updatedAt))}</div>
+        <div class="info-row"><span>Flujo actual</span>${escapeHtml(formatSessionStep(selected.session?.step))}</div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h2>Cita actual</h2>
+      ${
+        appointment
+          ? `<div class="info-grid">
+              <div class="info-row"><span>Estado</span>${escapeHtml(appointment.status ?? "confirmed")}</div>
+              <div class="info-row"><span>Fecha</span>${escapeHtml(formatAppointmentFull(appointment.slotStart))}</div>
+              <div class="info-row"><span>Google Event ID</span>${escapeHtml(appointment.googleEventId ?? "No capturado")}</div>
+              <a class="button-link" href="https://calendar.google.com/calendar/u/0/r" target="_blank" rel="noreferrer">Verificar en Calendar</a>
+            </div>`
+          : `<div class="empty-state">Sin cita confirmada registrada.</div>`
+      }
+    </div>
+
+    <div class="panel-section">
+      <h2>Horarios ofrecidos</h2>
+      ${
+        offeredSlots.length
+          ? `<div class="info-grid">${offeredSlots
+              .map((slot, index) => `<div class="info-row"><span>Opcion ${index + 1}</span>${escapeHtml(slot.label ?? slot.start ?? "Horario")}</div>`)
+              .join("")}</div>`
+          : `<div class="empty-state">No hay horarios ofrecidos activos.</div>`
+      }
+    </div>
+
+    <div class="panel-section">
+      <h2>Etiquetas</h2>
+      <form class="knowledge-form" method="post" action="/inbox/tags">
+        <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+        <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+        <textarea name="tags" rows="2" maxlength="300" placeholder="Urgente, Reagendar, Primera vez">${escapeHtml(tagsText)}</textarea>
+        <button type="submit">Guardar etiquetas</button>
+      </form>
+    </div>
+
+    <div class="panel-section">
+      <h2>Notas internas</h2>
+      <form class="knowledge-form" method="post" action="/inbox/notes">
+        <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+        <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+        <textarea name="note" rows="3" maxlength="2000" placeholder="Nota privada. No se envia al paciente."></textarea>
+        <button type="submit">Guardar nota interna</button>
+      </form>
+      <div class="notes-list">
+        ${
+          notes.length
+            ? notes.map((note) => `<div class="note-card"><small>${escapeHtml(note.author ?? "consultorio")} · ${escapeHtml(formatInboxDate(note.createdAt))}</small>${escapeHtml(note.body)}</div>`).join("")
+            : `<div class="empty-state">Aun no hay notas internas.</div>`
+        }
+      </div>
+    </div>
+
+    ${renderKnowledgePanel(knowledgeSuggestions, csrf, selectedPhone)}
+  </aside>`;
+}
+
+function formatSessionStep(step) {
+  const labels = {
+    collecting: "Recolectando datos",
+    collectingEmail: "Esperando correo",
+    collectingFirstVisit: "Esperando primera vez",
+    collectingService: "Esperando servicio",
+    collectingPaymentType: "Esperando tipo de consulta",
+    collectingDateOnly: "Esperando fecha",
+    choosingSlot: "Esperando horario",
+    choosingAvailabilitySlot: "Mostrando disponibilidad",
+    confirmingAppointment: "Esperando confirmacion",
+    confirmingCancellation: "Confirmando cancelacion",
+    confirmingReschedule: "Confirmando reagenda",
+    waitlistOffer: "Ofreciendo lista de espera"
+  };
+  return labels[step] ?? "Sin flujo activo";
 }
 
 function renderKnowledgePanel(suggestions, csrf, selectedPhone) {
@@ -2003,10 +2328,16 @@ function renderKnowledgePanel(suggestions, csrf, selectedPhone) {
 
 function renderQuickReplies() {
   const replies = [
+    ["Pedir nombre", "Perfecto 😊 ¿A nombre de quien agendamos la cita?"],
+    ["Pedir fecha", "Claro 😊 ¿Que dia te gustaria revisar disponibilidad? Puedes decirme hoy, manana, viernes o una fecha especifica."],
     ["Horarios", "🕒 Claro. ¿Para que dia te gustaria revisar disponibilidad?\n\nPuedes decirme: hoy, mañana, viernes o una fecha especifica."],
     ["Ubicacion", getIntentResponse("location")],
     ["Costos", `${getIntentResponse("cost")}\n\n${getIntentResponse("promotion")}`],
     ["Pago", getIntentResponse("payment_methods")],
+    ["Confirmar cita", "✅ Tu cita queda confirmada. Te esperamos en el consultorio. Si necesitas cambiar algo, escribenos por aqui."],
+    ["Reagendar", "Claro 😊 Te ayudo a reagendar. ¿Que dia te gustaria revisar para el nuevo horario?"],
+    ["Cancelar", "Para cancelar tu cita, confirmame por favor: ¿seguro que deseas cancelarla?"],
+    ["Humano", "Claro 😊 Una persona del consultorio revisara tu mensaje y te apoyara por aqui."],
     ["Requisitos", getIntentResponse("appointment_requirements")],
     ["Urgencias", "⚠️ Si tienes dolor intenso, sangrado abundante o una urgencia, por favor acude a urgencias o contacta directamente al consultorio."]
   ];
@@ -2032,24 +2363,6 @@ async function saveHumanKnowledgeSuggestion(phoneNumber, answer) {
   });
 }
 
-function filterInboxConversations(list, q, filter) {
-  return list.filter((conversation) => {
-    const status = getConversationStatus(conversation);
-    const name = normalizeText(getConversationDisplayName(conversation));
-    const phone = normalizePhone(conversation.phoneNumber);
-    const matchesQuery = !q || name.includes(q) || phone.includes(normalizePhone(q));
-    const matchesFilter =
-      filter === "all" ||
-      (filter === "pending" && status.key === "followup") ||
-      (filter === "confirmed" && status.key === "confirmed") ||
-      (filter === "human" && conversation.botPaused) ||
-      (filter === "no_appointment" && !conversation.appointment) ||
-      (filter === "new_patient" && normalizeText(conversation.appointment?.firstVisit ?? "") === "si") ||
-      (filter === "returning_patient" && normalizeText(conversation.appointment?.firstVisit ?? "") === "no");
-    return matchesQuery && matchesFilter;
-  });
-}
-
 function renderFilterOption(value, label, current) {
   return `<option value="${escapeHtml(value)}"${value === current ? " selected" : ""}>${escapeHtml(label)}</option>`;
 }
@@ -2060,23 +2373,6 @@ function buildInboxQuery(values) {
     if (value) params.set(key, value);
   }
   return params.toString();
-}
-
-function getConversationStatus(conversation) {
-  if (conversation.botPaused) {
-    return { key: "human", label: "Modo humano activo", className: "human" };
-  }
-
-  if (conversation.appointment?.status === "confirmed") {
-    return { key: "confirmed", label: "Cita agendada", className: "confirmed" };
-  }
-
-  const last = conversation.messages.at(-1);
-  if (last?.sender === "patient") {
-    return { key: "followup", label: "Responder / seguimiento", className: "followup" };
-  }
-
-  return { key: "open", label: "En atencion", className: "open" };
 }
 
 function getConversationDisplayName(conversation) {
@@ -3087,6 +3383,18 @@ async function getPatientSession(phoneNumber) {
 
 async function setPatientSession(phoneNumber, session) {
   sessions.set(phoneNumber, session);
+  const existing = conversations.get(phoneNumber) ?? {
+    phoneNumber,
+    updatedAt: new Date().toISOString(),
+    messages: []
+  };
+  const { from: _from, updatedAt: _updatedAt, step = "collecting", ...data } = session;
+  existing.session = {
+    step,
+    data,
+    updatedAt: new Date().toISOString()
+  };
+  conversations.set(phoneNumber, existing);
 
   if (!isDatabaseEnabled()) return;
   try {
@@ -3098,6 +3406,11 @@ async function setPatientSession(phoneNumber, session) {
 
 async function deletePatientSession(phoneNumber) {
   sessions.delete(phoneNumber);
+  const existing = conversations.get(phoneNumber);
+  if (existing) {
+    existing.session = undefined;
+    conversations.set(phoneNumber, existing);
+  }
 
   if (!isDatabaseEnabled()) return;
   try {

@@ -75,9 +75,21 @@ export async function loadConversations() {
     ));
   const citas =
     (await safeSupabaseFetch(
-      `/rest/v1/citas?select=phone_number,patient_name,patient_email,slot_start,slot_end,status,first_visit,payment_type,reason,created_at&phone_number=in.(${phoneNumbers
+      `/rest/v1/citas?select=phone_number,patient_name,patient_email,google_event_id,slot_start,slot_end,status,first_visit,payment_type,reason,created_at&phone_number=in.(${phoneNumbers
         .map(encodeURIComponent)
         .join(",")})&order=created_at.desc`
+    )) ?? [];
+  const sessions =
+    (await safeSupabaseFetch(
+      `/rest/v1/sessions?select=phone_number,step,data,updated_at&phone_number=in.(${phoneNumbers
+        .map(encodeURIComponent)
+        .join(",")})`
+    )) ?? [];
+  const notes =
+    (await safeSupabaseFetch(
+      `/rest/v1/conversation_notes?select=id,phone_number,body,author,created_at&phone_number=in.(${phoneNumbers
+        .map(encodeURIComponent)
+        .join(",")})&order=created_at.desc&limit=100`
     )) ?? [];
   const byPhone = new Map();
   for (const conversation of conversations) {
@@ -90,6 +102,8 @@ export async function loadConversations() {
       lastHumanReplyAt: conversation.last_human_reply_at,
       tags: Array.isArray(conversation.tags) ? conversation.tags : [],
       messages: [],
+      notes: [],
+      session: undefined,
       appointment: undefined
     });
   }
@@ -112,6 +126,7 @@ export async function loadConversations() {
     conversation.appointment = {
       patientName: cita.patient_name,
       patientEmail: cita.patient_email,
+      googleEventId: cita.google_event_id,
       slotStart: cita.slot_start,
       slotEnd: cita.slot_end,
       status: cita.status,
@@ -120,6 +135,27 @@ export async function loadConversations() {
       reason: cita.reason,
       createdAt: cita.created_at
     };
+  }
+
+  for (const session of sessions) {
+    const conversation = byPhone.get(session.phone_number);
+    if (!conversation) continue;
+    conversation.session = {
+      step: session.step,
+      data: session.data ?? {},
+      updatedAt: session.updated_at
+    };
+  }
+
+  for (const note of notes) {
+    const conversation = byPhone.get(note.phone_number);
+    if (!conversation) continue;
+    conversation.notes.push({
+      id: note.id,
+      body: note.body,
+      author: note.author,
+      createdAt: note.created_at
+    });
   }
 
   return [...byPhone.values()];
@@ -190,6 +226,19 @@ export async function setConversationTags(phoneNumber, tags = []) {
       phone_number: phoneNumber,
       tags: [...new Set(tags)].slice(0, 12),
       updated_at: new Date().toISOString()
+    })
+  });
+}
+
+export async function saveConversationNote({ phoneNumber, body, author = "consultorio" }) {
+  if (!isDatabaseEnabled() || !phoneNumber || !body) return;
+
+  await supabaseFetch("/rest/v1/conversation_notes", {
+    method: "POST",
+    body: JSON.stringify({
+      phone_number: phoneNumber,
+      body: String(body).slice(0, 2000),
+      author: String(author).slice(0, 120)
     })
   });
 }

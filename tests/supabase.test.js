@@ -15,6 +15,7 @@ const {
   loadConfirmedCitasBetween,
   rememberProcessedWhatsAppMessage,
   saveCita,
+  saveConversationNote,
   saveKnowledgeSuggestion,
   saveWaitlistEntry,
   setConversationTags
@@ -368,6 +369,31 @@ test("guarda etiquetas de conversacion", async () => {
     await setConversationTags("5214771234567", ["Urgente", "Humano requerido"]);
     const body = JSON.parse(calls[0].body);
     assert.deepEqual(body.tags, ["Urgente", "Humano requerido"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("guarda nota interna de conversacion sin enviarla como mensaje", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), body: options?.body, method: options?.method });
+    return new Response(JSON.stringify([]), { status: 201 });
+  };
+
+  try {
+    await saveConversationNote({
+      phoneNumber: "5214771234567",
+      body: "Paciente prefiere horarios despues de las 5.",
+      author: "recepcion"
+    });
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /conversation_notes/);
+    const body = JSON.parse(calls[0].body);
+    assert.equal(body.phone_number, "5214771234567");
+    assert.equal(body.author, "recepcion");
+    assert.equal(body.body, "Paciente prefiere horarios despues de las 5.");
   } finally {
     globalThis.fetch = originalFetch;
   }
