@@ -43,6 +43,7 @@ export function buildOperationalHealth({ db, conversationCount = 0, memorySessio
     calendar: {
       id: config.googleCalendarId,
       busyCalendarIds: config.googleBusyCalendarIds,
+      appointmentScheduleUrlConfigured: Boolean(config.googleAppointmentScheduleUrl),
       source: config.googleCalendarIdConfigured ? "env" : "default-primary",
       usingPrimaryFallback: !config.googleCalendarIdConfigured
     },

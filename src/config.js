@@ -8,6 +8,8 @@ loadDotEnv();
 // explicitly set. If the variable is absent or any other value, it is false.
 const allowUnsignedWebhooks = process.env.ALLOW_UNSIGNED_WEBHOOKS === "true";
 const googleCalendarId = process.env.GOOGLE_CALENDAR_ID || "primary";
+const defaultGoogleAppointmentScheduleUrl =
+    "https://calendar.google.com/calendar/appointments/schedules/AcZssZ06cQ6uXUY76PSivQEolqaSakinthwNtthXnS4-Ui1QF4setEP6dqRYe_wzgqYjrBMCyYwFJqSR?gv=true";
 
 const required = [
     "WHATSAPP_VERIFY_TOKEN",
@@ -77,7 +79,7 @@ export const config = {
     googleCalendarId,
     googleCalendarIdConfigured: Boolean(process.env.GOOGLE_CALENDAR_ID),
     googleBusyCalendarIds: parseGoogleBusyCalendarIds(process.env.GOOGLE_BUSY_CALENDAR_IDS, googleCalendarId),
-    googleAppointmentScheduleUrl: process.env.GOOGLE_APPOINTMENT_SCHEDULE_URL,
+    googleAppointmentScheduleUrl: process.env.GOOGLE_APPOINTMENT_SCHEDULE_URL ?? defaultGoogleAppointmentScheduleUrl,
     googleRedirectUri:
           process.env.GOOGLE_REDIRECT_URI ??
           (process.env.PUBLIC_BASE_URL
