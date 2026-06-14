@@ -4,6 +4,7 @@ import { URL } from "node:url";
 import { understandMessage } from "./ai.js";
 import { cancelAppointment, createAppointment, findAvailableSlots, isClinicWorkDateISO, isSlotAvailable } from "./calendar.js";
 import { config } from "./config.js";
+import { buildDateOptionRows, dateOptionReplyText } from "./date-options.js";
 import { readForm, readRawBody } from "./form.js";
 import { redactSecrets } from "./http.js";
 import {
@@ -93,6 +94,11 @@ const interactiveReplyMap = {
   main_payments: "5",
   main_services: "6",
   main_human: "7",
+  returning_schedule: "quiero agendar otra cita",
+  returning_next: "tengo cita",
+  returning_reschedule: "quiero reagendar",
+  returning_cancel: "quiero cancelar",
+  returning_human: "quiero hablar con una persona",
   appointment_confirm_yes: "si",
   appointment_change_time: "no",
   appointment_cancel_review: "no",
@@ -2494,7 +2500,7 @@ function extractWhatsAppMessageText(message) {
   if (message.type === "text") return message.text?.body;
   if (message.type === "interactive") {
     const reply = message.interactive?.list_reply ?? message.interactive?.button_reply;
-    return interactiveReplyMap[reply?.id] ?? reply?.title;
+    return dateOptionReplyText(reply?.id) ?? interactiveReplyMap[reply?.id] ?? reply?.title;
   }
   if (message.type === "button") {
     return interactiveReplyMap[message.button?.payload] ?? message.button?.text;
@@ -2599,7 +2605,7 @@ async function handleIncomingText(from, text) {
   const faqAnswer = getIntentResponse(detectedIntent.intent) ?? answerFaq(normalized);
   if (faqAnswer && !existing && !dateLikeRequest) {
     if (detectedIntent.intent === "greeting") {
-      await sendMainMenuToPatient(from);
+      await sendGreetingMenuToPatient(from);
       return;
     }
     await replyToPatient(from, faqAnswer);
@@ -2782,7 +2788,23 @@ async function handleIncomingText(from, text) {
     return;
   }
 
+  if (session.availabilityOnly && !session.preferredDateText) {
+    await setPatientSession(from, session);
+    await replyWithDateOptions(from, getIntentResponse("check_availability"));
+    return;
+  }
+
   if (!session.name) {
+    const returningProfile = await loadReturningPatientProfile(from);
+    if (returningProfile?.patientName) {
+      const updated = applyReturningProfile(session, returningProfile);
+      await setPatientSession(from, updated);
+      await replyToPatient(
+        from,
+        `Hola ${firstName(returningProfile.patientName)} 😊 que gusto volver a verte. Ya tengo tu nombre${returningProfile.patientEmail ? " y correo" : ""}.\n\n¿Que servicio o motivo general quieres agendar esta vez?`
+      );
+      return;
+    }
     await setPatientSession(from, session);
     await replyToPatient(from, "😊 Claro, te ayudo a agendar. ¿Me compartes tu nombre completo?");
     return;
@@ -2825,17 +2847,14 @@ async function handleIncomingText(from, text) {
   }
 
   if (parsed.intent === "check_availability" && !session.preferredDateText) {
-    await offerAvailableSlots(from, {
-      ...session,
-      preferredDateText: "hoy",
-      preferredDateISO: todayISO()
-    });
+    await setPatientSession(from, { ...session, step: "collectingDateOnly", availabilityOnly: true });
+    await replyWithDateOptions(from, getIntentResponse("check_availability"));
     return;
   }
 
   if (!session.preferredDateText) {
     await setPatientSession(from, session);
-    await replyToPatient(from, `📅 Gracias, ${session.name}. ¿Que dia te gustaria la cita?`);
+    await replyWithDateOptions(from, `📅 Gracias, ${session.name}. ¿Que dia te gustaria la cita?`);
     return;
   }
 
@@ -3143,14 +3162,13 @@ async function lockAppointmentSlot(from, slot) {
 async function handleMenuOption(from, text, intent = detectIntent(text).intent) {
   const option = menuOptionNumber(text);
   if (option === 1 || intent === "schedule_appointment" || intent === "new_patient") {
-    await setPatientSession(from, { from, step: "collecting" });
-    await replyToPatient(from, getIntentResponse("schedule_appointment"));
+    await startAppointmentFlow(from);
     return true;
   }
 
   if (option === 2 || intent === "check_availability") {
     await setPatientSession(from, { from, step: "collectingDateOnly", availabilityOnly: true });
-    await replyToPatient(from, getIntentResponse("check_availability"));
+    await replyWithDateOptions(from, getIntentResponse("check_availability"));
     return true;
   }
 
@@ -3211,6 +3229,95 @@ async function sendMainMenuToPatient(to) {
     logSafeError(`Failed sending WhatsApp interactive menu to ${maskPhone(to)}`, error);
     await replyToPatient(to, getIntentResponse("greeting"));
   }
+}
+
+async function sendGreetingMenuToPatient(to) {
+  const profile = await loadReturningPatientProfile(to);
+  if (!profile?.patientName) {
+    await sendMainMenuToPatient(to);
+    return;
+  }
+
+  const body = `Hola ${firstName(profile.patientName)} 😊 que gusto volver a verte.\n\nYa tengo tu informacion basica guardada. ¿En que te puedo ayudar?`;
+  const rows = [
+    { id: "returning_schedule", title: "Agendar otra cita", description: "Usar tus datos guardados" },
+    { id: "returning_next", title: "Ver mi cita", description: "Consultar tu cita registrada" },
+    { id: "returning_reschedule", title: "Reagendar", description: "Cambiar tu proxima cita" },
+    { id: "returning_cancel", title: "Cancelar cita", description: "Cancelar con confirmacion" },
+    { id: "main_location", title: "Ubicacion", description: "Direccion del consultorio" },
+    { id: "returning_human", title: "Hablar con persona", description: "Pedir apoyo del consultorio" }
+  ];
+
+  try {
+    await sendWhatsAppList(to, {
+      body,
+      buttonText: "Opciones",
+      sections: [{ title: "Paciente recurrente", rows }]
+    });
+    await recordConversationMessage(to, "bot", `${body}\n\n${rows.map((row, index) => `${index + 1}. ${row.title}`).join("\n")}`);
+    await notifyBotReply(to, "Menu de paciente recurrente enviado.");
+  } catch (error) {
+    logSafeError(`Failed sending returning patient menu to ${maskPhone(to)}`, error);
+    await replyToPatient(
+      to,
+      `${body}\n\nPuedes escribirme: "agendar otra cita", "tengo cita", "reagendar", "cancelar", "ubicacion" o "humano".`
+    );
+  }
+}
+
+async function replyWithDateOptions(to, body) {
+  const rows = buildDateOptionRows();
+  try {
+    await sendWhatsAppList(to, {
+      body,
+      buttonText: "Ver fechas",
+      sections: [{ title: "Fechas sugeridas", rows }]
+    });
+    await recordConversationMessage(to, "bot", `${body}\n\n${rows.map((row, index) => `${index + 1}. ${row.title} - ${row.description}`).join("\n")}\n\nTambien puedes escribir otra fecha.`);
+    await notifyBotReply(to, "Opciones de fecha enviadas.");
+  } catch (error) {
+    logSafeError(`Failed sending date options to ${maskPhone(to)}`, error);
+    await replyToPatient(to, `${body}\n\n${rows.map((row, index) => `${index + 1}. ${row.title} - ${row.description}`).join("\n")}\n\nTambien puedes escribir otra fecha.`);
+  }
+}
+
+async function startAppointmentFlow(from) {
+  const profile = await loadReturningPatientProfile(from);
+  if (profile?.patientName) {
+    const session = applyReturningProfile({ from, step: "collecting" }, profile);
+    await setPatientSession(from, session);
+    await replyToPatient(
+      from,
+      `Hola ${firstName(profile.patientName)} 😊 que gusto volver a verte. Ya tengo tu nombre${profile.patientEmail ? " y correo" : ""}.\n\n¿Que servicio o motivo general quieres agendar esta vez?`
+    );
+    return;
+  }
+
+  await setPatientSession(from, { from, step: "collecting" });
+  await replyToPatient(from, getIntentResponse("schedule_appointment"));
+}
+
+async function loadReturningPatientProfile(phoneNumber) {
+  try {
+    return await getLatestConfirmedCitaByPhone(phoneNumber);
+  } catch (error) {
+    logSafeError(`Could not load returning patient profile for ${maskPhone(phoneNumber)}`, error);
+    return null;
+  }
+}
+
+function applyReturningProfile(session, profile) {
+  return {
+    ...session,
+    name: session.name ?? profile.patientName,
+    email: session.email ?? profile.patientEmail,
+    firstVisit: session.firstVisit ?? "No",
+    paymentType: session.paymentType ?? profile.paymentType
+  };
+}
+
+function firstName(value) {
+  return String(value ?? "Paciente").trim().split(/\s+/)[0] || "Paciente";
 }
 
 async function replyWithAppointmentReview(to, body) {
@@ -3582,7 +3689,7 @@ async function handleRescheduleConfirmation(from, normalized, session) {
   }
 
   await setPatientSession(from, { ...session, step: "collecting", preferredDateText: undefined, preferredDateISO: undefined });
-  await replyToPatient(from, "Perfecto 😊 ¿Que dia te gustaria revisar para tu nuevo horario?");
+  await replyWithDateOptions(from, "Perfecto 😊 ¿Que dia te gustaria revisar para tu nuevo horario?");
 }
 
 async function handleWaitlistConfirmation(from, normalized, session) {
@@ -3607,7 +3714,7 @@ async function handleWaitlistConfirmation(from, normalized, session) {
 
   if (option === 2 || /otro dia|otra fecha|ver otro/.test(normalized)) {
     await setPatientSession(from, { ...session, step: "collecting", preferredDateText: undefined, preferredDateISO: undefined });
-    await replyToPatient(from, "Claro 😊 ¿Que otro dia quieres revisar?");
+    await replyWithDateOptions(from, "Claro 😊 ¿Que otro dia quieres revisar?");
     return;
   }
 
@@ -3922,15 +4029,6 @@ async function safeSendWhatsAppText(to, body) {
   } catch (error) {
     logSafeError(`Failed sending fallback WhatsApp message to ${maskPhone(to)}`, error);
   }
-}
-
-function todayISO() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: config.clinicTimezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(new Date());
 }
 
 function isValidWebhookSignature(req, rawBody) {

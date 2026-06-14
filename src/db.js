@@ -629,7 +629,7 @@ export async function getLatestConfirmedCitaByPhone(phoneNumber) {
   if (!isDatabaseEnabled()) return null;
 
   const rows = await supabaseFetch(
-    `/rest/v1/citas?select=id,phone_number,patient_name,patient_email,google_event_id,slot_start,slot_end,status&phone_number=eq.${encodeURIComponent(
+    `/rest/v1/citas?select=id,phone_number,patient_name,patient_email,google_event_id,slot_start,slot_end,status,first_visit,payment_type&phone_number=eq.${encodeURIComponent(
       phoneNumber
     )}&status=eq.confirmed&order=slot_start.desc&limit=1`
   );
@@ -644,7 +644,9 @@ export async function getLatestConfirmedCitaByPhone(phoneNumber) {
     googleEventId: row.google_event_id,
     slotStart: row.slot_start,
     slotEnd: row.slot_end,
-    status: row.status
+    status: row.status,
+    firstVisit: row.first_visit,
+    paymentType: row.payment_type
   };
 }
 
