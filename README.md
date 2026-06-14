@@ -45,7 +45,7 @@ No uses `https://whatsapp-calendar-bot.onrender.com` para este bot. Ese dominio 
 El bot crea citas en `GOOGLE_CALENDAR_ID`, pero revisa ocupacion en `GOOGLE_BUSY_CALENDAR_IDS`. En este piloto debe revisar al menos:
 
 ```text
-primary,b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com
+primary,ginecologiaintegralgto@gmail.com,b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com
 ```
 
 Asi no ofrece horarios que ya aparecen ocupados en el calendario principal de la doctora.
