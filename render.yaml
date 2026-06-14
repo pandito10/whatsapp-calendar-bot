@@ -96,6 +96,8 @@ services:
         value: ginecologiaintegralgto@gmail.com
       - key: GOOGLE_BUSY_CALENDAR_IDS
         value: ginecologiaintegralgto@gmail.com
+      - key: GOOGLE_APPOINTMENT_SCHEDULE_URL
+        value: https://calendar.google.com/calendar/appointments/schedules/AcZssZ06cQ6uXUY76PSivQEolqaSakinthwNtthXnS4-Ui1QF4setEP6dqRYe_wzgqYjrBMCyYwFJqSR?gv=true
       - key: AI_PROVIDER
         value: local
       - key: CLINIC_TIMEZONE

@@ -50,6 +50,12 @@ ginecologiaintegralgto@gmail.com
 
 Ese es el calendario que viene codificado en el link de reservas de Google Calendar.
 
+Opcionalmente configura `GOOGLE_APPOINTMENT_SCHEDULE_URL` con el link publico de reservas de Google. El bot lo usa como respaldo cuando alguien pide reservar directo, cuando no hay horarios disponibles o desde la respuesta rapida del inbox:
+
+```text
+GOOGLE_APPOINTMENT_SCHEDULE_URL=https://calendar.google.com/calendar/appointments/schedules/AcZssZ06cQ6uXUY76PSivQEolqaSakinthwNtthXnS4-Ui1QF4setEP6dqRYe_wzgqYjrBMCyYwFJqSR?gv=true
+```
+
 ## Configuracion
 
 ```bash

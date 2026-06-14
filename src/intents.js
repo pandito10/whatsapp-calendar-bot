@@ -36,6 +36,7 @@ export function detectIntent(value) {
       "confirmada", "confirmar cita", "ya quedo", "quedo confirmada",
       "me confirmas", "tengo cita", "mi cita esta confirmada"
     ])],
+    ["appointment_link", () => isAppointmentLinkQuestion(text)],
     ["schedule_appointment", () => hasAny(text, [
       "agendar", "hacer cita", "sacar cita", "reservar", "quiero una cita",
       "necesito una cita", "ocupo cita", "quiero cita", "agendar consulta",
@@ -208,6 +209,14 @@ function isPromotionQuestion(text) {
 
 function isPaymentQuestion(text) {
   return /\b(?:tarjeta|credito|debito|transferencia|efectivo|pago|formas de pago|forma de pago|metodos de pago|pagar con tarjeta|pagar con transferencia|pagar efectivo)\b/.test(text);
+}
+
+function isAppointmentLinkQuestion(text) {
+  return (
+    /\b(?:link|liga|enlace)\b/.test(text) &&
+      /\b(?:reserva|reservar|cita|agenda|horario|google|calendar|calendario)\b/.test(text)
+  ) ||
+    /\b(?:agenda online|agenda en linea|reserva online|reserva en linea|reservar directo|reservar yo|reservar por google|google calendar|calendario de google)\b/.test(text);
 }
 
 function isGeneralMenuQuestion(text) {

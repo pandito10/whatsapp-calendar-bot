@@ -2331,6 +2331,7 @@ function renderQuickReplies() {
     ["Pedir nombre", "Perfecto 😊 ¿A nombre de quien agendamos la cita?"],
     ["Pedir fecha", "Claro 😊 ¿Que dia te gustaria revisar disponibilidad? Puedes decirme hoy, manana, viernes o una fecha especifica."],
     ["Horarios", "🕒 Claro. ¿Para que dia te gustaria revisar disponibilidad?\n\nPuedes decirme: hoy, mañana, viernes o una fecha especifica."],
+    ...(config.googleAppointmentScheduleUrl ? [["Link reserva", buildAppointmentScheduleLinkMessage()]] : []),
     ["Ubicacion", getIntentResponse("location")],
     ["Costos", `${getIntentResponse("cost")}\n\n${getIntentResponse("promotion")}`],
     ["Pago", getIntentResponse("payment_methods")],
@@ -2862,7 +2863,7 @@ async function offerAvailableSlots(from, session, options = {}) {
     await setPatientSession(from, { ...session, step: "waitlistOffer", waitlistDateISO: session.preferredDateISO, waitlistDateText: session.preferredDateText });
     await replyToPatientWithButtons(
       from,
-      `${options.prefix ?? ""}Por ahora no tengo horarios disponibles para ese dia 😕\n\n¿Quieres que te agregue a lista de espera por si se libera un espacio?`,
+      `${options.prefix ?? ""}Por ahora no tengo horarios disponibles para ese dia 😕${buildAppointmentScheduleLinkSuffix()}\n\n¿Quieres que te agregue a lista de espera por si se libera un espacio?`,
       [
         { id: "waitlist_yes", title: "Si" },
         { id: "waitlist_other_day", title: "Otro dia" },
@@ -3787,6 +3788,7 @@ function getIntentResponse(intent) {
     cost: `💰 La consulta tiene un costo de ${formatMoney(config.consultationPrice)} MXN.\n\n🎁 Tambien contamos con paquete de promocion en ${formatMoney(config.promotionPrice)} MXN.`,
     promotion: `🎁 Si, aun contamos con paquete de promocion en ${formatMoney(config.promotionPrice)} MXN.\n\nSi gustas, tambien puedo ayudarte a revisar horarios disponibles para agendar tu cita.`,
     payment_methods: "💵 Por el momento aceptamos efectivo o transferencia bancaria.\n\nNo contamos con pago con tarjeta por ahora.",
+    appointment_link: buildAppointmentScheduleLinkMessage(),
     schedule_appointment: "😊 Claro, te ayudo a agendar tu cita.\n\n¿Me compartes tu nombre completo?",
     check_availability: "🕒 Claro. ¿Para que dia te gustaria revisar disponibilidad?\n\nPuedes decirme, por ejemplo: hoy, manana, viernes o una fecha especifica.",
     closing: "😊 Con gusto. Si necesitas algo mas, aqui estoy para ayudarte.",
@@ -3808,11 +3810,30 @@ function getIntentResponse(intent) {
     fallback: [
       "Perdon, no entendi bien 😅",
       "",
-      "¿Quieres agendar, ver costos, ubicacion o hablar con una persona?"
+      `¿Quieres agendar, ver costos, ubicacion o hablar con una persona?${buildAppointmentScheduleLinkSuffix()}`
     ].join("\n")
   };
 
   return responses[intent];
+}
+
+function buildAppointmentScheduleLinkMessage() {
+  if (!config.googleAppointmentScheduleUrl) {
+    return "Claro 😊 Puedo ayudarte a revisar horarios y agendar por aqui. ¿Que dia te gustaria revisar?";
+  }
+
+  return [
+    "Claro 😊 Tambien puedes revisar horarios y reservar directamente aqui:",
+    "",
+    config.googleAppointmentScheduleUrl,
+    "",
+    "Si prefieres, tambien puedo ayudarte a agendar por aqui."
+  ].join("\n");
+}
+
+function buildAppointmentScheduleLinkSuffix() {
+  if (!config.googleAppointmentScheduleUrl) return "";
+  return `\n\nTambien puedes revisar y reservar directamente aqui:\n${config.googleAppointmentScheduleUrl}`;
 }
 
 function formatMoney(value) {

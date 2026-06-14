@@ -77,6 +77,7 @@ export const config = {
     googleCalendarId,
     googleCalendarIdConfigured: Boolean(process.env.GOOGLE_CALENDAR_ID),
     googleBusyCalendarIds: parseGoogleBusyCalendarIds(process.env.GOOGLE_BUSY_CALENDAR_IDS, googleCalendarId),
+    googleAppointmentScheduleUrl: process.env.GOOGLE_APPOINTMENT_SCHEDULE_URL,
     googleRedirectUri:
           process.env.GOOGLE_REDIRECT_URI ??
           (process.env.PUBLIC_BASE_URL
@@ -152,6 +153,10 @@ function validateStartupConfig() {
           throw new Error("EXTERNAL_REQUEST_RETRIES must be between 0 and 5");
     }
 
+    if (config.googleAppointmentScheduleUrl && !isHttpUrl(config.googleAppointmentScheduleUrl)) {
+          throw new Error("GOOGLE_APPOINTMENT_SCHEDULE_URL must be a valid http(s) URL");
+    }
+
     validatePositiveInteger(config.port, "PORT", 1, 65535);
     validatePositiveInteger(config.maxRequestBytes, "MAX_REQUEST_BYTES", 10_000, 2_000_000);
     validatePositiveInteger(config.inboxMediaMaxBytes, "INBOX_MEDIA_MAX_BYTES", 100_000, 100_000_000);
@@ -189,6 +194,15 @@ function parseMinutes(value, key) {
           throw new Error(`${key} must be a valid time`);
     }
     return hour * 60 + minute;
+}
+
+function isHttpUrl(value) {
+    try {
+          const url = new URL(value);
+          return url.protocol === "https:" || url.protocol === "http:";
+    } catch {
+          return false;
+    }
 }
 
 function normalizeAiProvider(value, geminiApiKey) {

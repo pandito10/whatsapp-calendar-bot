@@ -106,6 +106,17 @@ test("AI_PROVIDER vacio o apagado usa parser local", () => {
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
+test("rechaza GOOGLE_APPOINTMENT_SCHEDULE_URL invalida", () => {
+  const result = importConfigWith({
+    ...baseEnv,
+    NODE_ENV: "test",
+    GOOGLE_APPOINTMENT_SCHEDULE_URL: "no-es-url"
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /GOOGLE_APPOINTMENT_SCHEDULE_URL/);
+});
+
 function importConfigWith(env) {
   return spawnSync(process.execPath, ["--input-type=module", "-e", "await import('./src/config.js')"], {
     cwd: fileURLToPath(new URL("..", import.meta.url)),

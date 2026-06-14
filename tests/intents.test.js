@@ -20,6 +20,12 @@ test("detecta agenda, disponibilidad y horarios", () => {
   assert.equal(detectIntent("tienen citas mañana?").intent, "check_availability");
 });
 
+test("detecta link de reserva directo sin IA", () => {
+  assert.equal(detectIntent("me pasas el link para reservar").intent, "appointment_link");
+  assert.equal(detectIntent("quiero reservar por google calendar").intent, "appointment_link");
+  assert.equal(detectIntent("agenda online").intent, "appointment_link");
+});
+
 test("detecta costo, ubicacion y formas de pago", () => {
   assert.equal(detectIntent("kuanto cuesta").intent, "cost");
   assert.equal(detectIntent("donde estan").intent, "location");
