@@ -96,6 +96,8 @@ services:
         value: calendario mamalon
       - key: GOOGLE_CALENDAR_ID
         value: ginecologiaintegralgto@gmail.com
+      - key: GOOGLE_CALENDAR_EVENT_COLOR_ID
+        value: "9"
       - key: GOOGLE_BUSY_CALENDAR_IDS
         value: ginecologiaintegralgto@gmail.com
       - key: GOOGLE_APPOINTMENT_SCHEDULE_URL

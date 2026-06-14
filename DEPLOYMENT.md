@@ -55,6 +55,7 @@ GOOGLE_CLIENT_SECRET=...
 GOOGLE_REFRESH_TOKEN=...
 GOOGLE_CALENDAR_LABEL=calendario mamalon
 GOOGLE_CALENDAR_ID=ginecologiaintegralgto@gmail.com
+GOOGLE_CALENDAR_EVENT_COLOR_ID=9
 GOOGLE_BUSY_CALENDAR_IDS=ginecologiaintegralgto@gmail.com
 GOOGLE_APPOINTMENT_SCHEDULE_URL=https://calendar.google.com/calendar/appointments/schedules/AcZssZ06cQ6uXUY76PSivQEolqaSakinthwNtthXnS4-Ui1QF4setEP6dqRYe_wzgqYjrBMCyYwFJqSR?gv=true
 

@@ -96,6 +96,7 @@ export function buildCalendarEventPayload(slot, patient) {
     location: config.clinicAddress,
     start: { dateTime: slot.start, timeZone: config.clinicTimezone },
     end: { dateTime: slot.end, timeZone: config.clinicTimezone },
+    colorId: config.googleCalendarEventColorId || undefined,
     attendees
   };
 }

@@ -79,6 +79,7 @@ export const config = {
     googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN,
     googleCalendarId,
     googleCalendarLabel: process.env.GOOGLE_CALENDAR_LABEL ?? "calendario mamalon",
+    googleCalendarEventColorId: process.env.GOOGLE_CALENDAR_EVENT_COLOR_ID ?? "9",
     googleCalendarIdConfigured: Boolean(process.env.GOOGLE_CALENDAR_ID),
     googleBusyCalendarIds: parseGoogleBusyCalendarIds(process.env.GOOGLE_BUSY_CALENDAR_IDS, googleCalendarId),
     googleAppointmentScheduleUrl: process.env.GOOGLE_APPOINTMENT_SCHEDULE_URL ?? defaultGoogleAppointmentScheduleUrl,
@@ -159,6 +160,10 @@ function validateStartupConfig() {
 
     if (config.googleAppointmentScheduleUrl && !isHttpUrl(config.googleAppointmentScheduleUrl)) {
           throw new Error("GOOGLE_APPOINTMENT_SCHEDULE_URL must be a valid http(s) URL");
+    }
+
+    if (config.googleCalendarEventColorId && !/^(?:[1-9]|10|11)$/.test(config.googleCalendarEventColorId)) {
+          throw new Error("GOOGLE_CALENDAR_EVENT_COLOR_ID must be a Google Calendar color id from 1 to 11");
     }
 
     validatePositiveInteger(config.port, "PORT", 1, 65535);

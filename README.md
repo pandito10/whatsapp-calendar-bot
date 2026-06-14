@@ -47,10 +47,12 @@ El bot crea citas y revisa ocupacion solo en el **calendario mamalon**. Para est
 ```text
 GOOGLE_CALENDAR_LABEL=calendario mamalon
 GOOGLE_CALENDAR_ID=ginecologiaintegralgto@gmail.com
+GOOGLE_CALENDAR_EVENT_COLOR_ID=9
 GOOGLE_BUSY_CALENDAR_IDS=ginecologiaintegralgto@gmail.com
 ```
 
 Ese es el calendario que viene codificado en el link de reservas de Google Calendar. No se debe mezclar con otros calendarios para crear ni para revisar disponibilidad.
+`GOOGLE_CALENDAR_EVENT_COLOR_ID=9` hace que las citas creadas por el bot salgan con el mismo color azul que las citas buenas del calendario mamalon.
 
 `GOOGLE_APPOINTMENT_SCHEDULE_URL` guarda el link publico de reservas de Google. En este piloto ya queda configurado con el link de la doctora; para otro consultorio cambialo por env. El bot lo usa como respaldo cuando alguien pide reservar directo, cuando no hay horarios disponibles o desde la respuesta rapida del inbox:
 

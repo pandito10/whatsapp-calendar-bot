@@ -37,6 +37,7 @@ test("calendar minimiza telefono y no manda motivo sensible por default", () => 
 
   assert.match(payload.summary, /Ana Prueba/);
   assert.match(payload.summary, /Cita medica/);
+  assert.equal(payload.colorId, "9");
   assert.doesNotMatch(payload.summary, /ginec/i);
   assert.match(payload.description, /52147\*\*\*\*567/);
   assert.doesNotMatch(payload.description, /4771234/);
