@@ -7,6 +7,7 @@ import { config } from "./config.js";
 import { buildDateOptionRows, dateOptionReplyText } from "./date-options.js";
 import { readForm, readRawBody } from "./form.js";
 import { redactSecrets } from "./http.js";
+import { buildSlotOptionRows, slotOptionReplyText } from "./slot-options.js";
 import {
   buildAdminAppointmentNotification,
   buildAppointmentFailureMessage,
@@ -2500,7 +2501,7 @@ function extractWhatsAppMessageText(message) {
   if (message.type === "text") return message.text?.body;
   if (message.type === "interactive") {
     const reply = message.interactive?.list_reply ?? message.interactive?.button_reply;
-    return dateOptionReplyText(reply?.id) ?? interactiveReplyMap[reply?.id] ?? reply?.title;
+    return slotOptionReplyText(reply?.id) ?? dateOptionReplyText(reply?.id) ?? interactiveReplyMap[reply?.id] ?? reply?.title;
   }
   if (message.type === "button") {
     return interactiveReplyMap[message.button?.payload] ?? message.button?.text;
@@ -2903,12 +2904,11 @@ async function offerAvailableSlots(from, session, options = {}) {
     offeredSlots: slots
   });
 
-  await replyToPatient(
-    from,
-    `${options.prefix ?? ""}${buildAvailabilityIntro(session, slots)}\n${slots
-      .map((slot, index) => `${index + 1}. ${slot.label}`)
-      .join("\n")}\n\n${allowSelection ? "Responde con el numero del horario que prefieras para confirmar. Si ninguno te acomoda, dime otra fecha." : "Si alguno te acomoda, responde con el numero del horario y te ayudo a agendarlo. Si no, dime otra fecha."}`
-  );
+  await replyWithSlotOptions(from, {
+    body: `${options.prefix ?? ""}${buildAvailabilityIntro(session, slots)}`,
+    slots,
+    allowSelection
+  });
 }
 
 async function filterSlotsByConfirmedAppointments(slots) {
@@ -3279,6 +3279,33 @@ async function replyWithDateOptions(to, body) {
     logSafeError(`Failed sending date options to ${maskPhone(to)}`, error);
     await replyToPatient(to, `${body}\n\n${rows.map((row, index) => `${index + 1}. ${row.title} - ${row.description}`).join("\n")}\n\nTambien puedes escribir otra fecha.`);
   }
+}
+
+async function replyWithSlotOptions(to, { body, slots, allowSelection }) {
+  const rows = buildSlotOptionRows(slots);
+  const instruction = allowSelection
+    ? "Toca el boton para elegir un horario. Si ninguno te acomoda, dime otra fecha."
+    : "Toca el boton si algun horario te acomoda y te ayudo a agendarlo. Si no, dime otra fecha.";
+  const fallbackText = buildSlotOptionsText(body, slots, allowSelection);
+
+  try {
+    await sendWhatsAppList(to, {
+      body: `${body}\n\n${instruction}`,
+      buttonText: "Elegir horario",
+      sections: [{ title: "Horarios disponibles", rows }]
+    });
+    await recordConversationMessage(to, "bot", fallbackText);
+    await notifyBotReply(to, "Horarios disponibles enviados.");
+  } catch (error) {
+    logSafeError(`Failed sending slot options to ${maskPhone(to)}`, error);
+    await replyToPatient(to, fallbackText);
+  }
+}
+
+function buildSlotOptionsText(body, slots, allowSelection) {
+  return `${body}\n${slots
+    .map((slot, index) => `${index + 1}. ${slot.label}`)
+    .join("\n")}\n\n${allowSelection ? "Responde con el numero del horario que prefieras para confirmar. Si ninguno te acomoda, dime otra fecha." : "Si alguno te acomoda, responde con el numero del horario y te ayudo a agendarlo. Si no, dime otra fecha."}`;
 }
 
 async function startAppointmentFlow(from) {
