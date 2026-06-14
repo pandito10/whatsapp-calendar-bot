@@ -2533,6 +2533,7 @@ async function confirmAppointmentFromSession(from, session) {
     logSafeError(`Could not confirm appointment for ${maskPhone(from)} [${failureType}]`, error);
     if (failureType === "double_booking") {
       await offerAlternativeSlotsAfterDoubleBooking(from, session);
+      return;
     } else {
       await resetSlotSelection(from, session);
       await replyToPatient(from, buildAppointmentFailureMessage(failureType));
