@@ -42,17 +42,17 @@ Meta:   https://whatsapp-calendar-bot-gw3e.onrender.com/webhook/TU_WEBHOOK_PATH_
 
 No uses `https://whatsapp-calendar-bot.onrender.com` para este bot. Ese dominio puede apuntar a otro servicio y no debe configurarse en Meta.
 
-El bot crea citas y revisa ocupacion solo en el **calendario mamalon**. Para este piloto debe estar asi:
+El bot crea citas en el calendario azul **GINECOLOGIA INTEGRAL** y revisa ocupacion en el azul mas el calendario amarillo donde viven varias citas antiguas. Para este piloto debe estar asi:
 
 ```text
-GOOGLE_CALENDAR_LABEL=calendario mamalon
-GOOGLE_CALENDAR_ID=ginecologiaintegralgto@gmail.com
+GOOGLE_CALENDAR_LABEL=calendario azul GINECOLOGIA INTEGRAL
+GOOGLE_CALENDAR_ID=b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com
 GOOGLE_CALENDAR_EVENT_COLOR_ID=9
-GOOGLE_BUSY_CALENDAR_IDS=ginecologiaintegralgto@gmail.com
+GOOGLE_BUSY_CALENDAR_IDS=b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com,ginecologiaintegralgto@gmail.com
 ```
 
-Ese es el calendario que viene codificado en el link de reservas de Google Calendar. No se debe mezclar con otros calendarios para crear ni para revisar disponibilidad.
-`GOOGLE_CALENDAR_EVENT_COLOR_ID=9` hace que las citas creadas por el bot salgan con el mismo color azul que las citas buenas del calendario mamalon.
+`GOOGLE_CALENDAR_ID` es donde caen las nuevas citas del bot. `GOOGLE_BUSY_CALENDAR_IDS` incluye tambien `ginecologiaintegralgto@gmail.com` porque ahi existen citas anteriores que deben bloquear disponibilidad.
+`GOOGLE_CALENDAR_EVENT_COLOR_ID=9` hace que las citas creadas por el bot usen el mismo azul visual de las citas buenas.
 
 `GOOGLE_APPOINTMENT_SCHEDULE_URL` guarda el link publico de reservas de Google. En este piloto ya queda configurado con el link de la doctora; para otro consultorio cambialo por env. El bot lo usa como respaldo cuando alguien pide reservar directo, cuando no hay horarios disponibles o desde la respuesta rapida del inbox:
 

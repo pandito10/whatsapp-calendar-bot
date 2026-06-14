@@ -23,9 +23,9 @@ test("health reporta app ok cuando lo critico esta configurado", () => {
   const health = buildOperationalHealth({ db: { ok: true, status: "ok" }, conversationCount: 2 });
   assert.equal(health.app, "ok");
   assert.equal(health.checks.webhookSignature, "required");
-  assert.equal(health.calendar.label, "calendario mamalon");
+  assert.equal(health.calendar.label, "calendario azul GINECOLOGIA INTEGRAL");
   assert.equal(typeof health.calendar.id, "string");
-  assert.ok(["env", "default-calendario-mamalon"].includes(health.calendar.source));
+  assert.ok(["env", "default-calendario-azul"].includes(health.calendar.source));
   assert.equal(isOperationallyUnhealthy(health), false);
 });
 

@@ -15,7 +15,7 @@ const baseEnv = {
   GOOGLE_CLIENT_ID: "google-client",
   GOOGLE_CLIENT_SECRET: "google-secret",
   GOOGLE_REFRESH_TOKEN: "google-refresh",
-  GOOGLE_CALENDAR_ID: "ginecologiaintegralgto@gmail.com"
+  GOOGLE_CALENDAR_ID: "b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com"
 };
 
 test("produccion exige WHATSAPP_APP_SECRET si la firma es obligatoria", () => {
@@ -57,14 +57,14 @@ test("produccion acepta alias REQUIRE_SUPABASE_FOR_APPOINTMENTS para exigir Supa
   assert.match(result.stderr, /SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/);
 });
 
-test("si falta GOOGLE_CALENDAR_ID usa calendario mamalon y lo advierte en readiness", () => {
+test("si falta GOOGLE_CALENDAR_ID usa calendario azul y lo advierte en readiness", () => {
   const { GOOGLE_CALENDAR_ID: _googleCalendarId, ...envWithoutCalendarId } = baseEnv;
   const result = spawnSync(
     process.execPath,
     [
       "--input-type=module",
       "-e",
-      "const { config } = await import('./src/config.js'); const { assessProductionReadiness } = await import('./src/readiness.js'); const readiness = assessProductionReadiness({ dbOk: true }); if (config.googleCalendarId !== 'ginecologiaintegralgto@gmail.com') throw new Error(config.googleCalendarId); if (config.googleCalendarLabel !== 'calendario mamalon') throw new Error(config.googleCalendarLabel); if (config.googleCalendarIdConfigured !== false) throw new Error('expected default calendar'); if (config.googleBusyCalendarIds.length !== 1 || config.googleBusyCalendarIds[0] !== config.googleCalendarId) throw new Error('expected only mamalon calendar'); if (!readiness.warnings.some((warning) => warning.includes('calendario mamalon'))) throw new Error('missing warning');"
+      "const { config } = await import('./src/config.js'); const { assessProductionReadiness } = await import('./src/readiness.js'); const readiness = assessProductionReadiness({ dbOk: true }); if (config.googleCalendarId !== 'b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com') throw new Error(config.googleCalendarId); if (config.googleCalendarLabel !== 'calendario azul GINECOLOGIA INTEGRAL') throw new Error(config.googleCalendarLabel); if (config.googleCalendarIdConfigured !== false) throw new Error('expected default calendar'); if (config.googleBusyCalendarIds.length !== 2 || !config.googleBusyCalendarIds.includes(config.googleCalendarId) || !config.googleBusyCalendarIds.includes('ginecologiaintegralgto@gmail.com')) throw new Error('expected blue and legacy busy calendars'); if (!readiness.warnings.some((warning) => warning.includes('calendario azul'))) throw new Error('missing warning');"
     ],
     {
       cwd: fileURLToPath(new URL("..", import.meta.url)),

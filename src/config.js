@@ -7,7 +7,11 @@ loadDotEnv();
 // Unsigned webhooks are only accepted when ALLOW_UNSIGNED_WEBHOOKS=true is
 // explicitly set. If the variable is absent or any other value, it is false.
 const allowUnsignedWebhooks = process.env.ALLOW_UNSIGNED_WEBHOOKS === "true";
-const defaultGoogleCalendarId = "ginecologiaintegralgto@gmail.com";
+const defaultGoogleCalendarId = "b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com";
+const defaultGoogleBusyCalendarIds = [
+    defaultGoogleCalendarId,
+    "ginecologiaintegralgto@gmail.com"
+];
 const googleCalendarId = process.env.GOOGLE_CALENDAR_ID || defaultGoogleCalendarId;
 const defaultGoogleAppointmentScheduleUrl =
     "https://calendar.google.com/calendar/appointments/schedules/AcZssZ06cQ6uXUY76PSivQEolqaSakinthwNtthXnS4-Ui1QF4setEP6dqRYe_wzgqYjrBMCyYwFJqSR?gv=true";
@@ -78,10 +82,10 @@ export const config = {
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
     googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN,
     googleCalendarId,
-    googleCalendarLabel: process.env.GOOGLE_CALENDAR_LABEL ?? "calendario mamalon",
+    googleCalendarLabel: process.env.GOOGLE_CALENDAR_LABEL ?? "calendario azul GINECOLOGIA INTEGRAL",
     googleCalendarEventColorId: process.env.GOOGLE_CALENDAR_EVENT_COLOR_ID ?? "9",
     googleCalendarIdConfigured: Boolean(process.env.GOOGLE_CALENDAR_ID),
-    googleBusyCalendarIds: parseGoogleBusyCalendarIds(process.env.GOOGLE_BUSY_CALENDAR_IDS, googleCalendarId),
+    googleBusyCalendarIds: parseGoogleBusyCalendarIds(process.env.GOOGLE_BUSY_CALENDAR_IDS, googleCalendarId, defaultGoogleBusyCalendarIds),
     googleAppointmentScheduleUrl: process.env.GOOGLE_APPOINTMENT_SCHEDULE_URL ?? defaultGoogleAppointmentScheduleUrl,
     googleRedirectUri:
           process.env.GOOGLE_REDIRECT_URI ??
@@ -221,14 +225,14 @@ function normalizeAiProvider(value, geminiApiKey) {
     return geminiApiKey ? "gemini" : "local";
 }
 
-function parseGoogleBusyCalendarIds(value, eventCalendarId) {
+function parseGoogleBusyCalendarIds(value, eventCalendarId, defaultBusyCalendarIds = [eventCalendarId]) {
     const configuredIds = String(value ?? "")
           .split(",")
           .map((id) => id.trim())
           .filter(Boolean);
     if (configuredIds.length > 0) return [...new Set(configuredIds)];
 
-    return [eventCalendarId];
+    return [...new Set(defaultBusyCalendarIds.filter(Boolean))];
 }
 
 export function requireEnv(keys, serviceName) {

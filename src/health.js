@@ -45,7 +45,7 @@ export function buildOperationalHealth({ db, conversationCount = 0, memorySessio
       id: config.googleCalendarId,
       busyCalendarIds: config.googleBusyCalendarIds,
       appointmentScheduleUrlConfigured: Boolean(config.googleAppointmentScheduleUrl),
-      source: config.googleCalendarIdConfigured ? "env" : "default-calendario-mamalon",
+      source: config.googleCalendarIdConfigured ? "env" : "default-calendario-azul",
       usingConfiguredCalendar: config.googleCalendarIdConfigured
     },
     readiness,

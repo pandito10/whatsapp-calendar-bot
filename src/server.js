@@ -459,7 +459,7 @@ async function handleDebugConfig(req, url, res) {
         aiProvider: config.aiProvider,
         calendarLabel: config.googleCalendarLabel,
         calendarId: config.googleCalendarId,
-        calendarIdSource: config.googleCalendarIdConfigured ? "env" : "default-calendario-mamalon",
+        calendarIdSource: config.googleCalendarIdConfigured ? "env" : "default-calendario-azul",
         usingConfiguredCalendar: config.googleCalendarIdConfigured,
         clinicTimezone: config.clinicTimezone,
         appointmentMinutes: config.appointmentMinutes,

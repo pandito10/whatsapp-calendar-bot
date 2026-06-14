@@ -84,7 +84,7 @@ test("webhook en produccion rechaza POST sin firma y acepta status firmado", asy
     GOOGLE_CLIENT_ID: "google-client",
     GOOGLE_CLIENT_SECRET: "google-secret",
     GOOGLE_REFRESH_TOKEN: "google-refresh",
-    GOOGLE_CALENDAR_ID: "ginecologiaintegralgto@gmail.com"
+    GOOGLE_CALENDAR_ID: "b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com"
   });
 
   try {
