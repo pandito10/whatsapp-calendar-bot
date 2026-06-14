@@ -13,14 +13,11 @@ export async function findAvailableSlots(dateText, dateISO) {
         timeMin: window.start.toISOString(),
         timeMax: window.end.toISOString(),
         timeZone: config.clinicTimezone,
-        items: [{ id: config.googleCalendarId }]
+        items: buildFreeBusyItems()
       })
     }, { retry: true });
 
-    const busyRanges = (busy.calendars?.[config.googleCalendarId]?.busy ?? []).map((range) => ({
-      start: new Date(range.start),
-      end: new Date(range.end)
-    }));
+    const busyRanges = collectBusyRanges(busy);
 
     let cursor = new Date(window.start);
     const stepMinutes = config.appointmentMinutes + config.appointmentBufferMinutes;
@@ -75,11 +72,11 @@ export async function isSlotAvailable(slot) {
       timeMin: slot.start,
       timeMax: slot.end,
       timeZone: config.clinicTimezone,
-      items: [{ id: config.googleCalendarId }]
+      items: buildFreeBusyItems()
     })
   }, { retry: true });
 
-  const busyRanges = busy.calendars?.[config.googleCalendarId]?.busy ?? [];
+  const busyRanges = collectBusyRanges(busy);
   return busyRanges.length === 0;
 }
 
@@ -150,6 +147,28 @@ function buildWorkWindows(startDateISO) {
 function withTime(dateParts, hhmm) {
   const [hours, minutes] = hhmm.split(":").map(Number);
   return zonedDateTimeToDate(dateParts.year, dateParts.month, dateParts.day, hours, minutes);
+}
+
+function buildFreeBusyItems() {
+  return config.googleBusyCalendarIds.map((id) => ({ id }));
+}
+
+function collectBusyRanges(freeBusyResponse) {
+  const calendars = freeBusyResponse?.calendars ?? {};
+  return config.googleBusyCalendarIds.flatMap((calendarId) => {
+    const calendar = calendars[calendarId];
+    if (!calendar) {
+      throw new Error(`Google Calendar freeBusy did not return calendar: ${calendarId}`);
+    }
+    if (Array.isArray(calendar.errors) && calendar.errors.length > 0) {
+      const reason = calendar.errors.map((error) => error.reason || error.message || "unknown").join(", ");
+      throw new Error(`Google Calendar freeBusy error for calendar ${calendarId}: ${reason}`);
+    }
+    return (calendar.busy ?? []).map((range) => ({
+      start: new Date(range.start),
+      end: new Date(range.end)
+    }));
+  });
 }
 
 function zonedDateTimeToDate(year, month, day, hours, minutes) {

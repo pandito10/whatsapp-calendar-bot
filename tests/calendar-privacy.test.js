@@ -18,8 +18,9 @@ process.env.GOOGLE_CLIENT_ID = "google-client";
 process.env.GOOGLE_CLIENT_SECRET = "google-secret";
 process.env.GOOGLE_REFRESH_TOKEN = "google-refresh";
 process.env.GOOGLE_CALENDAR_ID = "calendar-test";
+process.env.GOOGLE_BUSY_CALENDAR_IDS = "primary,calendar-test";
 
-const { buildCalendarEventPayload, createAppointment, isClinicWorkDateISO, resolveClinicDateISO } = await import("../src/calendar.js");
+const { buildCalendarEventPayload, createAppointment, findAvailableSlots, isClinicWorkDateISO, isSlotAvailable, resolveClinicDateISO } = await import("../src/calendar.js");
 
 const slot = {
   start: "2030-06-17T22:40:00.000Z",
@@ -71,6 +72,66 @@ test("createAppointment falla claramente si Google Calendar rechaza el evento", 
       /Google API failed: 500/
     );
     assert.ok(calls.some((call) => call.url.includes("/calendar/v3/calendars/calendar-test/events")));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("disponibilidad bloquea horarios ocupados en calendario primary", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), body: options?.body ? JSON.parse(options.body) : undefined });
+    if (String(url).includes("oauth2.googleapis.com/token")) {
+      return new Response(JSON.stringify({ access_token: "access-token", expires_in: 3600 }), { status: 200 });
+    }
+
+    return new Response(
+      JSON.stringify({
+        calendars: {
+          primary: {
+            busy: [{ start: "2030-06-17T22:40:00.000Z", end: "2030-06-17T23:20:00.000Z" }]
+          },
+          "calendar-test": { busy: [] }
+        }
+      }),
+      { status: 200 }
+    );
+  };
+
+  try {
+    const slots = await findAvailableSlots("lunes", "2030-06-17");
+    const freeBusyCall = calls.find((call) => call.url.includes("/calendar/v3/freeBusy"));
+    assert.deepEqual(freeBusyCall.body.items, [{ id: "calendar-test" }, { id: "primary" }]);
+    assert.ok(!slots.some((item) => item.start === "2030-06-17T22:40:00.000Z"));
+    assert.equal(slots[0].start, "2030-06-17T23:20:00.000Z");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("confirmacion bloquea si primary esta ocupado", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes("oauth2.googleapis.com/token")) {
+      return new Response(JSON.stringify({ access_token: "access-token", expires_in: 3600 }), { status: 200 });
+    }
+
+    return new Response(
+      JSON.stringify({
+        calendars: {
+          primary: {
+            busy: [{ start: slot.start, end: slot.end }]
+          },
+          "calendar-test": { busy: [] }
+        }
+      }),
+      { status: 200 }
+    );
+  };
+
+  try {
+    assert.equal(await isSlotAvailable(slot), false);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -7,6 +7,7 @@ loadDotEnv();
 // Unsigned webhooks are only accepted when ALLOW_UNSIGNED_WEBHOOKS=true is
 // explicitly set. If the variable is absent or any other value, it is false.
 const allowUnsignedWebhooks = process.env.ALLOW_UNSIGNED_WEBHOOKS === "true";
+const googleCalendarId = process.env.GOOGLE_CALENDAR_ID || "primary";
 
 const required = [
     "WHATSAPP_VERIFY_TOKEN",
@@ -73,8 +74,9 @@ export const config = {
     googleClientId: process.env.GOOGLE_CLIENT_ID,
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
     googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN,
-    googleCalendarId: process.env.GOOGLE_CALENDAR_ID || "primary",
+    googleCalendarId,
     googleCalendarIdConfigured: Boolean(process.env.GOOGLE_CALENDAR_ID),
+    googleBusyCalendarIds: parseGoogleBusyCalendarIds(process.env.GOOGLE_BUSY_CALENDAR_IDS, googleCalendarId),
     googleRedirectUri:
           process.env.GOOGLE_REDIRECT_URI ??
           (process.env.PUBLIC_BASE_URL
@@ -194,6 +196,15 @@ function normalizeAiProvider(value, geminiApiKey) {
     if (!provider || ["local", "off", "none", "false", "disabled"].includes(provider)) return "local";
     if (["gemini", "openai"].includes(provider)) return provider;
     return geminiApiKey ? "gemini" : "local";
+}
+
+function parseGoogleBusyCalendarIds(value, eventCalendarId) {
+    const fallbackIds = eventCalendarId === "primary" ? [eventCalendarId] : [eventCalendarId, "primary"];
+    const configuredIds = String(value ?? "")
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean);
+    return [...new Set([eventCalendarId, ...(configuredIds.length > 0 ? configuredIds : fallbackIds)])];
 }
 
 export function requireEnv(keys, serviceName) {
