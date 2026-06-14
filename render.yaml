@@ -93,7 +93,7 @@ services:
       - key: GOOGLE_REFRESH_TOKEN
         sync: false
       - key: GOOGLE_CALENDAR_ID
-        value: primary
+        value: ginecologiaintegralgto@gmail.com
       - key: AI_PROVIDER
         value: local
       - key: CLINIC_TIMEZONE
