@@ -84,6 +84,7 @@ export const config = {
     googleCalendarId,
     googleCalendarLabel: process.env.GOOGLE_CALENDAR_LABEL ?? "calendario azul GINECOLOGIA INTEGRAL",
     googleCalendarEventColorId: process.env.GOOGLE_CALENDAR_EVENT_COLOR_ID ?? "9",
+    googleCalendarEventSummaryPrefix: process.env.GOOGLE_CALENDAR_EVENT_SUMMARY_PREFIX ?? "DRA. CARRANZA-",
     googleCalendarIdConfigured: Boolean(process.env.GOOGLE_CALENDAR_ID),
     googleBusyCalendarIds: parseGoogleBusyCalendarIds(process.env.GOOGLE_BUSY_CALENDAR_IDS, googleCalendarId, defaultGoogleBusyCalendarIds),
     googleAppointmentScheduleUrl: process.env.GOOGLE_APPOINTMENT_SCHEDULE_URL ?? defaultGoogleAppointmentScheduleUrl,

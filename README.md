@@ -50,11 +50,13 @@ El bot crea citas en el calendario azul **GINECOLOGIA INTEGRAL** y revisa ocupac
 GOOGLE_CALENDAR_LABEL=calendario azul GINECOLOGIA INTEGRAL
 GOOGLE_CALENDAR_ID=b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com
 GOOGLE_CALENDAR_EVENT_COLOR_ID=9
+GOOGLE_CALENDAR_EVENT_SUMMARY_PREFIX=DRA. CARRANZA-
 GOOGLE_BUSY_CALENDAR_IDS=b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com,ginecologiaintegralgto@gmail.com
 ```
 
 `GOOGLE_CALENDAR_ID` es donde caen las nuevas citas del bot. `GOOGLE_BUSY_CALENDAR_IDS` incluye tambien `ginecologiaintegralgto@gmail.com` porque ahi existen citas anteriores que deben bloquear disponibilidad.
 `GOOGLE_CALENDAR_EVENT_COLOR_ID=9` hace que las citas creadas por el bot usen el mismo azul visual de las citas buenas.
+`GOOGLE_CALENDAR_EVENT_SUMMARY_PREFIX=DRA. CARRANZA-` hace que el evento se vea con el mismo prefijo de la agenda azul.
 
 `GOOGLE_APPOINTMENT_SCHEDULE_URL` guarda el link publico de reservas de Google. En este piloto ya queda configurado con el link de la doctora; para otro consultorio cambialo por env. El bot lo usa como respaldo cuando alguien pide reservar directo, cuando no hay horarios disponibles o desde la respuesta rapida del inbox:
 
@@ -317,7 +319,7 @@ Las fechas relativas como `hoy`, `mañana` y `pasado mañana` se interpretan con
 El evento se crea con un titulo neutral:
 
 ```text
-Cita medica - Nombre
+DRA. CARRANZA- (Nombre)
 ```
 
 Por default no se manda motivo medico a Google Calendar. Tampoco se incluye telefono completo salvo que actives variables explicitas.

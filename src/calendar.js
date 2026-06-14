@@ -91,7 +91,7 @@ export async function createAppointment(slot, patient) {
 export function buildCalendarEventPayload(slot, patient) {
   const attendees = patient.email ? [{ email: patient.email }] : undefined;
   return {
-    summary: `Cita medica - ${sanitizeCalendarText(patient.name || "Paciente")}`,
+    summary: buildCalendarEventSummary(patient),
     description: buildPatientDetails(patient),
     location: config.clinicAddress,
     start: { dateTime: slot.start, timeZone: config.clinicTimezone },
@@ -99,6 +99,12 @@ export function buildCalendarEventPayload(slot, patient) {
     colorId: config.googleCalendarEventColorId || undefined,
     attendees
   };
+}
+
+function buildCalendarEventSummary(patient) {
+  const prefix = sanitizeCalendarText(config.googleCalendarEventSummaryPrefix || "DRA. CARRANZA-");
+  const name = sanitizeCalendarText(patient.name || "Paciente");
+  return `${prefix} (${name})`.slice(0, 250);
 }
 
 export async function cancelAppointment(googleEventId) {

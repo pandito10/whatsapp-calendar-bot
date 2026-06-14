@@ -18,6 +18,7 @@ process.env.GOOGLE_CLIENT_ID = "google-client";
 process.env.GOOGLE_CLIENT_SECRET = "google-secret";
 process.env.GOOGLE_REFRESH_TOKEN = "google-refresh";
 process.env.GOOGLE_CALENDAR_ID = "calendar-test";
+process.env.GOOGLE_CALENDAR_EVENT_SUMMARY_PREFIX = "DRA. CARRANZA-";
 process.env.GOOGLE_BUSY_CALENDAR_IDS = "busy-calendar,calendar-test";
 
 const { buildCalendarEventPayload, createAppointment, findAvailableSlots, isClinicWorkDateISO, isSlotAvailable, resolveClinicDateISO } = await import("../src/calendar.js");
@@ -36,7 +37,7 @@ test("calendar minimiza telefono y no manda motivo sensible por default", () => 
   });
 
   assert.match(payload.summary, /Ana Prueba/);
-  assert.match(payload.summary, /Cita medica/);
+  assert.match(payload.summary, /^DRA\. CARRANZA- \(Ana Prueba\)$/);
   assert.equal(payload.colorId, "9");
   assert.doesNotMatch(payload.summary, /ginec/i);
   assert.match(payload.description, /52147\*\*\*\*567/);
