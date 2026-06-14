@@ -77,7 +77,7 @@ test("createAppointment falla claramente si Google Calendar rechaza el evento", 
   }
 });
 
-test("disponibilidad bloquea horarios ocupados en calendario primary", async () => {
+test("disponibilidad bloquea horarios ocupados en calendario configurado", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, options) => {
@@ -102,7 +102,7 @@ test("disponibilidad bloquea horarios ocupados en calendario primary", async () 
   try {
     const slots = await findAvailableSlots("lunes", "2030-06-17");
     const freeBusyCall = calls.find((call) => call.url.includes("/calendar/v3/freeBusy"));
-    assert.deepEqual(freeBusyCall.body.items, [{ id: "calendar-test" }, { id: "primary" }]);
+    assert.deepEqual(freeBusyCall.body.items, [{ id: "primary" }, { id: "calendar-test" }]);
     assert.ok(!slots.some((item) => item.start === "2030-06-17T22:40:00.000Z"));
     assert.equal(slots[0].start, "2030-06-17T23:20:00.000Z");
   } finally {
@@ -110,7 +110,7 @@ test("disponibilidad bloquea horarios ocupados en calendario primary", async () 
   }
 });
 
-test("confirmacion bloquea si primary esta ocupado", async () => {
+test("confirmacion bloquea si un calendario configurado esta ocupado", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
     if (String(url).includes("oauth2.googleapis.com/token")) {

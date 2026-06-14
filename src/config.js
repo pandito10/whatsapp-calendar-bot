@@ -199,12 +199,14 @@ function normalizeAiProvider(value, geminiApiKey) {
 }
 
 function parseGoogleBusyCalendarIds(value, eventCalendarId) {
-    const fallbackIds = eventCalendarId === "primary" ? [eventCalendarId] : [eventCalendarId, "primary"];
     const configuredIds = String(value ?? "")
           .split(",")
           .map((id) => id.trim())
           .filter(Boolean);
-    return [...new Set([eventCalendarId, ...(configuredIds.length > 0 ? configuredIds : fallbackIds)])];
+    if (configuredIds.length > 0) return [...new Set(configuredIds)];
+
+    const fallbackIds = eventCalendarId === "primary" ? [eventCalendarId] : [eventCalendarId, "primary"];
+    return [...new Set(fallbackIds)];
 }
 
 export function requireEnv(keys, serviceName) {
