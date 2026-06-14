@@ -78,7 +78,7 @@ test("envia lista interactiva para menu de WhatsApp", async () => {
       body: "Elige una opcion",
       buttonText: "Opciones",
       sections: [{
-        title: "Menu principal",
+        title: "Menu del consultorio",
         rows: [{ id: "main_schedule", title: "Agendar cita", description: "Iniciar registro" }]
       }]
     });

@@ -92,6 +92,8 @@ services:
         sync: false
       - key: GOOGLE_REFRESH_TOKEN
         sync: false
+      - key: GOOGLE_CALENDAR_LABEL
+        value: calendario mamalon
       - key: GOOGLE_CALENDAR_ID
         value: ginecologiaintegralgto@gmail.com
       - key: GOOGLE_BUSY_CALENDAR_IDS

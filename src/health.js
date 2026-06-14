@@ -41,11 +41,12 @@ export function buildOperationalHealth({ db, conversationCount = 0, memorySessio
       processedMessagesInMemory: processedMessageCount
     },
     calendar: {
+      label: config.googleCalendarLabel,
       id: config.googleCalendarId,
       busyCalendarIds: config.googleBusyCalendarIds,
       appointmentScheduleUrlConfigured: Boolean(config.googleAppointmentScheduleUrl),
-      source: config.googleCalendarIdConfigured ? "env" : "default-primary",
-      usingPrimaryFallback: !config.googleCalendarIdConfigured
+      source: config.googleCalendarIdConfigured ? "env" : "default-calendario-mamalon",
+      usingConfiguredCalendar: config.googleCalendarIdConfigured
     },
     readiness,
     problems

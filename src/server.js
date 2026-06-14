@@ -457,9 +457,10 @@ async function handleDebugConfig(req, url, res) {
     .end(
       JSON.stringify({
         aiProvider: config.aiProvider,
+        calendarLabel: config.googleCalendarLabel,
         calendarId: config.googleCalendarId,
-        calendarIdSource: config.googleCalendarIdConfigured ? "env" : "default-primary",
-        usingPrimaryCalendarFallback: !config.googleCalendarIdConfigured,
+        calendarIdSource: config.googleCalendarIdConfigured ? "env" : "default-calendario-mamalon",
+        usingConfiguredCalendar: config.googleCalendarIdConfigured,
         clinicTimezone: config.clinicTimezone,
         appointmentMinutes: config.appointmentMinutes,
         maxOfferedSlots: config.maxOfferedSlots,
@@ -3202,7 +3203,7 @@ async function sendMainMenuToPatient(to) {
     await sendWhatsAppList(to, {
       body,
       buttonText: "Opciones",
-      sections: [{ title: "Menu principal", rows: mainMenuRows }]
+      sections: [{ title: "Menu del consultorio", rows: mainMenuRows }]
     });
     await recordConversationMessage(to, "bot", `${body}\n\n${mainMenuRows.map((row, index) => `${index + 1}. ${row.title}`).join("\n")}`);
     await notifyBotReply(to, "Menu interactivo enviado.");

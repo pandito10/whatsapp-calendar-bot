@@ -24,7 +24,7 @@ export function assessProductionReadiness({ dbOk = false } = {}) {
     warnings.push("AI provider is not local; this pilot is intended to run without external AI");
   }
   if (!config.googleCalendarIdConfigured) {
-    warnings.push("GOOGLE_CALENDAR_ID is not configured; using Google Calendar 'primary'");
+    warnings.push(`GOOGLE_CALENDAR_ID is not configured; using ${config.googleCalendarLabel}`);
   }
 
   return {

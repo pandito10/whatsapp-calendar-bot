@@ -53,6 +53,7 @@ SUPABASE_SERVICE_ROLE_KEY=...
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 GOOGLE_REFRESH_TOKEN=...
+GOOGLE_CALENDAR_LABEL=calendario mamalon
 GOOGLE_CALENDAR_ID=ginecologiaintegralgto@gmail.com
 GOOGLE_BUSY_CALENDAR_IDS=ginecologiaintegralgto@gmail.com
 GOOGLE_APPOINTMENT_SCHEDULE_URL=https://calendar.google.com/calendar/appointments/schedules/AcZssZ06cQ6uXUY76PSivQEolqaSakinthwNtthXnS4-Ui1QF4setEP6dqRYe_wzgqYjrBMCyYwFJqSR?gv=true
@@ -104,7 +105,7 @@ INCLUDE_PATIENT_CONTACT_IN_CALENDAR=false
 
 No actives `ENABLE_REMINDER_WORKER=true` para pacientes reales hasta tener templates de WhatsApp aprobados y probados.
 
-`GOOGLE_CALENDAR_ID` es donde el bot crea la cita. `GOOGLE_BUSY_CALENDAR_IDS` son los calendarios que bloquean disponibilidad. Para este piloto ambos deben apuntar a `ginecologiaintegralgto@gmail.com`, que es el calendario codificado en el link de reservas de Google Calendar de la doctora.
+`GOOGLE_CALENDAR_ID` es donde el bot crea la cita. `GOOGLE_BUSY_CALENDAR_IDS` son los calendarios que bloquean disponibilidad. Para este piloto ambos deben apuntar solo a `ginecologiaintegralgto@gmail.com`, el **calendario mamalon** codificado en el link de reservas de Google Calendar de la doctora.
 
 `GOOGLE_APPOINTMENT_SCHEDULE_URL` es el link publico opcional de reservas de Google. El flujo principal sigue siendo WhatsApp, pero el bot puede mandar ese link como respaldo si el paciente pide reservar directo o si no hay horarios.
 

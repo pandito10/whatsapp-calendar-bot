@@ -18,7 +18,7 @@ process.env.GOOGLE_CLIENT_ID = "google-client";
 process.env.GOOGLE_CLIENT_SECRET = "google-secret";
 process.env.GOOGLE_REFRESH_TOKEN = "google-refresh";
 process.env.GOOGLE_CALENDAR_ID = "calendar-test";
-process.env.GOOGLE_BUSY_CALENDAR_IDS = "primary,calendar-test";
+process.env.GOOGLE_BUSY_CALENDAR_IDS = "busy-calendar,calendar-test";
 
 const { buildCalendarEventPayload, createAppointment, findAvailableSlots, isClinicWorkDateISO, isSlotAvailable, resolveClinicDateISO } = await import("../src/calendar.js");
 
@@ -89,7 +89,7 @@ test("disponibilidad bloquea horarios ocupados en calendario configurado", async
     return new Response(
       JSON.stringify({
         calendars: {
-          primary: {
+          "busy-calendar": {
             busy: [{ start: "2030-06-17T22:40:00.000Z", end: "2030-06-17T23:20:00.000Z" }]
           },
           "calendar-test": { busy: [] }
@@ -102,7 +102,7 @@ test("disponibilidad bloquea horarios ocupados en calendario configurado", async
   try {
     const slots = await findAvailableSlots("lunes", "2030-06-17");
     const freeBusyCall = calls.find((call) => call.url.includes("/calendar/v3/freeBusy"));
-    assert.deepEqual(freeBusyCall.body.items, [{ id: "primary" }, { id: "calendar-test" }]);
+    assert.deepEqual(freeBusyCall.body.items, [{ id: "busy-calendar" }, { id: "calendar-test" }]);
     assert.ok(!slots.some((item) => item.start === "2030-06-17T22:40:00.000Z"));
     assert.equal(slots[0].start, "2030-06-17T23:20:00.000Z");
   } finally {
@@ -120,7 +120,7 @@ test("confirmacion bloquea si un calendario configurado esta ocupado", async () 
     return new Response(
       JSON.stringify({
         calendars: {
-          primary: {
+          "busy-calendar": {
             busy: [{ start: slot.start, end: slot.end }]
           },
           "calendar-test": { busy: [] }
