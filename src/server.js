@@ -2291,13 +2291,28 @@ async function handleIncomingText(from, text) {
     return;
   }
 
-  if (session.step === "choosingSlot" && parsed.selectedSlotIndex) {
+  if ((session.step === "choosingSlot" || session.step === "choosingAvailabilitySlot") && parsed.selectedSlotIndex) {
     const slot = session.offeredSlots?.[parsed.selectedSlotIndex - 1];
     const slotValidation = validateSlotSelection({ slot, session, selectedSlotIndex: parsed.selectedSlotIndex });
 
     if (!slotValidation.ok) {
       await resetSlotSelection(from, session);
       await replyToPatient(from, "Ese horario ya no es valido. Dime que dia quieres revisar y te paso nuevos horarios disponibles.");
+      return;
+    }
+
+    if (session.step === "choosingAvailabilitySlot" || session.availabilityOnly) {
+      await setPatientSession(from, {
+        ...session,
+        step: "collecting",
+        availabilityOnly: false,
+        pendingSlot: slot,
+        pendingSlotSelectedIndex: parsed.selectedSlotIndex
+      });
+      await replyToPatient(
+        from,
+        `Perfecto 😊 Tomo como referencia este horario: ${slot.label}.\n\n¿A nombre de quien agendamos la cita?`
+      );
       return;
     }
 
@@ -2346,6 +2361,15 @@ async function handleIncomingText(from, text) {
   if (!session.paymentType) {
     await setPatientSession(from, { ...session, step: "collectingPaymentType" });
     await replyToPatient(from, "💳 ¿Tu consulta es particular o por parte de alguna red medica/aseguradora?");
+    return;
+  }
+
+  if (session.pendingSlot) {
+    await setPatientSession(from, {
+      ...session,
+      step: "confirmingAppointment"
+    });
+    await replyToPatient(from, buildAppointmentReviewMessage({ ...session, slot: session.pendingSlot }));
     return;
   }
 
@@ -2398,15 +2422,15 @@ async function offerAvailableSlots(from, session, options = {}) {
     offeredSlots: slots
   } : {
     ...session,
-    step: "collectingDateOnly",
-    offeredSlots: undefined
+    step: "choosingAvailabilitySlot",
+    offeredSlots: slots
   });
 
   await replyToPatient(
     from,
     `${buildAvailabilityIntro(session, slots)}\n${slots
       .map((slot, index) => `${index + 1}. ${slot.label}`)
-      .join("\n")}\n\n${allowSelection ? "Responde con el numero del horario que prefieras para confirmar. Si ninguno te acomoda, dime otra fecha." : "Si alguno te acomoda, escribe \"quiero agendar\" y te ayudo a apartarlo. Si no, dime otra fecha."}`
+      .join("\n")}\n\n${allowSelection ? "Responde con el numero del horario que prefieras para confirmar. Si ninguno te acomoda, dime otra fecha." : "Si alguno te acomoda, responde con el numero del horario y te ayudo a agendarlo. Si no, dime otra fecha."}`
   );
 }
 

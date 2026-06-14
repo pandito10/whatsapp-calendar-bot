@@ -41,6 +41,18 @@ test("parser local detecta seleccion de horario por texto", async () => {
   assert.equal(result.selectedSlotIndex, 3);
 });
 
+test("parser local selecciona horario mostrado en disponibilidad", async () => {
+  const result = await understandMessage("2", {
+    step: "choosingAvailabilitySlot",
+    availabilityOnly: true,
+    offeredSlots: [
+      { start: "2030-06-17T22:40:00.000Z" },
+      { start: "2030-06-17T23:20:00.000Z" }
+    ]
+  });
+  assert.equal(result.selectedSlotIndex, 2);
+});
+
 test("parser local detecta rango despues de las 5 sin IA", async () => {
   const result = await understandMessage("tienes cita despues de las 5", undefined);
   assert.equal(result.intent, "check_availability");
