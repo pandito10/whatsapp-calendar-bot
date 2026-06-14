@@ -69,3 +69,27 @@ test("guarda FAQ manual como aprobada", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("guarda pregunta no reconocida pendiente sin respuesta", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), body: options?.body });
+    return new Response(JSON.stringify([]), { status: 201 });
+  };
+
+  try {
+    await saveKnowledgeSuggestion({
+      question: "Que es el paquete azul?",
+      sourcePhone: "5214771234567",
+      category: "desconocido",
+      status: "pending"
+    });
+    const body = JSON.parse(calls[0].body);
+    assert.equal(body.status, "pending");
+    assert.equal(body.answer, null);
+    assert.equal(body.category, "desconocido");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

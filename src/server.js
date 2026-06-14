@@ -17,6 +17,7 @@ import {
   validateSlotSelection
 } from "./appointments.js";
 import { buildOperationalHealth, isOperationallyUnhealthy } from "./health.js";
+import { detectIntent, isAppointmentLikeQuestion, looksLikeDateRequest, meaningfulWords, normalizeText } from "./intents.js";
 import { verifyMetaSignature } from "./security.js";
 import {
   acquireAppointmentLock,
@@ -36,13 +37,15 @@ import {
   releaseAppointmentLock,
   rememberProcessedWhatsAppMessage,
   loadKnowledgeSuggestions,
+  deleteKnowledgeSuggestion,
   reviewKnowledgeSuggestion,
   saveCita,
   saveConversationMessage,
   saveKnowledgeSuggestion,
   scheduleReminder,
   setConversationHumanMode,
-  setSession
+  setSession,
+  updateKnowledgeSuggestion
 } from "./db.js";
 import { sendWhatsAppMedia, sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.js";
 
@@ -183,6 +186,16 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/inbox/knowledge/create") {
       await handleKnowledgeCreate(req, url, res);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/inbox/knowledge/update") {
+      await handleKnowledgeUpdate(req, url, res);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/inbox/knowledge/delete") {
+      await handleKnowledgeDelete(req, url, res);
       return;
     }
 
@@ -397,7 +410,10 @@ async function handleInbox(req, url, res) {
   const selectedPhone = url.searchParams.get("phone");
   const list = await getInboxConversations();
   const selected = selectedPhone ? conversations.get(selectedPhone) : undefined;
-  const knowledgeSuggestions = await loadKnowledgeSuggestions("pending", 8);
+  const knowledgeSuggestions = {
+    pending: await loadKnowledgeSuggestions("pending", 12),
+    approved: await loadKnowledgeSuggestions("approved", 20)
+  };
 
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderInboxPage(list, selected, req, url, knowledgeSuggestions));
 }
@@ -564,12 +580,22 @@ async function handleKnowledgeReview(req, url, res) {
 
   const id = form.get("id");
   const status = form.get("status");
-  if (!id || !["approved", "rejected"].includes(status)) {
+  const answer = String(form.get("answer") ?? "").trim();
+  const action = form.get("action") === "human_handoff" ? "human_handoff" : "answer";
+  if (!id || !["approved", "rejected", "ignored"].includes(status)) {
     res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" }).end("invalid review");
     return;
   }
+  if (status === "approved" && action === "answer" && answer.length < 4) {
+    await redirectInbox(res, form.get("phone") ?? "", "Escribe una respuesta antes de aprobar la FAQ.");
+    return;
+  }
 
-  await reviewKnowledgeSuggestion(id, status);
+  await reviewKnowledgeSuggestion(id, status, {
+    answer: answer || undefined,
+    action,
+    active: status === "approved"
+  });
   await redirectInbox(res, form.get("phone") ?? "");
 }
 
@@ -588,7 +614,8 @@ async function handleKnowledgeCreate(req, url, res) {
   const phone = normalizePhone(form.get("phone") ?? "");
   const question = String(form.get("question") ?? "").trim();
   const answer = String(form.get("answer") ?? "").trim();
-  if (question.length < 4 || answer.length < 4 || question.length > 1000 || answer.length > 2000) {
+  const action = form.get("action") === "human_handoff" ? "human_handoff" : "answer";
+  if (question.length < 4 || (action === "answer" && answer.length < 4) || question.length > 1000 || answer.length > 2000) {
     await redirectInbox(res, phone, "Pregunta o respuesta invalida.");
     return;
   }
@@ -597,9 +624,60 @@ async function handleKnowledgeCreate(req, url, res) {
     question,
     answer,
     sourcePhone: phone || undefined,
+    action,
     status: "approved"
   });
   await redirectInbox(res, phone);
+}
+
+async function handleKnowledgeUpdate(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) return;
+  if (!checkRateLimit(req, url, "inbox-action")) {
+    res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8" }).end("too many requests");
+    return;
+  }
+  const form = await readForm(req, { maxBytes: config.maxRequestBytes });
+  if (!isValidCsrf(req, form.get("csrf"))) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const id = form.get("id");
+  const phone = normalizePhone(form.get("phone") ?? "");
+  const question = String(form.get("question") ?? "").trim();
+  const answer = String(form.get("answer") ?? "").trim();
+  const action = form.get("action") === "human_handoff" ? "human_handoff" : "answer";
+  const activeValue = form.get("active");
+  const active = activeValue === "true" ? true : activeValue === "false" ? false : undefined;
+  if (!id || question.length < 4 || (action === "answer" && answer.length < 4) || question.length > 1000 || answer.length > 2000) {
+    await redirectInbox(res, phone, "FAQ invalida.");
+    return;
+  }
+
+  await updateKnowledgeSuggestion(id, {
+    question,
+    answer,
+    action,
+    active
+  });
+  await redirectInbox(res, phone);
+}
+
+async function handleKnowledgeDelete(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) return;
+  if (!checkRateLimit(req, url, "inbox-action")) {
+    res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8" }).end("too many requests");
+    return;
+  }
+  const form = await readForm(req, { maxBytes: config.maxRequestBytes });
+  if (!isValidCsrf(req, form.get("csrf"))) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const id = form.get("id");
+  if (id) await deleteKnowledgeSuggestion(id);
+  await redirectInbox(res, form.get("phone") ?? "");
 }
 
 async function handleInboxTakeover(req, url, res) {
@@ -1625,6 +1703,8 @@ function buildInboxStats(list) {
 }
 
 function renderKnowledgePanel(suggestions, csrf, selectedPhone) {
+  const pending = Array.isArray(suggestions) ? suggestions : suggestions.pending ?? [];
+  const approved = Array.isArray(suggestions) ? [] : suggestions.approved ?? [];
   const createForm = `<div class="knowledge-card">
     <strong>Agregar respuesta frecuente</strong>
     <form class="knowledge-form" method="post" action="/inbox/knowledge/create">
@@ -1632,29 +1712,66 @@ function renderKnowledgePanel(suggestions, csrf, selectedPhone) {
       <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
       <textarea name="question" rows="2" maxlength="1000" placeholder="Pregunta futura: ej. ¿Atienden sabados?"></textarea>
       <textarea name="answer" rows="3" maxlength="2000" placeholder="Respuesta del bot para esa pregunta"></textarea>
+      <select name="action">
+        <option value="answer">Responder automaticamente</option>
+        <option value="human_handoff">Pasar siempre a humano</option>
+      </select>
       <button type="submit">Guardar FAQ</button>
     </form>
   </div>`;
-  const cards =
-    suggestions.length === 0
-      ? `<div class="empty-state">Sin respuestas pendientes por aprobar.</div>`
-      : suggestions
+  const pendingCards =
+    pending.length === 0
+      ? `<div class="empty-state">Sin preguntas no reconocidas pendientes.</div>`
+      : pending
           .map(
             (suggestion) => `<div class="knowledge-card">
+              <small>${escapeHtml(formatInboxDate(suggestion.createdAt))} · ${escapeHtml(suggestion.category ?? "desconocido")} · ${escapeHtml(formatPhoneForInbox(suggestion.sourcePhone ?? suggestion.conversationPhone ?? ""))}</small>
               <p>${escapeHtml(suggestion.question ?? "Pregunta no capturada")}</p>
-              <strong>${escapeHtml(suggestion.answer)}</strong>
+              <form class="knowledge-form" method="post" action="/inbox/knowledge/review">
+                <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                <input name="id" type="hidden" value="${escapeHtml(suggestion.id)}">
+                <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                <textarea name="answer" rows="3" maxlength="2000" placeholder="Escribe la respuesta aprobada">${escapeHtml(suggestion.answer ?? "")}</textarea>
+                <select name="action">
+                  <option value="answer"${suggestion.action !== "human_handoff" ? " selected" : ""}>Responder automaticamente</option>
+                  <option value="human_handoff"${suggestion.action === "human_handoff" ? " selected" : ""}>Pasar siempre a humano</option>
+                </select>
+                <div class="knowledge-actions">
+                  <button name="status" value="approved" type="submit">Aprobar FAQ</button>
+                  <button class="button-secondary" name="status" value="ignored" type="submit">Ignorar</button>
+                </div>
+              </form>
+            </div>`
+          )
+          .join("");
+  const approvedCards =
+    approved.length === 0
+      ? `<div class="empty-state">Aun no hay FAQs aprobadas.</div>`
+      : approved
+          .map(
+            (suggestion) => `<div class="knowledge-card">
+              <small>${suggestion.active === false ? "Inactiva" : "Activa"} · ${escapeHtml(suggestion.category ?? "faq")} · ${escapeHtml(suggestion.action === "human_handoff" ? "Pasa a humano" : "Auto-respuesta")}</small>
+              <form class="knowledge-form" method="post" action="/inbox/knowledge/update">
+                <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                <input name="id" type="hidden" value="${escapeHtml(suggestion.id)}">
+                <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                <textarea name="question" rows="2" maxlength="1000">${escapeHtml(suggestion.question ?? "")}</textarea>
+                <textarea name="answer" rows="3" maxlength="2000">${escapeHtml(suggestion.answer ?? "")}</textarea>
+                <select name="action">
+                  <option value="answer"${suggestion.action !== "human_handoff" ? " selected" : ""}>Responder automaticamente</option>
+                  <option value="human_handoff"${suggestion.action === "human_handoff" ? " selected" : ""}>Pasar siempre a humano</option>
+                </select>
+                <div class="knowledge-actions">
+                  <button type="submit">Guardar cambios</button>
+                  <button class="button-secondary" name="active" value="${suggestion.active === false ? "true" : "false"}" type="submit">${suggestion.active === false ? "Activar" : "Desactivar"}</button>
+                </div>
+              </form>
               <div class="knowledge-actions">
-                <form method="post" action="/inbox/knowledge/review">
+                <form method="post" action="/inbox/knowledge/delete">
                   <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
                   <input name="id" type="hidden" value="${escapeHtml(suggestion.id)}">
                   <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
-                  <button name="status" value="approved" type="submit">Aprobar</button>
-                </form>
-                <form method="post" action="/inbox/knowledge/review">
-                  <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
-                  <input name="id" type="hidden" value="${escapeHtml(suggestion.id)}">
-                  <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
-                  <button class="button-secondary" name="status" value="rejected" type="submit">Rechazar</button>
+                  <button class="button-danger" type="submit">Borrar FAQ</button>
                 </form>
               </div>
             </div>`
@@ -1662,9 +1779,12 @@ function renderKnowledgePanel(suggestions, csrf, selectedPhone) {
           .join("");
 
   return `<div class="knowledge">
-    <h2>Aprendizaje supervisado</h2>
+    <h2>Preguntas no reconocidas</h2>
+    ${pendingCards}
+    <h2>FAQs aprobadas</h2>
+    ${approvedCards}
+    <h2>Nueva FAQ manual</h2>
     ${createForm}
-    ${cards}
   </div>`;
 }
 
@@ -1906,6 +2026,13 @@ async function handleIncomingText(from, text) {
     return;
   }
 
+  if (detectedIntent.intent === "direct_contact") {
+    await setConversationHumanMode(from, true, "patient_request");
+    setMemoryHumanMode(from, true);
+    await replyToPatient(from, getIntentResponse("direct_contact"));
+    return;
+  }
+
   if (detectedIntent.intent === "confirm_appointment" && existing?.step !== "confirmingAppointment") {
     await handleConfirmAppointmentRequest(from);
     return;
@@ -1935,11 +2062,23 @@ async function handleIncomingText(from, text) {
   }
 
   if (!existing) {
-    const learnedAnswer = await answerFromApprovedKnowledge(normalized);
-    if (learnedAnswer) {
-      await replyToPatient(from, learnedAnswer);
+    const learnedAnswer = await findApprovedKnowledgeAnswer(normalized);
+    if (learnedAnswer?.action === "human_handoff") {
+      await setConversationHumanMode(from, true, "faq_handoff");
+      setMemoryHumanMode(from, true);
+      await replyToPatient(from, learnedAnswer.answer ?? getIntentResponse("direct_contact"));
       return;
     }
+    if (learnedAnswer?.answer) {
+      await replyToPatient(from, learnedAnswer.answer);
+      return;
+    }
+  }
+
+  if (!existing && detectedIntent.intent === "fallback" && !dateLikeRequest) {
+    await saveUnrecognizedQuestion(from, text, detectedIntent.category);
+    await replyToPatient(from, getIntentResponse("fallback"));
+    return;
   }
 
   let parsed;
@@ -2723,15 +2862,15 @@ function getIntentResponse(intent) {
     appointment_duration: "⏱️ Las citas tienen una duracion aproximada de 40 minutos.",
     new_patient: "Claro 😊 Podemos ayudarte a agendar tu primera consulta.\n\n¿Me compartes tu nombre completo para iniciar el registro?",
     medical_services:
-      "Puedo ayudarte a revisar la informacion del paquete o de la consulta 😊\n\nPara darte la informacion correcta, por favor contacta directamente al consultorio o indica que estudio necesitas revisar.",
+      "Estos temas los puede revisar el consultorio 😊\n\nPodemos orientarte sobre consulta, paquete de promocion, ultrasonido, papanicolaou, colposcopia, embarazo/control prenatal y pacientes adolescentes.\n\nPara confirmar si el servicio que necesitas aplica para tu caso, puedo ayudarte a agendar o pasarte con una persona del consultorio.",
     medical_urgent:
-      "Lamento que estes pasando por eso.\n\nSi presentas dolor fuerte, sangrado abundante, fiebre, desmayo, dificultad para respirar o una urgencia medica, por favor acude de inmediato a urgencias o llama a los servicios de emergencia de tu localidad.\n\nPor este medio puedo ayudarte con informacion general o con agendar una cita, pero no sustituye una valoracion medica urgente.",
+      "Por seguridad, lo mejor es que te valore directamente la doctora.\n\nSi presentas dolor fuerte, sangrado abundante, fiebre, desmayo, dificultad para respirar o una emergencia, acude a urgencias o llama a los servicios de emergencia de tu localidad.\n\nTambien puedo ayudarte a agendar una cita o pasarte con una persona del consultorio.",
     medication_question:
       "Por seguridad, no puedo indicar medicamentos ni tratamientos por este medio.\n\nLo mejor es que la doctora pueda valorarte en consulta para darte la indicacion adecuada.\n\nSi gustas, puedo ayudarte a revisar horarios disponibles para agendar una cita.",
     direct_contact:
-      "Claro 😊 Puedes dejarme tu mensaje por aqui y el consultorio te apoyara lo antes posible.\n\nSi es algo urgente, por favor acude a urgencias o llama a los servicios de emergencia de tu localidad.",
+      "Claro 😊 Ya dejo esta conversacion para que una persona del consultorio pueda revisarla.\n\nPuedes escribir tu duda por aqui. Si es una urgencia medica, acude a urgencias o llama a los servicios de emergencia de tu localidad.",
     appointment_requirements:
-      "Para tu cita, te recomendamos llevar identificacion y, si tienes, estudios o recetas anteriores relacionados con tu consulta.",
+      "Para tu cita, te recomendamos llevar identificacion y, si tienes, estudios o recetas anteriores relacionados con tu consulta.\n\nSi es tu primera vez, tambien puedo ayudarte a iniciar el registro por aqui.",
     late_arrival:
       "Gracias por avisar 😊\n\nPor favor contacta directamente al consultorio para confirmar si aun es posible atenderte en tu horario o si es necesario reagendar.",
     invoice: "Para temas de factura, por favor consulta directamente con el consultorio para confirmar disponibilidad y requisitos.",
@@ -2752,63 +2891,6 @@ function getIntentResponse(intent) {
   return responses[intent];
 }
 
-function detectIntent(text) {
-  const normalized = normalizeText(text);
-  const checks = [
-    ["medical_urgent", () => hasAny(normalized, ["urgente", "emergencia", "dolor fuerte", "mucho dolor", "sangrado", "fiebre", "desmayo", "desmaye", "embarazo", "me siento mal", "me duele mucho"])],
-    ["cancel_appointment", () => isCancellationRequest(normalized)],
-    ["reschedule_appointment", () => hasAny(normalized, ["reagendar", "cambiar cita", "mover cita", "cambiar horario", "otro horario", "otro dia", "no puedo ese dia", "cambiar mi cita"])],
-    ["late_arrival", () => hasAny(normalized, ["voy tarde", "llegare tarde", "llego tarde", "se me hizo tarde", "retraso", "atrasada", "atrasado", "demorada", "demorado", "no alcanzo a llegar"])],
-    ["confirm_appointment", () => hasAny(normalized, ["confirmada", "confirmar cita", "ya quedo", "quedo confirmada", "me confirmas", "tengo cita", "mi cita esta confirmada"])],
-    ["schedule_appointment", () => hasAny(normalized, ["agendar", "hacer cita", "sacar cita", "reservar", "quiero una cita", "necesito una cita", "ocupo cita", "quiero cita", "agendar consulta", "necesito consulta", "quiero consultar", "apartar cita"])],
-    ["check_availability", () => isAvailabilityIntent(normalized)],
-    ["cost", () => isPriceQuestion(normalized)],
-    ["promotion", () => isPromotionQuestion(normalized)],
-    ["payment_methods", () => isCardQuestion(normalized)],
-    ["location", () => isLocationQuestion(normalized)],
-    ["morning_hours", () => isMorningQuestion(normalized)],
-    ["saturday", () => isSaturdayQuestion(normalized)],
-    ["appointment_duration", () => hasAny(normalized, ["duracion", "cuanto dura", "cuanto tiempo dura", "cuanto tiempo es", "cuanto tardan", "tardan", "40 minutos"])],
-    ["new_patient", () => hasAny(normalized, ["primera vez", "paciente nueva", "primera consulta", "nunca he ido", "nuevo paciente", "nueva paciente"])],
-    ["medication_question", () => hasAny(normalized, ["medicamento", "que medicamento tomo", "me puedo tomar algo", "que me recomienda tomar", "me receta algo", "tengo infeccion", "dolor que tomo", "que pastilla tomo", "me puede recetar", "ocupo medicina"])],
-    ["medical_services", () => hasAny(normalized, ["ultrasonido", "papanicolaou", "papanicolau", "colposcopia", "estudio", "estudios", "servicios", "que incluye"])],
-    ["appointment_requirements", () => hasAny(normalized, ["que necesito llevar", "tengo que llevar", "documentos", "identificacion", "estudios anteriores", "receta", "requisitos", "que debo llevar", "que llevo"])],
-    ["invoice", () => hasAny(normalized, ["factura", "facturan", "facturar", "recibo", "comprobante"])],
-    ["direct_contact", () => hasAny(normalized, ["hablar con alguien", "hablar con la doctora", "persona", "recepcion", "telefono", "tel", "contacto", "llamar", "me llamen", "me pueden llamar"])],
-    ["greeting", () => isGreetingQuestion(normalized) || isGeneralMenuQuestion(normalized)],
-    ["closing", () => isConversationClosing(normalized)]
-  ];
-
-  for (const [intent, matches] of checks) {
-    if (matches()) return { intent, confidence: 0.9 };
-  }
-
-  return { intent: "fallback", confidence: 0.2 };
-}
-
-function hasAny(text, needles) {
-  return needles.some((needle) => (needle instanceof RegExp ? needle.test(text) : text.includes(needle)));
-}
-
-function isAvailabilityIntent(text) {
-  return (
-    hasAny(text, [
-      "horarios",
-      "disponibilidad",
-      "disponible",
-      "citas disponibles",
-      "que dias",
-      "que horarios",
-      "hay cita",
-      "tienes lugar",
-      "hay espacio",
-      "tienen citas"
-    ]) ||
-    /\b(?:hay|tienes|tienen)\s+(?:lugar|espacio|cita|horario|disponible)\b/.test(text) ||
-    looksLikeDateRequest(text)
-  );
-}
-
 function formatMoney(value) {
   const raw = String(value).replace(/[^\d.]/g, "");
   const amount = Number(raw);
@@ -2823,13 +2905,17 @@ function formatFileSize(bytes) {
   return `${Math.round((size / 1024 / 1024) * 10) / 10} MB`;
 }
 
-async function answerFromApprovedKnowledge(normalizedText) {
+async function findApprovedKnowledgeAnswer(normalizedText) {
   if (!normalizedText || isAppointmentLikeQuestion(normalizedText)) return undefined;
 
   try {
     const suggestions = await loadKnowledgeSuggestions("approved", 50);
-    const match = suggestions.find((suggestion) => knowledgeMatches(normalizedText, suggestion.question));
-    return match?.answer;
+    const match = suggestions.find((suggestion) => suggestion.active !== false && knowledgeMatches(normalizedText, suggestion.question));
+    if (!match) return undefined;
+    return {
+      answer: match.answer,
+      action: match.action ?? "answer"
+    };
   } catch (error) {
     logSafeError("Could not load approved knowledge", error);
     return undefined;
@@ -2843,39 +2929,23 @@ function knowledgeMatches(text, question) {
   return hits >= Math.min(2, words.length);
 }
 
-function meaningfulWords(text) {
-  const stopWords = new Set(["hola", "buenas", "que", "como", "para", "con", "una", "uno", "los", "las", "del", "por", "favor", "tengo", "quiero"]);
-  return [...new Set(text.split(" ").filter((word) => word.length >= 4 && !stopWords.has(word)))].slice(0, 8);
-}
-
-function isAppointmentLikeQuestion(text) {
-  return /\b(?:cita|agendar|agenda|horario|disponible|disponibilidad|cancelar|reagendar)\b/.test(text) || looksLikeDateRequest(text);
-}
-
-function looksLikeDateRequest(text) {
-  return (
-    /\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/.test(text) ||
-    /\b\d{1,2}(?:\s+de)?\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)(?:\s+(?:de\s+)?\d{2,4})?\b/.test(text)
-  );
-}
-
-function isLocationQuestion(text) {
-  return (
-    /\b(?:ubicacion|ubi|ubicados|direccion|donde estan|donde se ubican|como llego|como llegar|plaza de la paz|consultorio)\b/.test(text) ||
-    /\b(?:mandame|manda|pasame|pasa|me pasas)\s+(?:la\s+)?(?:ubi|ubicacion|direccion)\b/.test(text)
-  );
-}
-
-function isGreetingQuestion(text) {
-  return /^(?:hola|ola|hoola|buenas|buenos dias|buen dia|buenas tardes|buenas noches|hey|hello|hi|que tal|que onda|hola buenas|disculpa|informes)$/.test(text);
+async function saveUnrecognizedQuestion(from, text, category) {
+  try {
+    await saveKnowledgeSuggestion({
+      question: text,
+      answer: "",
+      sourcePhone: from,
+      conversationPhone: from,
+      category: category ?? "desconocido",
+      status: "pending"
+    });
+  } catch (error) {
+    logSafeError(`Could not save unrecognized question for ${maskPhone(from)}`, error);
+  }
 }
 
 function isResetCommand(text) {
   return /^(?:menu|menú|reiniciar|empezar de nuevo|volver al menu|volver al menú)$/.test(text);
-}
-
-function isConversationClosing(text) {
-  return /^(?:gracias|muchas gracias|ok gracias|okay gracias|listo gracias|perfecto gracias|esta bien gracias|sale gracias|va gracias|ya gracias|no gracias|por ahora no|seria todo|eso es todo|listo|ok|okay|va|sale|perfecto)$/.test(text);
 }
 
 function isAffirmativeConfirmation(text) {
@@ -2886,51 +2956,6 @@ function isNegativeConfirmation(text) {
   return /^(?:no|nel|mejor no|no confirmar|cambiar|otro horario|otra fecha|no gracias)$/.test(text);
 }
 
-function isCancellationRequest(text) {
-  return (
-    /^(?:cancelar|cancela|cancelacion)$/.test(text) ||
-    /\b(?:cancelar mi cita|quiero cancelar|necesito cancelar|cancelar consulta|no podre ir|no puedo ir|ya no podre ir|ya no puedo ir)\b/.test(text) ||
-    (/\b(?:cancelar|cancela|cancelacion|anular|eliminar)\b/.test(text) &&
-      /\b(?:cita|consulta|agenda|reservacion)\b/.test(text))
-  );
-}
-
-function isMorningQuestion(text) {
-  return (
-    /\b(?:temprano|matutino|citas temprano|horario en la manana|consulta en la manana)\b/.test(text) ||
-    (/\bmanana\b/.test(text) && /\b(?:por la manana|en la manana|consulta|atienden|abren|horario matutino|temprano)\b/.test(text))
-  );
-}
-
-function isSaturdayQuestion(text) {
-  return /\b(?:sabado|sabados|fin de semana|domingo|domingos)\b/.test(text);
-}
-
-function isPriceQuestion(text) {
-  return /\b(?:cuanto cuesta|costo|precio|costos|precios|cuanto cobran|cuanto sale|cuanto vale|en cuanto esta|cuanto es|presio)\b/.test(text);
-}
-
-function isPromotionQuestion(text) {
-  return /\b(?:promocion|promosion|paquete|promo|oferta|sigue la promo|todavia tienen promo)\b/.test(text);
-}
-
-function isCardQuestion(text) {
-  return /\b(?:tarjeta|tarjerta|credito|debito|transferencia|trasferencia|efectivo|pago|formas de pago|forma de pago|metodos de pago|pagar con tarjeta)\b/.test(text);
-}
-
-function isGeneralMenuQuestion(text) {
-  return /\b(?:info|informacion|informes|dudas|preguntas|opciones|jotas)\b/.test(text);
-}
-
-function normalizeText(value) {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[¿?¡!,.;:]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 async function safeSendWhatsAppText(to, body) {
   try {

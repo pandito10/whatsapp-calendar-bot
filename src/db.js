@@ -177,17 +177,21 @@ export async function markConversationHumanReply(phoneNumber) {
   });
 }
 
-export async function saveKnowledgeSuggestion({ question, answer, sourcePhone, status = "pending" }) {
-  if (!isDatabaseEnabled() || !answer) return;
+export async function saveKnowledgeSuggestion({ question, answer, sourcePhone, status = "pending", category, conversationPhone, action = "answer", active = true }) {
+  if (!isDatabaseEnabled() || !question) return;
 
   await safeSupabaseFetch("/rest/v1/knowledge_suggestions", {
     method: "POST",
     body: JSON.stringify({
       question,
-      answer,
+      answer: answer || null,
       source_phone: sourcePhone,
-      status: ["pending", "approved", "rejected"].includes(status) ? status : "pending",
-      reviewed_at: status === "approved" ? new Date().toISOString() : undefined
+      conversation_phone: conversationPhone ?? sourcePhone,
+      category,
+      action: ["answer", "human_handoff"].includes(action) ? action : "answer",
+      active,
+      status: ["pending", "approved", "rejected", "ignored"].includes(status) ? status : "pending",
+      reviewed_at: ["approved", "rejected", "ignored"].includes(status) ? new Date().toISOString() : undefined
     })
   });
 }
@@ -196,6 +200,11 @@ export async function loadKnowledgeSuggestions(status = "pending", limit = 20) {
   if (!isDatabaseEnabled()) return [];
 
   const rows =
+    (await safeSupabaseFetch(
+      `/rest/v1/knowledge_suggestions?select=id,question,answer,source_phone,conversation_phone,category,action,active,status,created_at&status=eq.${encodeURIComponent(
+        status
+      )}&order=created_at.desc&limit=${limit}`
+    )) ??
     (await safeSupabaseFetch(
       `/rest/v1/knowledge_suggestions?select=id,question,answer,source_phone,status,created_at&status=eq.${encodeURIComponent(
         status
@@ -207,20 +216,52 @@ export async function loadKnowledgeSuggestions(status = "pending", limit = 20) {
     question: row.question,
     answer: row.answer,
     sourcePhone: row.source_phone,
+    conversationPhone: row.conversation_phone,
+    category: row.category,
+    action: row.action ?? "answer",
+    active: row.active !== false,
     status: row.status,
     createdAt: row.created_at
   }));
 }
 
-export async function reviewKnowledgeSuggestion(id, status) {
-  if (!isDatabaseEnabled() || !id || !["approved", "rejected"].includes(status)) return;
+export async function reviewKnowledgeSuggestion(id, status, updates = {}) {
+  if (!isDatabaseEnabled() || !id || !["approved", "rejected", "ignored"].includes(status)) return;
 
   await supabaseFetch(`/rest/v1/knowledge_suggestions?id=eq.${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify({
       status,
+      answer: updates.answer !== undefined ? updates.answer : undefined,
+      category: updates.category !== undefined ? updates.category : undefined,
+      action: updates.action !== undefined ? updates.action : undefined,
+      active: updates.active !== undefined ? updates.active : undefined,
       reviewed_at: new Date().toISOString()
     })
+  });
+}
+
+export async function updateKnowledgeSuggestion(id, updates = {}) {
+  if (!isDatabaseEnabled() || !id) return;
+
+  await supabaseFetch(`/rest/v1/knowledge_suggestions?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      question: updates.question,
+      answer: updates.answer,
+      category: updates.category,
+      action: updates.action,
+      active: updates.active,
+      reviewed_at: updates.status ? new Date().toISOString() : undefined
+    })
+  });
+}
+
+export async function deleteKnowledgeSuggestion(id) {
+  if (!isDatabaseEnabled() || !id) return;
+
+  await supabaseFetch(`/rest/v1/knowledge_suggestions?id=eq.${encodeURIComponent(id)}`, {
+    method: "DELETE"
   });
 }
 

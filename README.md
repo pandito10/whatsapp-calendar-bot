@@ -141,24 +141,40 @@ Si una conversacion queda en modo humano mas de `BOT_PAUSE_TIMEOUT_MINUTES`, el 
 
 ## Aprendizaje supervisado
 
-Cuando el personal responde desde el inbox, el sistema guarda una sugerencia con la ultima pregunta del paciente y la respuesta humana.
-La sugerencia queda en estado `pending`: el bot no la usa automaticamente.
-Desde el inbox se puede aprobar o rechazar. Solo las respuestas `approved` pueden usarse para contestar preguntas parecidas.
+El bot no aprende solo. Cuando no entiende un mensaje, guarda una pregunta no reconocida con telefono, fecha, conversacion, categoria aproximada y estado `pending`.
+Desde el inbox se puede:
+
+- Escribir la respuesta correcta y aprobarla como FAQ.
+- Marcarla como ignorada.
+- Marcarla como "pasar siempre a humano".
+- Editar FAQs aprobadas.
+- Activar o desactivar FAQs.
+- Borrar FAQs que ya no aplican.
+
+Solo las respuestas `approved` y activas pueden usarse para contestar preguntas parecidas.
 Tambien puedes agregar una FAQ manual desde el panel de aprendizaje: escribe la pregunta futura y la respuesta, y se guarda como `approved`.
 
 Esto evita que el bot aprenda datos privados, errores humanos o informacion medica no revisada.
 
-## IA gratis para empezar
+## Modo sin IA
 
-El bot puede funcionar sin pagar IA usando:
+El modo recomendado para este piloto es sin IA externa:
 
 ```text
 AI_PROVIDER=local
 ```
 
-Este modo entiende mensajes basicos como "quiero cita mañana", nombres, fechas tipo `15/06`, dias de la semana y respuestas `1`, `2` o `3`.
+Tambien se acepta `AI_PROVIDER=off`, `AI_PROVIDER=none` o dejarlo vacio; el sistema usara el parser local.
 
-## Conectar Gemini opcional
+Este modo entiende mensajes reales de WhatsApp con reglas locales: "quiero cita mañana", "kiero cita", "q horarios tienen", "kuanto cuesta", fechas tipo `15/06`, dias de la semana, respuestas `1`, `2` o `3`, cancelacion, reagendar, formas de pago, ubicacion, servicios, requisitos y urgencias medicas administrativas.
+
+No usa Gemini, OpenAI, embeddings ni modelos externos para responder cuando `AI_PROVIDER=local/off/none`.
+
+## Conectar IA opcional en otra fase
+
+El codigo conserva compatibilidad opcional con Gemini/OpenAI para quien quiera probarlo despues, pero no es necesario para el piloto actual.
+
+### Conectar Gemini opcional
 
 Gemini es la opcion mas barata para empezar. Segun la pagina oficial de precios de Gemini API, `gemini-2.5-flash-lite` tiene capa gratis y, en pago, precios bajos por millon de tokens.
 
@@ -181,7 +197,7 @@ npm run test:ai -- "Hola, soy Ana y quiero una cita mañana"
 
 Si Gemini falla o se queda sin saldo, el bot usa el extractor local como respaldo para no dejar de contestar.
 
-## Conectar OpenAI opcional
+### Conectar OpenAI opcional
 
 1. Crea una API key en OpenAI.
 2. Pegala en `.env`:

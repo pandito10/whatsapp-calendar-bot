@@ -53,6 +53,8 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxHtml, /Sin conversacion seleccionada/);
     assert.match(inboxHtml, /Sin cita/);
     assert.match(inboxHtml, /Primera vez/);
+    assert.match(inboxHtml, /Preguntas no reconocidas/);
+    assert.match(inboxHtml, /FAQs aprobadas/);
     assert.match(inboxHtml, /Guardar FAQ/);
     assert.match(inboxHtml, /class="no-selection"/);
 

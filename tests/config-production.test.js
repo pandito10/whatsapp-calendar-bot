@@ -57,6 +57,30 @@ test("produccion acepta alias REQUIRE_SUPABASE_FOR_APPOINTMENTS para exigir Supa
   assert.match(result.stderr, /SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/);
 });
 
+test("AI_PROVIDER vacio o apagado usa parser local", () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      "globalThis.fetch = async () => { throw new Error('external fetch should not run'); }; const { config } = await import('./src/config.js'); const { understandMessage } = await import('./src/ai.js'); const parsed = await understandMessage('kiero cita', undefined); if (config.aiProvider !== 'local') throw new Error(config.aiProvider); if (parsed.intent !== 'schedule_appointment') throw new Error(parsed.intent);"
+    ],
+    {
+      cwd: fileURLToPath(new URL("..", import.meta.url)),
+      env: {
+        ...baseEnv,
+        NODE_ENV: "test",
+        AI_PROVIDER: "",
+        OPENAI_API_KEY: "should-not-be-used",
+        GEMINI_API_KEY: "should-not-be-used"
+      },
+      encoding: "utf8"
+    }
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
 function importConfigWith(env) {
   return spawnSync(process.execPath, ["--input-type=module", "-e", "await import('./src/config.js')"], {
     cwd: fileURLToPath(new URL("..", import.meta.url)),

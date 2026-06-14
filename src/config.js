@@ -79,7 +79,7 @@ export const config = {
           (process.env.PUBLIC_BASE_URL
                  ? `${process.env.PUBLIC_BASE_URL.replace(/\/$/, "")}/oauth/google/callback`
                  : "http://localhost:3000/oauth/google/callback"),
-    aiProvider: process.env.AI_PROVIDER ?? (process.env.GEMINI_API_KEY ? "gemini" : "local"),
+    aiProvider: normalizeAiProvider(process.env.AI_PROVIDER, process.env.GEMINI_API_KEY),
     geminiApiKey: process.env.GEMINI_API_KEY,
     geminiModel: process.env.GEMINI_MODEL ?? "gemini-2.5-flash-lite",
     openaiApiKey: process.env.OPENAI_API_KEY,
@@ -176,6 +176,13 @@ function parseMinutes(value, key) {
           throw new Error(`${key} must be a valid time`);
     }
     return hour * 60 + minute;
+}
+
+function normalizeAiProvider(value, geminiApiKey) {
+    const provider = String(value ?? "").trim().toLowerCase();
+    if (!provider || ["local", "off", "none", "false", "disabled"].includes(provider)) return "local";
+    if (["gemini", "openai"].includes(provider)) return provider;
+    return geminiApiKey ? "gemini" : "local";
 }
 
 export function requireEnv(keys, serviceName) {

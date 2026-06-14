@@ -1,4 +1,5 @@
 import { config, requireEnv } from "./config.js";
+import { detectIntent, normalizeText } from "./intents.js";
 
 export async function understandMessage(message, session) {
   const today = new Intl.DateTimeFormat("en-CA", {
@@ -119,8 +120,8 @@ function understandLocally(message, session, today) {
   const preferredDateISO = parseDate(text, today);
   const name = parseName(message, text, session);
   const email = parseEmail(message);
-  const wantsAvailability = isAvailabilityQuestion(text) || Boolean(preferredDateISO);
-  const detectedIntent = detectLocalIntent(text);
+  const detectedIntent = detectIntent(text).intent;
+  const wantsAvailability = detectedIntent === "check_availability" || Boolean(preferredDateISO);
 
   return {
     intent: selectedSlotIndex ? "select_slot" : detectedIntent !== "fallback" ? detectedIntent : wantsAvailability ? "check_availability" : detectedIntent,
@@ -133,57 +134,6 @@ function understandLocally(message, session, today) {
     preferredDateISO,
     selectedSlotIndex
   };
-}
-
-function detectLocalIntent(text) {
-  const checks = [
-    ["medical_urgent", () => hasAny(text, ["urgente", "emergencia", "dolor fuerte", "mucho dolor", "sangrado", "fiebre", "desmayo", "desmaye", "embarazo", "me siento mal", "me duele mucho"])],
-    ["cancel_appointment", () => hasAny(text, ["cancelar", "cancelar cita", "quiero cancelar", "necesito cancelar", "no podre ir", "no puedo ir", "cancelar consulta"])],
-    ["reschedule_appointment", () => hasAny(text, ["reagendar", "cambiar cita", "cambiar mi cita", "mover cita", "cambiar horario", "otro horario", "otro dia", "no puedo ese dia"])],
-    ["late_arrival", () => hasAny(text, ["voy tarde", "llegare tarde", "llego tarde", "retraso", "atrasada", "atrasado", "demorada", "demorado"])],
-    ["confirm_appointment", () => hasAny(text, ["confirmada", "confirmar cita", "ya quedo", "tengo cita", "me confirmas"])],
-    ["book_appointment", () => hasAny(text, ["agendar", "hacer cita", "sacar cita", "reservar", "quiero una cita", "necesito una cita", "ocupo cita", "quiero cita", "agendar consulta", "necesito consulta", "quiero consultar"])],
-    ["check_availability", () => isAvailabilityQuestion(text)],
-    ["cost", () => hasAny(text, ["costo", "precio", "cuanto cuesta", "cuanto cobran", "cuanto sale", "cuanto vale", "en cuanto esta", "presio"])],
-    ["promotion", () => hasAny(text, ["promo", "promocion", "promosion", "paquete", "oferta"])],
-    ["payment_methods", () => hasAny(text, ["tarjeta", "tarjerta", "credito", "debito", "transferencia", "trasferencia", "efectivo", "formas de pago", "metodos de pago"])],
-    ["location", () => hasAny(text, ["ubicacion", "ubi", "direccion", "donde estan", "como llego", "plaza de la paz", "consultorio"])],
-    ["morning_hours", () => isMorningIntent(text)],
-    ["saturday", () => hasAny(text, ["sabado", "sabados", "fin de semana", "domingo"])],
-    ["appointment_duration", () => hasAny(text, ["duracion", "cuanto dura", "cuanto tiempo", "tardan", "40 minutos"])],
-    ["new_patient", () => hasAny(text, ["primera vez", "paciente nueva", "primera consulta", "nunca he ido", "nuevo paciente", "nueva paciente"])],
-    ["medical_services", () => hasAny(text, ["ultrasonido", "papanicolaou", "papanicolau", "colposcopia", "estudio", "estudios", "servicios", "que incluye"])],
-    ["medication_question", () => hasAny(text, ["medicamento", "que tomo", "receta", "tratamiento", "infeccion", "pastilla", "medicina", "me puede recetar"])],
-    ["appointment_requirements", () => hasAny(text, ["llevar", "documentos", "identificacion", "estudios anteriores", "receta", "requisitos", "que llevo"])],
-    ["invoice", () => hasAny(text, ["factura", "facturan", "facturar", "recibo", "comprobante"])],
-    ["direct_contact", () => hasAny(text, ["persona", "doctora", "recepcion", "telefono", "contacto", "hablar con alguien", "llamar", "me llamen"])],
-    ["greeting", () => /^(?:hola|ola|hoola|buenas|buenos dias|buen dia|buenas tardes|que tal|informes|disculpa|hola buenas)$/.test(text)],
-    ["closing", () => /^(?:gracias|muchas gracias|ok gracias|listo|perfecto|no gracias|eso es todo|sale gracias|va gracias|esta bien)$/.test(text)]
-  ];
-
-  for (const [intent, matches] of checks) {
-    if (matches()) return intent;
-  }
-
-  return "fallback";
-}
-
-function isAvailabilityQuestion(text) {
-  return (
-    /\b(?:disponible|disponibles|disponibilidad|horarios|dias tienes|que dias|que horarios|cuando tienes|cuando hay|hay cita|tienes lugar|hay espacio|citas disponibles)\b/.test(text) ||
-    /\b(?:que|cuales)\s+(?:dias|horarios)\b/.test(text)
-  );
-}
-
-function isMorningIntent(text) {
-  return (
-    /\b(?:temprano|matutino|citas temprano|horario en la manana|consulta en la manana)\b/.test(text) ||
-    (/\bmanana\b/.test(text) && /\b(?:por la manana|en la manana|consulta|atienden|abren|horario matutino|temprano)\b/.test(text))
-  );
-}
-
-function hasAny(text, needles) {
-  return needles.some((needle) => text.includes(needle));
 }
 
 function parseSlotSelection(text) {
@@ -295,13 +245,7 @@ function looksLikeNameOnly(value) {
 }
 
 function normalize(value) {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[¿?¡!,.;:]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return normalizeText(value);
 }
 
 function cleanName(value) {
