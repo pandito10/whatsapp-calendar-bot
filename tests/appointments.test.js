@@ -126,6 +126,12 @@ test("clasifica errores de calendario y base de datos", () => {
     classifyAppointmentError(new Error("PGRST204 Could not find the 'error_message' column in the schema cache")),
     "database_schema"
   );
+  assert.equal(
+    classifyAppointmentError(new Error("Could not persist confirmed appointment", {
+      cause: new Error("Supabase request failed: 409 duplicate key value violates unique constraint")
+    })),
+    "double_booking"
+  );
 });
 
 test("mensaje de falla por doble cita ofrece revisar otro horario", () => {

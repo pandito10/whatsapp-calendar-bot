@@ -138,7 +138,7 @@ export function buildAppointmentFailureMessage(failureType) {
 }
 
 export function classifyAppointmentError(error) {
-  const message = String(error?.message ?? error ?? "").toLowerCase();
+  const message = errorMessageChain(error).toLowerCase();
   if (
     message.includes("23505") ||
     message.includes("duplicate") ||
@@ -159,6 +159,16 @@ export function classifyAppointmentError(error) {
   if (message.includes("whatsapp")) return "whatsapp";
   if (message.includes("database") || message.includes("supabase")) return "database";
   return "unknown";
+}
+
+function errorMessageChain(error) {
+  const messages = [];
+  let current = error;
+  while (current) {
+    messages.push(String(current?.message ?? current));
+    current = current?.cause;
+  }
+  return messages.join(" | ");
 }
 
 export function sanitizeShortText(value, maxLength = 120) {

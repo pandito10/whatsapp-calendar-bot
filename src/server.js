@@ -2503,6 +2503,11 @@ async function confirmAppointmentFromSession(from, session) {
       return;
     }
 
+    const stillOpenInDatabase = await isSlotOpenInDatabase(slot);
+    if (!stillOpenInDatabase) {
+      throw new Error("double_booking: slot already confirmed in database");
+    }
+
     event = await createAppointment(slot, {
       name,
       phone: from,
@@ -2571,6 +2576,18 @@ async function offerAlternativeSlotsAfterDoubleBooking(from, session) {
     prefix: `${buildAppointmentFailureMessage("double_booking")}\n\n`,
     excludeSlots: session.pendingSlot ? [session.pendingSlot] : []
   });
+}
+
+async function isSlotOpenInDatabase(slot) {
+  if (!isDatabaseEnabled()) {
+    if (config.requireDatabaseForAppointments) {
+      throw new Error("Database is required before confirming appointments");
+    }
+    return true;
+  }
+
+  const confirmed = await loadConfirmedCitasBetween(slot.start, slot.end);
+  return confirmed.length === 0;
 }
 
 function buildAvailabilityIntro(session, slots) {
@@ -2895,7 +2912,7 @@ async function saveConfirmedCita(phoneNumber, session, slot, event) {
     return saved;
   } catch (error) {
     logSafeError("Could not save cita to Supabase", error);
-    throw new Error("Could not persist confirmed appointment");
+    throw new Error("Could not persist confirmed appointment", { cause: error });
   }
 }
 
