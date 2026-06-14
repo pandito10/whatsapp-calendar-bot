@@ -11,6 +11,7 @@ import {
   buildAppointmentFailureMessage,
   buildAppointmentReviewMessage,
   buildLocationMessage,
+  filterSlotsAgainstBusyRanges,
   buildPatientReminderJobs,
   buildPatientConfirmationMessage,
   classifyAppointmentError,
@@ -31,6 +32,7 @@ import {
   isDatabaseEnabled,
   loadDueReminders,
   loadConversations,
+  loadConfirmedCitasBetween,
   loadWaitingListByDate,
   markReminderFailed,
   markReminderSent,
@@ -2397,6 +2399,7 @@ async function offerAvailableSlots(from, session, options = {}) {
   try {
     slots = await findAvailableSlots(session.preferredDateText, session.preferredDateISO);
     slots = filterSlotsByPreferredRange(slots, session.preferredTimeRange);
+    slots = await filterSlotsByConfirmedAppointments(slots);
   } catch (error) {
     if (error.message?.includes("Missing Google Calendar")) {
       await replyToPatient(
@@ -2428,10 +2431,21 @@ async function offerAvailableSlots(from, session, options = {}) {
 
   await replyToPatient(
     from,
-    `${buildAvailabilityIntro(session, slots)}\n${slots
+    `${options.prefix ?? ""}${buildAvailabilityIntro(session, slots)}\n${slots
       .map((slot, index) => `${index + 1}. ${slot.label}`)
       .join("\n")}\n\n${allowSelection ? "Responde con el numero del horario que prefieras para confirmar. Si ninguno te acomoda, dime otra fecha." : "Si alguno te acomoda, responde con el numero del horario y te ayudo a agendarlo. Si no, dime otra fecha."}`
   );
+}
+
+async function filterSlotsByConfirmedAppointments(slots) {
+  if (!isDatabaseEnabled() || slots.length === 0) return slots;
+
+  const firstStart = slots[0]?.start;
+  const lastEnd = slots.at(-1)?.end;
+  if (!firstStart || !lastEnd) return slots;
+
+  const confirmed = await loadConfirmedCitasBetween(firstStart, lastEnd);
+  return filterSlotsAgainstBusyRanges(slots, confirmed);
 }
 
 function filterSlotsByPreferredRange(slots, range) {
@@ -2517,8 +2531,12 @@ async function confirmAppointmentFromSession(from, session) {
     }
     const failureType = classifyAppointmentError(error);
     logSafeError(`Could not confirm appointment for ${maskPhone(from)} [${failureType}]`, error);
-    await resetSlotSelection(from, session);
-    await replyToPatient(from, buildAppointmentFailureMessage(failureType));
+    if (failureType === "double_booking") {
+      await offerAlternativeSlotsAfterDoubleBooking(from, session);
+    } else {
+      await resetSlotSelection(from, session);
+      await replyToPatient(from, buildAppointmentFailureMessage(failureType));
+    }
     const adminHint =
       failureType === "database_schema"
         ? "Probable migracion pendiente o cache de schema en Supabase. Ejecuta supabase/migration-existing.sql y revisa la tabla citas."
@@ -2532,6 +2550,23 @@ async function confirmAppointmentFromSession(from, session) {
   } finally {
     if (lock && typeof lock === "object") await releaseAppointmentLock(lock.token);
   }
+}
+
+async function offerAlternativeSlotsAfterDoubleBooking(from, session) {
+  const dateISO = session.preferredDateISO ?? (session.pendingSlot?.start ? zonedDateOnly(session.pendingSlot.start) : undefined);
+  const retrySession = {
+    ...session,
+    step: "collecting",
+    preferredDateText: session.preferredDateText ?? dateISO ?? "hoy",
+    preferredDateISO: dateISO,
+    offeredSlots: undefined,
+    pendingSlot: undefined,
+    pendingSlotSelectedIndex: undefined
+  };
+
+  await offerAvailableSlots(from, retrySession, {
+    prefix: `${buildAppointmentFailureMessage("double_booking")}\n\n`
+  });
 }
 
 function buildAvailabilityIntro(session, slots) {

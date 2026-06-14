@@ -23,6 +23,7 @@ const {
   buildPatientReminderJobs,
   buildPatientConfirmationMessage,
   buildAppointmentFailureMessage,
+  filterSlotsAgainstBusyRanges,
   classifyAppointmentError,
   sanitizeShortText
 } = await import("../src/appointments.js");
@@ -87,6 +88,31 @@ test("no programa recordatorios de paciente sin templates aprobados", () => {
     slotStartMs: new Date(validSlot.start).getTime()
   });
   assert.deepEqual(jobs, []);
+});
+
+test("filtra horarios ya confirmados en Supabase", () => {
+  const slots = [
+    {
+      start: "2030-06-17T22:40:00.000Z",
+      end: "2030-06-17T23:20:00.000Z",
+      label: "lunes, 17 de junio de 2030, 4:40 p.m."
+    },
+    {
+      start: "2030-06-17T23:20:00.000Z",
+      end: "2030-06-18T00:00:00.000Z",
+      label: "lunes, 17 de junio de 2030, 5:20 p.m."
+    }
+  ];
+
+  const filtered = filterSlotsAgainstBusyRanges(slots, [
+    {
+      slotStart: "2030-06-17T22:40:00.000Z",
+      slotEnd: "2030-06-17T23:20:00.000Z"
+    }
+  ]);
+
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0].label, "lunes, 17 de junio de 2030, 5:20 p.m.");
 });
 
 test("clasifica errores de calendario y base de datos", () => {

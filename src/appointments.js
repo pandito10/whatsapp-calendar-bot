@@ -92,6 +92,24 @@ export function buildPatientReminderJobs({ phoneNumber, session, slot, slotStart
   return jobs;
 }
 
+export function filterSlotsAgainstBusyRanges(slots, busyRanges) {
+  if (!Array.isArray(slots) || slots.length === 0) return [];
+  if (!Array.isArray(busyRanges) || busyRanges.length === 0) return slots;
+
+  return slots.filter((slot) => {
+    const slotStart = new Date(slot.start);
+    const slotEnd = new Date(slot.end);
+    if (Number.isNaN(slotStart.getTime()) || Number.isNaN(slotEnd.getTime())) return false;
+
+    return !busyRanges.some((range) => {
+      const busyStart = new Date(range.slotStart ?? range.start);
+      const busyEnd = new Date(range.slotEnd ?? range.end);
+      if (Number.isNaN(busyStart.getTime()) || Number.isNaN(busyEnd.getTime())) return false;
+      return slotStart < busyEnd && slotEnd > busyStart;
+    });
+  });
+}
+
 export function buildAdminAppointmentNotification({ name, from, slot, session }) {
   const lines = [
     "📅 Nueva cita por WhatsApp:",

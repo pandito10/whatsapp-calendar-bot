@@ -507,6 +507,23 @@ export async function getLatestConfirmedCitaByPhone(phoneNumber) {
   };
 }
 
+export async function loadConfirmedCitasBetween(startISO, endISO) {
+  if (!isDatabaseEnabled() || !startISO || !endISO) return [];
+
+  const rows = await supabaseFetch(
+    `/rest/v1/citas?select=id,slot_start,slot_end,status&status=eq.confirmed&slot_start=lt.${encodeURIComponent(
+      endISO
+    )}&slot_end=gt.${encodeURIComponent(startISO)}`
+  );
+
+  return (rows ?? []).map((row) => ({
+    id: row.id,
+    slotStart: row.slot_start,
+    slotEnd: row.slot_end,
+    status: row.status
+  }));
+}
+
 export async function cancelCita(citaId) {
   if (!isDatabaseEnabled() || !citaId) return;
 

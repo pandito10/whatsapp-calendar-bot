@@ -11,6 +11,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = "sb-service-role-test";
 
 const {
   acquireAppointmentLock,
+  loadConfirmedCitasBetween,
   rememberProcessedWhatsAppMessage,
   saveCita,
   saveKnowledgeSuggestion,
@@ -107,6 +108,36 @@ test("saveCita reintenta con payload legacy si falta una columna nueva", async (
     assert.equal(calls[1].body.first_visit, undefined);
     assert.equal(calls[1].body.payment_type, undefined);
     assert.equal(calls[1].body.reason, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("carga citas confirmadas en un rango para filtrar disponibilidad", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl;
+  globalThis.fetch = async (url) => {
+    requestedUrl = String(url);
+    return new Response(
+      JSON.stringify([
+        {
+          id: 3,
+          slot_start: "2030-06-17T22:40:00.000Z",
+          slot_end: "2030-06-17T23:20:00.000Z",
+          status: "confirmed"
+        }
+      ]),
+      { status: 200 }
+    );
+  };
+
+  try {
+    const citas = await loadConfirmedCitasBetween("2030-06-17T22:00:00.000Z", "2030-06-18T01:00:00.000Z");
+    assert.match(requestedUrl, /status=eq\.confirmed/);
+    assert.match(requestedUrl, /slot_start=lt\./);
+    assert.match(requestedUrl, /slot_end=gt\./);
+    assert.equal(citas.length, 1);
+    assert.equal(citas[0].slotStart, "2030-06-17T22:40:00.000Z");
   } finally {
     globalThis.fetch = originalFetch;
   }
