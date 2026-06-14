@@ -42,13 +42,13 @@ Meta:   https://whatsapp-calendar-bot-gw3e.onrender.com/webhook/TU_WEBHOOK_PATH_
 
 No uses `https://whatsapp-calendar-bot.onrender.com` para este bot. Ese dominio puede apuntar a otro servicio y no debe configurarse en Meta.
 
-El bot crea citas en `GOOGLE_CALENDAR_ID`, pero revisa ocupacion en `GOOGLE_BUSY_CALENDAR_IDS`. En este piloto debe revisar al menos:
+El bot crea citas en `GOOGLE_CALENDAR_ID` y revisa ocupacion en `GOOGLE_BUSY_CALENDAR_IDS`. En este piloto debe usar solo el calendario de reservas de la doctora:
 
 ```text
-primary,ginecologiaintegralgto@gmail.com,b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com
+ginecologiaintegralgto@gmail.com
 ```
 
-Asi no ofrece horarios que ya aparecen ocupados en el calendario principal de la doctora.
+Ese es el calendario que viene codificado en el link de reservas de Google Calendar.
 
 ## Configuracion
 

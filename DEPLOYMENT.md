@@ -53,8 +53,8 @@ SUPABASE_SERVICE_ROLE_KEY=...
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 GOOGLE_REFRESH_TOKEN=...
-GOOGLE_CALENDAR_ID=b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com
-GOOGLE_BUSY_CALENDAR_IDS=primary,ginecologiaintegralgto@gmail.com,b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com
+GOOGLE_CALENDAR_ID=ginecologiaintegralgto@gmail.com
+GOOGLE_BUSY_CALENDAR_IDS=ginecologiaintegralgto@gmail.com
 
 INBOX_PASSWORD=...
 COOKIE_SECRET=...
@@ -103,7 +103,7 @@ INCLUDE_PATIENT_CONTACT_IN_CALENDAR=false
 
 No actives `ENABLE_REMINDER_WORKER=true` para pacientes reales hasta tener templates de WhatsApp aprobados y probados.
 
-`GOOGLE_CALENDAR_ID` es donde el bot crea la cita. `GOOGLE_BUSY_CALENDAR_IDS` son los calendarios que bloquean disponibilidad. Para este piloto se revisa `primary`, `ginecologiaintegralgto@gmail.com` y el calendario grupal de citas, porque la doctora puede tener eventos ocupados visibles en su calendario principal aunque el bot cree eventos en el calendario compartido.
+`GOOGLE_CALENDAR_ID` es donde el bot crea la cita. `GOOGLE_BUSY_CALENDAR_IDS` son los calendarios que bloquean disponibilidad. Para este piloto ambos deben apuntar a `ginecologiaintegralgto@gmail.com`, que es el calendario codificado en el link de reservas de Google Calendar de la doctora.
 
 ## Modo temporal sin App Secret
 
