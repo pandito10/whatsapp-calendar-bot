@@ -2400,6 +2400,7 @@ async function offerAvailableSlots(from, session, options = {}) {
     slots = await findAvailableSlots(session.preferredDateText, session.preferredDateISO);
     slots = filterSlotsByPreferredRange(slots, session.preferredTimeRange);
     slots = await filterSlotsByConfirmedAppointments(slots);
+    slots = filterSlotsAgainstBusyRanges(slots, options.excludeSlots);
   } catch (error) {
     if (error.message?.includes("Missing Google Calendar")) {
       await replyToPatient(
@@ -2414,7 +2415,7 @@ async function offerAvailableSlots(from, session, options = {}) {
     await setPatientSession(from, { ...session, step: "waitlistOffer", waitlistDateISO: session.preferredDateISO, waitlistDateText: session.preferredDateText });
     await replyToPatient(
       from,
-      "Por ahora no tengo horarios disponibles para ese dia 😕\n\n¿Quieres que te agregue a lista de espera por si se libera un espacio?\n\n1. Si\n2. Ver otro dia\n3. Hablar con una persona"
+      `${options.prefix ?? ""}Por ahora no tengo horarios disponibles para ese dia 😕\n\n¿Quieres que te agregue a lista de espera por si se libera un espacio?\n\n1. Si\n2. Ver otro dia\n3. Hablar con una persona`
     );
     return;
   }
@@ -2554,11 +2555,12 @@ async function confirmAppointmentFromSession(from, session) {
 }
 
 async function offerAlternativeSlotsAfterDoubleBooking(from, session) {
-  const dateISO = session.preferredDateISO ?? (session.pendingSlot?.start ? zonedDateOnly(session.pendingSlot.start) : undefined);
+  const pendingSlotDateISO = session.pendingSlot?.start ? zonedDateOnly(session.pendingSlot.start) : undefined;
+  const dateISO = pendingSlotDateISO ?? session.preferredDateISO;
   const retrySession = {
     ...session,
     step: "collecting",
-    preferredDateText: session.preferredDateText ?? dateISO ?? "hoy",
+    preferredDateText: dateISO ?? session.preferredDateText ?? "hoy",
     preferredDateISO: dateISO,
     offeredSlots: undefined,
     pendingSlot: undefined,
@@ -2566,7 +2568,8 @@ async function offerAlternativeSlotsAfterDoubleBooking(from, session) {
   };
 
   await offerAvailableSlots(from, retrySession, {
-    prefix: `${buildAppointmentFailureMessage("double_booking")}\n\n`
+    prefix: `${buildAppointmentFailureMessage("double_booking")}\n\n`,
+    excludeSlots: session.pendingSlot ? [session.pendingSlot] : []
   });
 }
 
