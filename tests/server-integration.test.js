@@ -23,6 +23,10 @@ const baseEnv = {
 test("inbox esta protegido y login carga sin conversaciones", async () => {
   const app = await startServer(32131, { ...baseEnv, NODE_ENV: "test" });
   try {
+    const root = await fetch("http://127.0.0.1:32131/", { redirect: "manual" });
+    assert.equal(root.status, 303);
+    assert.equal(root.headers.get("location"), "/inbox");
+
     const inbox = await fetch("http://127.0.0.1:32131/inbox", { redirect: "manual" });
     assert.equal(inbox.status, 303);
     assert.equal(inbox.headers.get("location"), "/inbox/login");

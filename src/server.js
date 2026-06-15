@@ -126,6 +126,11 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/") {
+      res.writeHead(303, { Location: "/inbox" }).end();
+      return;
+    }
+
     if (req.method === "GET" && isWebhookPostPath(url.pathname)) {
       if (!isValidWebhookPath(url.pathname)) {
         res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" }).end("not found");
