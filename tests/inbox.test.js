@@ -104,6 +104,25 @@ test("detecta modo humano, cita agendada y ventana de 24 horas", () => {
   );
 });
 
+test("detecta pasos detallados y pacientes atoradas", () => {
+  const waitingEmail = conversation({
+    session: { step: "collectingEmail", data: { name: "Ana" } },
+    messages: [{ sender: "bot", body: "Me compartes tu correo?", timestamp: "2030-06-17T17:55:00.000Z" }]
+  });
+  assert.equal(getConversationStatus(waitingEmail, now).key, "waiting_email");
+  assert.equal(getConversationStatus(waitingEmail, now).label, "Esperando correo");
+
+  const stuck = conversation({
+    session: { step: "collectingService", data: { name: "Ana", email: "ana@example.com" } },
+    messages: [{ sender: "bot", body: "Que servicio quieres agendar?", timestamp: "2030-06-17T17:00:00.000Z" }]
+  });
+  const stuckStatus = getConversationStatus(stuck, now);
+  assert.equal(stuckStatus.key, "stuck");
+  assert.match(stuckStatus.label, /Paciente atorada/);
+  assert.equal(filterInboxConversations([stuck], "", "stuck", now).length, 1);
+  assert.equal(filterInboxConversations([waitingEmail], "", "waiting", now).length, 1);
+});
+
 test("construye resumen local sin IA", () => {
   const summary = buildLocalConversationSummary(
     conversation({

@@ -2098,6 +2098,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
             ${renderFilterOption("cancel", "Cancelar", filter)}
             ${renderFilterOption("closing_window", "Ventana 24h", filter)}
             ${renderFilterOption("pending", "Pendientes", filter)}
+            ${renderFilterOption("stuck", "Atoradas", filter)}
+            ${renderFilterOption("waiting", "Esperando datos", filter)}
             ${renderFilterOption("confirmed", "Cita agendada", filter)}
             ${renderFilterOption("no_appointment", "Sin cita", filter)}
             ${renderFilterOption("new_patient", "Primera vez", filter)}
@@ -2228,6 +2230,8 @@ function renderInboxQuickFilters(current, query = "") {
     ["cancel", "Cancelar"],
     ["closing_window", "24h"],
     ["followup", "Sin responder"],
+    ["stuck", "Atoradas"],
+    ["waiting", "Esperando datos"],
     ["confirmed", "Agendadas"],
     ["human", "Humano"]
   ];
@@ -2465,6 +2469,7 @@ function renderQuickReplies() {
     ["Confirmar cita", "✅ Tu cita queda confirmada. Te esperamos en el consultorio. Si necesitas cambiar algo, escribenos por aqui."],
     ["Reagendar", "Claro 😊 Te ayudo a reagendar. ¿Que dia te gustaria revisar para el nuevo horario?"],
     ["Cancelar", "Para cancelar tu cita, confirmame por favor: ¿seguro que deseas cancelarla?"],
+    ["Retomar cita", "Hola 😊 ¿Quieres que sigamos con tu cita? Puedo ayudarte a elegir fecha, horario o pasarte con una persona."],
     ["Humano", "Claro 😊 Una persona del consultorio revisara tu mensaje y te apoyara por aqui."],
     ["Requisitos", getIntentResponse("appointment_requirements")],
     ["Urgencias", "⚠️ Si tienes dolor intenso, sangrado abundante o una urgencia, por favor acude a urgencias o contacta directamente al consultorio."]
@@ -2879,6 +2884,22 @@ async function handleIncomingText(from, text) {
     }
 
     if (session.step === "choosingAvailabilitySlot" || session.availabilityOnly) {
+      const returningProfile = await loadReturningPatientProfile(from);
+      if (returningProfile?.patientName) {
+        const updated = applyReturningProfile({
+          ...session,
+          step: "collecting",
+          availabilityOnly: false,
+          pendingSlot: slot,
+          pendingSlotSelectedIndex: parsed.selectedSlotIndex
+        }, returningProfile);
+        await setPatientSession(from, updated);
+        await replyToPatient(
+          from,
+          `Perfecto 😊 Tomo como referencia este horario: ${slot.label}.\n\n${buildReturningPatientDataSummary(returningProfile)}\n\n¿Que servicio o motivo general quieres agendar esta vez?`
+        );
+        return;
+      }
       await setPatientSession(from, {
         ...session,
         step: "collecting",
@@ -2919,10 +2940,7 @@ async function handleIncomingText(from, text) {
     if (returningProfile?.patientName) {
       const updated = applyReturningProfile(session, returningProfile);
       await setPatientSession(from, updated);
-      await replyToPatient(
-        from,
-        `Hola ${firstName(returningProfile.patientName)} 😊 que gusto volver a verte. Ya tengo tu nombre${returningProfile.patientEmail ? " y correo" : ""}.\n\n¿Que servicio o motivo general quieres agendar esta vez?`
-      );
+      await replyToPatient(from, buildReturningAppointmentPrompt(returningProfile));
       return;
     }
     await setPatientSession(from, session);
@@ -3357,7 +3375,7 @@ async function sendGreetingMenuToPatient(to) {
     return;
   }
 
-  const body = `Hola ${firstName(profile.patientName)} 😊 que gusto volver a verte.\n\nYa tengo tu informacion basica guardada. ¿En que te puedo ayudar?`;
+  const body = buildReturningPatientMenuBody(profile);
   const rows = [
     { id: "returning_schedule", title: "Agendar otra cita", description: "Usar tus datos guardados" },
     { id: "returning_next", title: "Ver mi cita", description: "Consultar tu cita registrada" },
@@ -3432,10 +3450,7 @@ async function startAppointmentFlow(from) {
   if (profile?.patientName) {
     const session = applyReturningProfile({ from, step: "collecting" }, profile);
     await setPatientSession(from, session);
-    await replyToPatient(
-      from,
-      `Hola ${firstName(profile.patientName)} 😊 que gusto volver a verte. Ya tengo tu nombre${profile.patientEmail ? " y correo" : ""}.\n\n¿Que servicio o motivo general quieres agendar esta vez?`
-    );
+    await replyToPatient(from, buildReturningAppointmentPrompt(profile));
     return;
   }
 
@@ -3460,6 +3475,42 @@ function applyReturningProfile(session, profile) {
     firstVisit: session.firstVisit ?? "No",
     paymentType: session.paymentType ?? profile.paymentType
   };
+}
+
+function buildReturningPatientMenuBody(profile) {
+  const lines = [
+    `Hola ${firstName(profile.patientName)} 😊 que gusto volver a verte.`,
+    "",
+    "Ya tengo tu informacion basica guardada:",
+    `Nombre: ${profile.patientName}`,
+    profile.patientEmail ? `Correo: ${profile.patientEmail}` : undefined,
+    profile.slotStart ? `Ultima/proxima cita registrada: ${formatAppointmentShort(profile.slotStart)}` : undefined,
+    "",
+    "¿En que te puedo ayudar?"
+  ];
+  return lines.filter(Boolean).join("\n");
+}
+
+function buildReturningAppointmentPrompt(profile) {
+  const lines = [
+    `Hola ${firstName(profile.patientName)} 😊 que gusto volver a verte.`,
+    "",
+    "Ya tengo estos datos guardados:",
+    `Nombre: ${profile.patientName}`,
+    profile.patientEmail ? `Correo: ${profile.patientEmail}` : undefined,
+    "",
+    "¿Que servicio o motivo general quieres agendar esta vez?"
+  ];
+  return lines.filter(Boolean).join("\n");
+}
+
+function buildReturningPatientDataSummary(profile) {
+  const lines = [
+    "Ya tengo estos datos guardados:",
+    `Nombre: ${profile.patientName}`,
+    profile.patientEmail ? `Correo: ${profile.patientEmail}` : undefined
+  ];
+  return lines.filter(Boolean).join("\n");
 }
 
 function firstName(value) {

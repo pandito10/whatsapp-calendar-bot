@@ -2,6 +2,7 @@ import { normalizeText } from "./intents.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CLOSING_WINDOW_MS = 22.5 * 60 * 60 * 1000;
+const STUCK_FLOW_MS = 30 * 60 * 1000;
 
 export function getWhatsAppWindowState(conversation, nowMs = Date.now()) {
   const lastPatientMessage = getLastPatientMessage(conversation);
@@ -62,24 +63,26 @@ export function getConversationStatus(conversation, nowMs = Date.now()) {
     return { key: "expired_window", label: "Requiere template Meta", className: "expired", priority: 5 };
   }
 
+  const flowStatus = getAppointmentFlowStatus(sessionStep, sessionData);
+  if (flowStatus) {
+    const waitingSince = last?.sender === "bot" && last.timestamp ? nowMs - new Date(last.timestamp).getTime() : 0;
+    if (waitingSince >= STUCK_FLOW_MS) {
+      return {
+        key: "stuck",
+        label: `Paciente atorada: ${flowStatus.shortLabel}`,
+        className: "waiting",
+        priority: 5
+      };
+    }
+    return flowStatus;
+  }
+
   if (last?.sender === "patient") {
     return { key: "followup", label: "Nuevo mensaje", className: "followup", priority: 6 };
   }
 
   if (conversation?.appointment?.status === "confirmed") {
     return { key: "confirmed", label: "Cita agendada", className: "confirmed", priority: 8 };
-  }
-
-  if (sessionStep === "collecting" && !sessionData.name) {
-    return { key: "waiting_name", label: "Esperando nombre", className: "waiting", priority: 6 };
-  }
-
-  if (sessionStep === "collectingDateOnly" || (sessionStep === "collecting" && sessionData.name && !sessionData.preferredDateText)) {
-    return { key: "waiting_date", label: "Esperando fecha", className: "waiting", priority: 6 };
-  }
-
-  if (sessionStep === "choosingSlot" || sessionStep === "choosingAvailabilitySlot") {
-    return { key: "wants_appointment", label: "Quiere cita", className: "open", priority: 6 };
   }
 
   return { key: "open", label: "En atencion", className: "open", priority: 9 };
@@ -114,8 +117,9 @@ export function filterInboxConversations(list, query = "", filter = "all", nowMs
       filter === "all" ||
       (filter === "priority" && status.priority <= 5) ||
       filter === status.key ||
-      (filter === "pending" && ["followup", "misunderstood", "awaiting_confirmation", "urgent", "closing_window", "expired_window"].includes(status.key)) ||
+      (filter === "pending" && ["followup", "misunderstood", "awaiting_confirmation", "urgent", "closing_window", "expired_window", "stuck"].includes(status.key)) ||
       (filter === "followup" && conversation.messages?.at(-1)?.sender === "patient") ||
+      (filter === "waiting" && status.className === "waiting") ||
       (filter === "confirmed" && conversation.appointment?.status === "confirmed") ||
       (filter === "human" && conversation.botPaused) ||
       (filter === "no_appointment" && !conversation.appointment) ||
@@ -131,7 +135,7 @@ export function buildInboxStats(list, nowMs = Date.now()) {
       const status = getConversationStatus(conversation, nowMs);
       stats.total += 1;
       if (conversation.appointment?.status === "confirmed") stats.confirmed += 1;
-      if (["followup", "misunderstood", "awaiting_confirmation", "urgent", "closing_window", "expired_window"].includes(status.key)) {
+      if (["followup", "misunderstood", "awaiting_confirmation", "urgent", "closing_window", "expired_window", "stuck"].includes(status.key)) {
         stats.followup += 1;
       }
       if (status.key === "open") stats.open += 1;
@@ -140,9 +144,10 @@ export function buildInboxStats(list, nowMs = Date.now()) {
       if (conversation.messages?.at(-1)?.sender === "patient") stats.noReply += 1;
       if (status.key === "misunderstood") stats.misunderstood += 1;
       if (status.key === "closing_window" || status.key === "expired_window") stats.windowRisk += 1;
+      if (status.key === "stuck") stats.stuck += 1;
       return stats;
     },
-    { total: 0, confirmed: 0, followup: 0, open: 0, human: 0, urgent: 0, noReply: 0, misunderstood: 0, windowRisk: 0 }
+    { total: 0, confirmed: 0, followup: 0, open: 0, human: 0, urgent: 0, noReply: 0, misunderstood: 0, windowRisk: 0, stuck: 0 }
   );
 }
 
@@ -168,6 +173,34 @@ export function getOfferedSlots(conversation) {
 
 function normalizedTags(conversation) {
   return new Set((conversation?.tags ?? []).map((tag) => normalizeText(tag)));
+}
+
+function getAppointmentFlowStatus(sessionStep, sessionData = {}) {
+  if (sessionStep === "collecting" && !sessionData.name) {
+    return { key: "waiting_name", label: "Esperando nombre", shortLabel: "nombre", className: "waiting", priority: 6 };
+  }
+  if (sessionStep === "collectingEmail") {
+    return { key: "waiting_email", label: "Esperando correo", shortLabel: "correo", className: "waiting", priority: 6 };
+  }
+  if (sessionStep === "collectingFirstVisit") {
+    return { key: "waiting_first_visit", label: "Esperando primera vez", shortLabel: "primera vez", className: "waiting", priority: 6 };
+  }
+  if (sessionStep === "collectingService") {
+    return { key: "waiting_service", label: "Esperando servicio", shortLabel: "servicio", className: "waiting", priority: 6 };
+  }
+  if (sessionStep === "collectingPaymentType") {
+    return { key: "waiting_payment", label: "Esperando tipo de consulta", shortLabel: "tipo de consulta", className: "waiting", priority: 6 };
+  }
+  if (sessionStep === "collectingDateOnly" || (sessionStep === "collecting" && sessionData.name && !sessionData.preferredDateText)) {
+    return { key: "waiting_date", label: "Esperando fecha", shortLabel: "fecha", className: "waiting", priority: 6 };
+  }
+  if (sessionStep === "choosingSlot" || sessionStep === "choosingAvailabilitySlot") {
+    return { key: "waiting_slot", label: "Esperando horario", shortLabel: "horario", className: "waiting", priority: 6 };
+  }
+  if (sessionStep === "waitlistOffer") {
+    return { key: "waiting_waitlist", label: "Esperando lista de espera", shortLabel: "lista de espera", className: "waiting", priority: 6 };
+  }
+  return undefined;
 }
 
 function hasRecentFallback(conversation) {

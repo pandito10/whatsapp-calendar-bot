@@ -58,6 +58,8 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxHtml, /Guardar FAQ/);
     assert.match(inboxHtml, /Humano/);
     assert.match(inboxHtml, /Urgentes/);
+    assert.match(inboxHtml, /Atoradas/);
+    assert.match(inboxHtml, /Esperando datos/);
     assert.match(inboxHtml, /Diagnostico rapido/);
     assert.match(inboxHtml, /Firma Meta/);
     assert.match(inboxHtml, /Locks/);

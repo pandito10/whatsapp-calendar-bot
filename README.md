@@ -8,6 +8,8 @@ MVP para que un consultorio agende citas automaticamente por WhatsApp y cree eve
 - Muestra menu inicial con lista interactiva de WhatsApp y fallback numerado.
 - Muestra fechas sugeridas con lista interactiva cuando pide el dia de la cita.
 - Saluda diferente a pacientes recurrentes si ya hay una cita confirmada para ese telefono.
+- Reutiliza datos basicos de pacientes recurrentes para que no empiecen desde cero.
+- Marca conversaciones atoradas o esperando datos en el inbox para seguimiento humano.
 - Pregunta nombre y fecha deseada.
 - Consulta disponibilidad en Google Calendar.
 - Ofrece hasta 6 horarios de 40 minutos con lista interactiva y fallback numerado.
@@ -500,6 +502,7 @@ Esta versión endurecida agrega varias protecciones para poder probar el robot c
 - El inbox muestra estado visual de DB, Google y firma Meta en la barra superior.
 - El inbox muestra estadisticas basicas: conversaciones, citas, seguimiento, modo humano, urgentes y pacientes sin respuesta.
 - El inbox incluye un diagnostico rapido para que recepcion vea si WhatsApp, Supabase, Google, firma Meta, auth del inbox y recordatorios estan sanos.
+- El inbox distingue pasos finos del flujo: esperando nombre, correo, servicio, tipo de consulta, fecha, horario o paciente atorada.
 - El inbox permite editar FAQs, activar/desactivar, borrar, agregar variaciones y asignar etiquetas manuales a conversaciones.
 - El bot guarda preguntas no reconocidas como pendientes para convertirlas en FAQ desde el inbox.
 - La agenda soporta buffer entre citas y minimo de anticipacion configurable.
