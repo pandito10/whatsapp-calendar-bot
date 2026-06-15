@@ -122,7 +122,9 @@ export const config = {
     workEnd: process.env.CLINIC_END_TIME ?? process.env.WORK_END ?? "20:00",
     sheetsEnabled: process.env.SHEETS_ENABLED === "true",
     googleSheetsId: process.env.GOOGLE_SHEETS_ID ?? "",
-    googleServiceAccountJson: process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? ""
+    googleServiceAccountJson: process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? "",
+    coldLeadFollowupEnabled: process.env.COLD_LEAD_FOLLOWUP_ENABLED === "true",
+    coldLeadFollowupHours: Number(process.env.COLD_LEAD_FOLLOWUP_HOURS ?? 6)
 };
 
 validateStartupConfig();

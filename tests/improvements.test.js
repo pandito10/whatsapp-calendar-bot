@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+
 // ── Voice note tests ──────────────────────────────────────────────────────────
 
 test("extractWhatsAppMessageText devuelve undefined para mensajes de audio (no los descarta el caller)", () => {
