@@ -11,7 +11,7 @@ test("normaliza acentos, signos y mala escritura comun", () => {
 
 test("detecta saludo y menu", () => {
   assert.equal(detectIntent("Hola").intent, "greeting");
-  assert.equal(detectIntent("informes").intent, "greeting");
+  assert.equal(detectIntent("informes").intent, "featured_promo");
 });
 
 test("detecta agenda, disponibilidad y horarios", () => {

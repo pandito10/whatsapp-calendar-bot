@@ -2,7 +2,7 @@ export function normalizeText(value) {
   return String(value ?? "")
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .replace(/[¿?¡!,.;:()[\]{}"']/g, " ")
     .replace(/\s+/g, " ")
     .trim()
@@ -22,6 +22,7 @@ export function detectIntent(value) {
       "embarazada y me siento mal", "embarazo con dolor", "me siento muy mal",
       "me siento mal", "me duele mucho", "dolor intenso"
     ])],
+    ["recent_sex_before_exam", () => isRecentSexBeforeExamQuestion(text)],
     ["cancel_appointment", () => isCancellationRequest(text)],
     ["reschedule_appointment", () => hasAny(text, [
       "reagendar", "cambiar cita", "mover cita", "cambiar horario", "otro horario",
@@ -38,11 +39,12 @@ export function detectIntent(value) {
     ])],
     ["schedule_appointment", () => hasAny(text, [
       "agendar", "hacer cita", "sacar cita", "reservar", "quiero una cita",
-      "necesito una cita", "ocupo cita", "quiero cita", "agendar consulta",
+      "necesito una cita", "necesito cita", "quiero cita", "agendar consulta",
       "necesito consulta", "quiero consultar", "apartar cita", "me urge una cita"
     ])],
     ["check_availability", () => isAvailabilityIntent(text)],
     ["patient_results", () => isPatientResultsRequest(text)],
+    ["featured_promo", () => isFeaturedPromoQuestion(text)],
     ["cost", () => isPriceQuestion(text)],
     ["promotion", () => isPromotionQuestion(text)],
     ["payment_methods", () => isPaymentQuestion(text)],
@@ -60,7 +62,7 @@ export function detectIntent(value) {
     ["medication_question", () => hasAny(text, [
       "medicamento", "que medicamento tomo", "me puedo tomar algo",
       "que me recomienda tomar", "me receta algo", "tengo infeccion",
-      "dolor que tomo", "que pastilla tomo", "me puede recetar", "ocupo medicina",
+      "dolor que tomo", "que pastilla tomo", "me puede recetar", "necesito medicina",
       "tratamiento"
     ])],
     ["medical_services", () => hasAny(text, [
@@ -75,10 +77,12 @@ export function detectIntent(value) {
       "que llevo", "puedo ir acompanada", "puedo ir acompanado", "acompanada"
     ])],
     ["invoice", () => hasAny(text, ["factura", "facturan", "facturar", "recibo", "comprobante"])],
+    ["contact_info", () => isContactInfoQuestion(text)],
     ["direct_contact", () => hasAny(text, [
-      "hablar con alguien", "hablar con la doctora", "persona", "recepcion",
-      "telefono", "contacto", "llamar", "me llamen", "me pueden llamar",
-      "ocupo hablar con alguien", "pasame con alguien", "humano"
+      "hablar con alguien", "hablar con la doctora", "recepcion",
+      "llamar", "me llamen", "me pueden llamar",
+      "necesito hablar con alguien", "pasame con alguien", "humano",
+      "pasa a una persona", "quiero hablar con una persona", "hablar con persona"
     ])],
     ["greeting", () => isGreetingQuestion(text) || isGeneralMenuQuestion(text)],
     ["closing", () => isConversationClosing(text)]
@@ -172,7 +176,7 @@ function isLocationQuestion(text) {
 }
 
 function isGreetingQuestion(text) {
-  return /^(?:hola|ola|hoola|buenas|buenos dias|buen dia|buenas tardes|buenas noches|hey|hello|hi|que tal|que onda|hola buenas|disculpa|informes)$/.test(text);
+  return /^(?:hola|ola|hoola|buenas|buenos dias|buen dia|buenas tardes|buenas noches|hey|hello|hi|que tal|que onda|hola buenas|disculpa)$/.test(text);
 }
 
 function isConversationClosing(text) {
@@ -190,8 +194,9 @@ function isCancellationRequest(text) {
 
 function isMorningQuestion(text) {
   return (
-    /\b(?:temprano|matutino|citas temprano|horario en la manana|consulta en la manana)\b/.test(text) ||
-    (/\bmanana\b/.test(text) && /\b(?:por la manana|en la manana|consulta|atienden|abren|horario matutino|temprano)\b/.test(text))
+    /\b(?:temprano|matutino|citas temprano)\b/.test(text) ||
+    /\b(?:horario en la manana|consulta en la manana|atienden en la manana|abren en la manana|en la manana|por la manana)\b/.test(text) ||
+    (/\bmanana\b/.test(text) && /\b(?:atienden|abren|horario matutino|temprano|por la manana|en la manana)\b/.test(text))
   );
 }
 
@@ -227,7 +232,50 @@ function isPatientResultsRequest(text) {
 }
 
 function isGeneralMenuQuestion(text) {
-  return /\b(?:menu|info|informacion|informes|dudas|preguntas|opciones|ayuda)\b/.test(text);
+  return /\b(?:menu|informacion|dudas|preguntas|opciones|ayuda)\b/.test(text);
+}
+
+function isFeaturedPromoQuestion(text) {
+  // Specific promo campaign triggers
+  if (hasAny(text, [
+    "vi el anuncio", "vi la promo", "vi la publicacion", "vi el post",
+    "facebook", "instagram", "meta ads", "meta ad",
+    "me interesa la promo", "me interesa el paquete",
+    "chequeo ginecologico", "chequeo completo", "paquete ginecologico",
+    "consulta con ultrasonido", "papanicolaou precio", "ultrasonido precio",
+    "el de 1200", "los 1200", "cuanto incluye", "que incluye el paquete"
+  ])) return true;
+
+  // Price anchors for the promo
+  if (/\b1200\b/.test(text)) return true;
+
+  // Only "informes" alone should trigger this (not as part of other phrases)
+  if (/^informes$/.test(text)) return true;
+
+  return false;
+}
+
+function isRecentSexBeforeExamQuestion(text) {
+  const mentionsSex = hasAny(text, [
+    "tuve relaciones", "tuve sexo", "relaciones hoy", "relaciones ayer",
+    "sexo hoy", "sexo anoche", "relaciones anoche", "relaciones antes",
+    "puedo hacerme el papanicolaou si tuve relaciones",
+    "afecta si tuve relaciones", "relaciones antes del papanicolaou",
+    "relaciones con condon", "relaciones sin proteccion",
+    "tuve relaciones con", "si tuve relaciones"
+  ]);
+  return mentionsSex;
+}
+
+function isContactInfoQuestion(text) {
+  // Questions asking for phone/contact info but NOT asking to speak to a human
+  const wantsContact = hasAny(text, [
+    "me pasas el telefono", "me pasas el numero", "me das el numero",
+    "cual es el telefono", "cual es el numero", "numero de telefono",
+    "me das un numero", "contacto del consultorio", "como los contacto"
+  ]);
+  const wantsPhone = /^(?:telefono|numero|contacto|contactame)$/.test(text);
+  return wantsContact || wantsPhone;
 }
 
 function guessCategory(text) {

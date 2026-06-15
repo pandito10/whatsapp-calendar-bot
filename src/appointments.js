@@ -41,19 +41,23 @@ export function buildLocationMessage() {
 }
 
 export function buildAppointmentReviewMessage({ name, slot, email, firstVisit, paymentType, reason }) {
+  const displayService = reason && /promo|1200|paquete|chequeo/i.test(reason)
+    ? "Chequeo ginecologico completo $1,200"
+    : (reason ? sanitizeShortText(reason, 80) : undefined);
+
+  const slotDate = slot?.label ?? "";
   const lines = [
-    "Antes de confirmar, revisa que todo este correcto 😊",
+    "Te confirmo los datos:",
     "",
-    `👤 Paciente: ${sanitizeShortText(name || "Paciente", 80)}`,
-    `📅 Fecha y hora: ${slot.label}`,
-    reason ? `🩺 Servicio/motivo general: ${sanitizeShortText(reason, 80)}` : undefined,
+    `👤 Nombre: ${sanitizeShortText(name || "Paciente", 80)}`,
+    displayService ? `🩺 Servicio: ${displayService}` : undefined,
+    `📅 ${slotDate}`,
     email ? `📩 Correo: ${sanitizeShortText(email, 120)}` : undefined,
     firstVisit ? `📝 Primera vez: ${sanitizeShortText(firstVisit, 40)}` : undefined,
     paymentType ? `💳 Tipo: ${sanitizeShortText(paymentType, 80)}` : undefined,
-    config.clinicAddress ? `📍 Ubicacion: ${config.clinicAddress}` : undefined,
+    config.clinicAddress ? `📍 ${config.clinicAddress}` : undefined,
     "",
-    "¿Confirmo esta cita?",
-    "Responde SI para agendarla o NO para elegir otro horario."
+    "¿Confirmo tu cita?"
   ];
 
   return lines.filter(Boolean).join("\n");

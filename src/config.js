@@ -116,7 +116,10 @@ export const config = {
     maxOfferedSlots: Number(process.env.MAX_OFFERED_SLOTS ?? 6),
     workDays: (process.env.CLINIC_WORK_DAYS ?? process.env.WORK_DAYS ?? "1,2,3,4,5").split(",").map((day) => Number(day.trim())),
     workStart: process.env.CLINIC_START_TIME ?? process.env.WORK_START ?? "16:40",
-    workEnd: process.env.CLINIC_END_TIME ?? process.env.WORK_END ?? "20:00"
+    workEnd: process.env.CLINIC_END_TIME ?? process.env.WORK_END ?? "20:00",
+    sheetsEnabled: process.env.SHEETS_ENABLED === "true",
+    googleSheetsId: process.env.GOOGLE_SHEETS_ID ?? "",
+    googleServiceAccountJson: process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? ""
 };
 
 validateStartupConfig();

@@ -20,7 +20,7 @@ import {
   validateSlotSelection
 } from "./appointments.js";
 import { buildOperationalHealth, isOperationallyUnhealthy } from "./health.js";
-import { detectIntent, isAppointmentLikeQuestion, looksLikeDateRequest, meaningfulWords, normalizeText } from "./intents.js";
+import { detectIntent, hasAny, isAppointmentLikeQuestion, looksLikeDateRequest, meaningfulWords, normalizeText } from "./intents.js";
 import {
   buildInboxStats as buildInboxMetrics,
   buildLocalConversationSummary,
@@ -130,7 +130,19 @@ const interactiveReplyMap = {
   payment_human: "quiero hablar con una persona",
   active_continue: "continuar",
   active_restart: "empezar de nuevo",
-  active_human: "quiero hablar con una persona"
+  active_human: "quiero hablar con una persona",
+  // Promo campaign buttons
+  promo_schedule: "agendar",
+  promo_info: "vi el anuncio",
+  promo_includes: "que incluye el chequeo",
+  location: "ubicacion",
+  talk_human: "quiero hablar con una persona",
+  reschedule: "quiero reagendar",
+  search_new_date: "disponibilidad",
+  confirm_yes: "si",
+  confirm_no: "no",
+  date_tomorrow: "cita manana",
+  choose_morning: "atienden en la manana"
 };
 
 const serviceOptionRows = [
@@ -2599,20 +2611,18 @@ function renderKnowledgePanel(suggestions, csrf, selectedPhone) {
 
 function renderQuickReplies() {
   const replies = [
-    ["Pedir nombre", "Perfecto 😊 ¿A nombre de quien agendamos la cita?"],
-    ["Pedir fecha", "Claro 😊 ¿Que dia te gustaria revisar disponibilidad? Puedes decirme hoy, manana, viernes o una fecha especifica."],
-    ["Horarios", "🕒 Claro. ¿Para que dia te gustaria revisar disponibilidad?\n\nPuedes decirme: hoy, mañana, viernes o una fecha especifica."],
+    ["Info promo $1200", "Claro 😊 La promocion es el chequeo ginecologico completo por $1,200.\n\nIncluye:\n✅ Consulta ginecologica\n✅ Papanicolaou\n✅ Ultrasonido pelvico\n✅ Ultrasonido endovaginal\n✅ Revision de mamas\n✅ Apoyo para deteccion oportuna de cancer cervico uterino\n✅ Apoyo para deteccion oportuna de cancer ovarico\n\nEstamos en Plaza de la Paz #20, consultorio 14, segundo piso.\n\n¿Quieres agendar?"],
+    ["Que incluye", "El chequeo ginecologico completo de $1,200 incluye: consulta ginecologica, Papanicolaou, ultrasonido pelvico, ultrasonido endovaginal, revision de mamas y apoyo para deteccion oportuna de cancer cervico uterino y ovarico.\n\nTodo con la Dra. Blanca Carranza 😊"],
+    ["Agendar promo", "Perfecto 😊 Te ayudo a agendar el chequeo ginecologico completo de $1,200. ¿Me puedes decir tu nombre completo?"],
     ["Ubicacion", getIntentResponse("location")],
-    ["Costos", `${getIntentResponse("cost")}\n\n${getIntentResponse("promotion")}`],
-    ["Pago", getIntentResponse("payment_methods")],
-    ["Resultados", "Claro 😊 Para compartir resultados o estudios, primero verificamos identidad y que el archivo este aprobado por el consultorio. ¿Me confirmas el nombre completo de la paciente?"],
-    ["Confirmar cita", "✅ Tu cita queda confirmada. Te esperamos en el consultorio. Si necesitas cambiar algo, escribenos por aqui."],
-    ["Reagendar", "Claro 😊 Te ayudo a reagendar. ¿Que dia te gustaria revisar para el nuevo horario?"],
-    ["Cancelar", "Para cancelar tu cita, confirmame por favor: ¿seguro que deseas cancelarla?"],
-    ["Retomar cita", "Hola 😊 ¿Quieres que sigamos con tu cita? Puedo ayudarte a elegir fecha, horario o pasarte con una persona."],
-    ["Humano", "Claro 😊 Una persona del consultorio revisara tu mensaje y te apoyara por aqui."],
-    ["Requisitos", getIntentResponse("appointment_requirements")],
-    ["Urgencias", "⚠️ Si tienes dolor intenso, sangrado abundante o una urgencia, por favor acude a urgencias o contacta directamente al consultorio."]
+    ["Pedir nombre", "Perfecto 😊 ¿A nombre de quien agendamos la cita?"],
+    ["Pedir fecha", "Claro 😊 ¿Que dia te gustaria? Puedes decirme hoy, manana, viernes o una fecha especifica."],
+    ["Formas de pago", getIntentResponse("payment_methods")],
+    ["Relaciones antes del Pap", "Gracias por avisar 😊\n\nPara el Papanicolaou se recomienda evitar relaciones sexuales, duchas vaginales, ovulos, cremas o medicamentos vaginales durante las 48 horas previas.\n\nLo mejor es que confirme el consultorio si conviene realizarlo o reagendar."],
+    ["Reagendar", "Claro 😊 Te ayudo a reagendar. ¿Que dia te gustaria para el nuevo horario?"],
+    ["Cancelar", "Para cancelar tu cita, ¿puedes confirmarme que deseas cancelarla definitivamente?"],
+    ["Pasar a humano", "Claro 😊 Una persona del consultorio revisara tu mensaje y te apoyara por aqui."],
+    ["Urgencia medica", "Por seguridad, si presentas dolor intenso, sangrado abundante, fiebre, desmayo o una emergencia, acude a urgencias o busca atencion medica inmediata.\n\nTambien puedo dejar tu mensaje para que una persona del consultorio lo revise."]
   ];
 
   return `<div class="quick-replies" aria-label="Respuestas rapidas">
@@ -2838,6 +2848,12 @@ async function handleIncomingText(from, text) {
     return;
   }
 
+  if (detectedIntent.intent === "recent_sex_before_exam") {
+    await addConversationTags(from, ["Papanicolaou", "Revisar indicacion"]);
+    await sendRecentSexBeforeExamResponse(from);
+    return;
+  }
+
   if (detectedIntent.intent === "cancel_appointment") {
     await handleCancellationRequest(from);
     return;
@@ -2871,6 +2887,11 @@ async function handleIncomingText(from, text) {
     return;
   }
 
+  if (detectedIntent.intent === "contact_info") {
+    await sendContactInfoResponse(from);
+    return;
+  }
+
   if (detectedIntent.intent === "confirm_appointment" && existing?.step !== "confirmingAppointment") {
     await handleConfirmAppointmentRequest(from);
     return;
@@ -2888,6 +2909,12 @@ async function handleIncomingText(from, text) {
   }
 
   const dateLikeRequest = looksLikeDateRequest(normalized);
+
+  if (!existing && normalized === "manana") {
+    await sendMananDisambiguationButtons(from);
+    return;
+  }
+
   if (!existing && !dateLikeRequest) {
     const menuHandled = await handleMenuOption(from, normalized, detectedIntent.intent);
     if (menuHandled) return;
@@ -2897,6 +2924,18 @@ async function handleIncomingText(from, text) {
   if (faqAnswer && !existing && !dateLikeRequest) {
     if (detectedIntent.intent === "greeting") {
       await sendGreetingMenuToPatient(from);
+      return;
+    }
+    if (detectedIntent.intent === "featured_promo") {
+      await sendFeaturedPromoResponse(from);
+      return;
+    }
+    if (detectedIntent.intent === "recent_sex_before_exam") {
+      await sendRecentSexBeforeExamResponse(from);
+      return;
+    }
+    if (detectedIntent.intent === "contact_info") {
+      await sendContactInfoResponse(from);
       return;
     }
     await replyToPatient(from, faqAnswer);
@@ -3480,6 +3519,21 @@ async function handleMenuOption(from, text, intent = detectIntent(text).intent) 
     return true;
   }
 
+  if (intent === "featured_promo") {
+    await sendFeaturedPromoResponse(from);
+    return true;
+  }
+
+  if (intent === "contact_info") {
+    await sendContactInfoResponse(from);
+    return true;
+  }
+
+  if (text === "que incluye el chequeo" || text === "promo_includes") {
+    await sendPromoIncludesResponse(from);
+    return true;
+  }
+
   if (option === 4 || intent === "cost" || intent === "promotion") {
     await replyToPatient(from, `${getIntentResponse("cost")}\n\n${getIntentResponse("promotion")}`);
     return true;
@@ -3559,18 +3613,173 @@ async function sendMainMenuToPatient(to) {
 }
 
 async function sendFallbackMenuToPatient(to) {
-  const body = "Perdon, no entendi bien 😅\n\nPuedo ayudarte con estas opciones:";
+  const body = "Perdon, no entendi bien. ¿Con que te ayudo?";
   try {
-    await sendWhatsAppList(to, {
+    await sendWhatsAppButtons(to, {
       body,
-      buttonText: "Opciones",
-      sections: [{ title: "Menu del consultorio", rows: mainMenuRows }]
+      buttons: [
+        { id: "promo_info", title: "Promo $1200" },
+        { id: "promo_schedule", title: "Agendar" },
+        { id: "talk_human", title: "Humano" }
+      ]
     });
-    await recordConversationMessage(to, "bot", `${body}\n\n${mainMenuRows.map((row, index) => `${index + 1}. ${row.title}`).join("\n")}`);
+    await recordConversationMessage(to, "bot", `${body}\n\n1. Promo $1200\n2. Agendar\n3. Humano`);
     await notifyBotReply(to, "Menu por fallback enviado.");
   } catch (error) {
-    logSafeError(`Failed sending fallback menu to ${maskPhone(to)}`, error);
-    await replyToPatient(to, getIntentResponse("fallback"));
+    logSafeError(`Failed sending fallback buttons to ${maskPhone(to)}`, error);
+    try {
+      await sendWhatsAppList(to, {
+        body: "Perdon, no entendi bien 😅\n\nPuedo ayudarte con estas opciones:",
+        buttonText: "Opciones",
+        sections: [{ title: "Menu del consultorio", rows: mainMenuRows }]
+      });
+      await recordConversationMessage(to, "bot", `Perdon, no entendi bien.\n\n${mainMenuRows.map((row, index) => `${index + 1}. ${row.title}`).join("\n")}`);
+      await notifyBotReply(to, "Menu por fallback enviado.");
+    } catch (listError) {
+      logSafeError(`Failed sending fallback list to ${maskPhone(to)}`, listError);
+      await replyToPatient(to, getIntentResponse("fallback"));
+    }
+  }
+}
+
+async function sendFeaturedPromoResponse(to) {
+  const body = [
+    "Claro 😊 La promocion es el chequeo ginecologico completo por $1,200.",
+    "",
+    "Incluye:",
+    "✅ Consulta ginecologica",
+    "✅ Papanicolaou",
+    "✅ Ultrasonido pelvico",
+    "✅ Ultrasonido endovaginal",
+    "✅ Revision de mamas",
+    "✅ Apoyo para deteccion oportuna de cancer cervico uterino",
+    "✅ Apoyo para deteccion oportuna de cancer ovarico",
+    "",
+    "📍 Estamos en Plaza de la Paz #20, consultorio 14, segundo piso, Col. Centro, Guanajuato, Gto.",
+    "",
+    "¿Que te gustaria hacer?"
+  ].join("\n");
+
+  await addConversationTags(to, ["Promo $1200", "Lead frio"]);
+  try {
+    await sendWhatsAppButtons(to, {
+      body,
+      buttons: [
+        { id: "promo_schedule", title: "Agendar" },
+        { id: "promo_includes", title: "Que incluye" },
+        { id: "location", title: "Ubicacion" }
+      ]
+    });
+    await recordConversationMessage(to, "bot", `${body}\n\n1. Agendar\n2. Que incluye\n3. Ubicacion`);
+    await notifyBotReply(to, "Promo $1200 enviada.");
+  } catch (error) {
+    logSafeError(`Failed sending promo buttons to ${maskPhone(to)}`, error);
+    await replyToPatient(to, `${body}\n\n¿Quieres agendar, ver que incluye o ver la ubicacion?`);
+  }
+}
+
+async function sendPromoIncludesResponse(to) {
+  const body = [
+    "El chequeo ginecologico completo de $1,200 incluye:",
+    "",
+    "✅ Consulta ginecologica",
+    "✅ Papanicolaou",
+    "✅ Ultrasonido pelvico",
+    "✅ Ultrasonido endovaginal",
+    "✅ Revision de mamas",
+    "✅ Apoyo para deteccion oportuna de cancer cervico uterino",
+    "✅ Apoyo para deteccion oportuna de cancer ovarico",
+    "",
+    "Todo por $1,200 con la Dra. Blanca Carranza 😊",
+    "",
+    "¿Quieres agendar tu cita?"
+  ].join("\n");
+
+  await addConversationTags(to, ["Promo $1200", "Lead tibio"]);
+  try {
+    await sendWhatsAppButtons(to, {
+      body,
+      buttons: [
+        { id: "promo_schedule", title: "Agendar" },
+        { id: "location", title: "Ubicacion" },
+        { id: "talk_human", title: "Hablar con alguien" }
+      ]
+    });
+    await recordConversationMessage(to, "bot", `${body}\n\n1. Agendar\n2. Ubicacion\n3. Hablar con alguien`);
+    await notifyBotReply(to, "Que incluye promo enviado.");
+  } catch (error) {
+    logSafeError(`Failed sending promo includes buttons to ${maskPhone(to)}`, error);
+    await replyToPatient(to, body);
+  }
+}
+
+async function sendRecentSexBeforeExamResponse(to) {
+  const body = [
+    "Gracias por avisar 😊",
+    "",
+    "Para el Papanicolaou se recomienda evitar relaciones sexuales, duchas vaginales, ovulos, cremas o medicamentos vaginales durante las 48 horas previas, porque pueden alterar la muestra.",
+    "",
+    "Como el chequeo completo incluye Papanicolaou, lo mejor es que una persona del consultorio confirme si conviene realizarlo o reagendar."
+  ].join("\n");
+
+  await addConversationTags(to, ["Papanicolaou", "Revisar indicacion"]);
+  try {
+    await sendWhatsAppButtons(to, {
+      body,
+      buttons: [
+        { id: "reschedule", title: "Reagendar" },
+        { id: "talk_human", title: "Hablar con persona" },
+        { id: "search_new_date", title: "Ver otra fecha" }
+      ]
+    });
+    await recordConversationMessage(to, "bot", `${body}\n\n1. Reagendar\n2. Hablar con persona\n3. Ver otra fecha`);
+    await notifyBotReply(to, "Respuesta sobre relaciones antes del Pap enviada.");
+  } catch (error) {
+    logSafeError(`Failed sending recent sex before exam buttons to ${maskPhone(to)}`, error);
+    await replyToPatient(to, body);
+  }
+}
+
+async function sendContactInfoResponse(to) {
+  const body = [
+    "Por este medio podemos ayudarte con citas, ubicacion, costos y dudas generales 😊",
+    "",
+    "Si necesitas atencion directa, puedo dejar esta conversacion para que una persona del consultorio la revise."
+  ].join("\n");
+
+  try {
+    await sendWhatsAppButtons(to, {
+      body,
+      buttons: [
+        { id: "promo_schedule", title: "Agendar" },
+        { id: "promo_info", title: "Ver promo" },
+        { id: "talk_human", title: "Hablar con persona" }
+      ]
+    });
+    await recordConversationMessage(to, "bot", `${body}\n\n1. Agendar\n2. Ver promo\n3. Hablar con persona`);
+    await notifyBotReply(to, "Info de contacto enviada.");
+  } catch (error) {
+    logSafeError(`Failed sending contact info buttons to ${maskPhone(to)}`, error);
+    await replyToPatient(to, body);
+  }
+}
+
+async function sendMananDisambiguationButtons(to) {
+  const body = "¿Quieres revisar citas para manana o preguntas por el horario de atencion?";
+  try {
+    await sendWhatsAppButtons(to, {
+      body,
+      buttons: [
+        { id: "date_tomorrow", title: "Cita manana" },
+        { id: "choose_morning", title: "Horario manana" },
+        { id: "talk_human", title: "Hablar con persona" }
+      ]
+    });
+    await recordConversationMessage(to, "bot", `${body}\n\n1. Cita manana\n2. Horario manana\n3. Hablar con persona`);
+    await notifyBotReply(to, "Disambiguacion manana enviada.");
+  } catch (error) {
+    logSafeError(`Failed sending manana disambiguation to ${maskPhone(to)}`, error);
+    await replyToPatient(to, `${body}\n\n1. Cita para manana\n2. Horario de manana\n3. Hablar con persona`);
   }
 }
 
@@ -3858,9 +4067,9 @@ function firstName(value) {
 
 async function replyWithAppointmentReview(to, body) {
   await replyToPatientWithButtons(to, body, [
-    { id: "appointment_confirm_yes", title: "Si, agendar" },
+    { id: "confirm_yes", title: "Si, confirmar" },
     { id: "appointment_change_time", title: "Cambiar horario" },
-    { id: "appointment_cancel_review", title: "Cancelar" }
+    { id: "confirm_no", title: "Cancelar" }
   ]);
 }
 
@@ -4012,6 +4221,17 @@ function suggestTagsFromText(text, intent) {
   if (/papanicolaou|papanicolau|papanicolao/.test(text)) tags.push("Papanicolau");
   if (/colposcopia/.test(text)) tags.push("Colposcopia");
   if (/primera vez|paciente nueva/.test(text)) tags.push("Primera vez", "Nueva paciente");
+  if (intent === "featured_promo") tags.push("Promo $1200", "Lead frio");
+  if (intent === "recent_sex_before_exam") tags.push("Papanicolaou", "Revisar indicacion");
+  if (intent === "contact_info") tags.push("Consulta rapida");
+  if (intent === "schedule_appointment" && /promo|1200|chequeo|paquete/.test(text)) {
+    tags.push("Promo $1200", "Lead caliente");
+  } else if (intent === "schedule_appointment") {
+    tags.push("Lead caliente");
+  }
+  if (hasAny(text, ["que incluye", "incluye ultrasonido", "incluye papanicolaou"])) tags.push("Lead tibio");
+  if (hasAny(text, ["me interesa", "quiero el paquete", "me interesa la promo", "quiero agendar la promo"])) tags.push("Lead caliente", "Promo $1200");
+  if (hasAny(text, ["vi el anuncio", "vi la promo", "facebook", "instagram", "meta"])) tags.push("Meta Ads");
   return tags;
 }
 
@@ -4453,10 +4673,16 @@ function getIntentResponse(intent) {
     new_patient: "Claro 😊 Podemos ayudarte a agendar tu primera consulta.\n\n¿Me compartes tu nombre completo para iniciar el registro?",
     medical_services:
       "Estos temas los puede revisar el consultorio 😊\n\nPodemos orientarte sobre consulta, paquete de promocion, ultrasonido, papanicolaou, colposcopia, embarazo/control prenatal y pacientes adolescentes.\n\nPara confirmar si el servicio que necesitas aplica para tu caso, puedo ayudarte a agendar o pasarte con una persona del consultorio.",
-    medical_urgent:
-      "Por seguridad, lo mejor es que te valore directamente la doctora.\n\nSi presentas dolor fuerte, sangrado abundante, fiebre, desmayo, dificultad para respirar o una emergencia, acude a urgencias o llama a los servicios de emergencia de tu localidad.\n\nTambien puedo ayudarte a agendar una cita o pasarte con una persona del consultorio.",
-    medication_question:
-      "Por seguridad, no puedo indicar medicamentos ni tratamientos por este medio.\n\nLo mejor es que la doctora pueda valorarte en consulta para darte la indicacion adecuada.\n\nSi gustas, puedo ayudarte a revisar horarios disponibles para agendar una cita.",
+    medical_urgent: [
+      "Por seguridad, si presentas dolor intenso, sangrado abundante, fiebre, desmayo o una emergencia, acude a urgencias o busca atencion medica inmediata.",
+      "",
+      "Tambien puedo dejar tu mensaje para que una persona del consultorio lo revise."
+    ].join("\n"),
+    medication_question: [
+      "Por seguridad no puedo indicar medicamentos por este medio. Si tienes dolor intenso, sangrado abundante, fiebre o una emergencia, acude a urgencias.",
+      "",
+      "Si gustas, puedo ayudarte a agendar o dejar tu mensaje para que una persona te oriente."
+    ].join("\n"),
     patient_results:
       "Claro 😊 Puedo ayudarte con tu solicitud de resultados o estudios.\n\nPor seguridad, una persona del consultorio verificara tu identidad y confirmara que el archivo este aprobado antes de compartirlo por WhatsApp.\n\nYa deje tu solicitud marcada para revision en el inbox. Si tienes una urgencia medica, por favor acude a urgencias o contacta directamente al consultorio.",
     direct_contact:
@@ -4466,10 +4692,38 @@ function getIntentResponse(intent) {
     late_arrival:
       "Gracias por avisar 😊\n\nPor favor contacta directamente al consultorio para confirmar si aun es posible atenderte en tu horario o si es necesario reagendar.",
     invoice: "Para temas de factura, por favor consulta directamente con el consultorio para confirmar disponibilidad y requisitos.",
-    fallback: [
-      "Perdon, no entendi bien 😅",
+    featured_promo: [
+      "Claro 😊 La promocion es el chequeo ginecologico completo por $1,200.",
       "",
-      "¿Quieres agendar, ver costos, ubicacion o hablar con una persona?"
+      "Incluye:",
+      "- Consulta ginecologica",
+      "- Papanicolaou",
+      "- Ultrasonido pelvico",
+      "- Ultrasonido endovaginal",
+      "- Revision de mamas",
+      "- Apoyo para deteccion oportuna de cancer cervico uterino",
+      "- Apoyo para deteccion oportuna de cancer ovarico",
+      "",
+      "Estamos en Plaza de la Paz #20, consultorio 14, segundo piso.",
+      "",
+      "Escribe 'agendar' para reservar tu cita 😊"
+    ].join("\n"),
+    recent_sex_before_exam: [
+      "Gracias por avisar 😊",
+      "",
+      "Para el Papanicolaou se recomienda evitar relaciones sexuales, duchas vaginales, ovulos, cremas o medicamentos vaginales durante las 48 horas previas, porque pueden alterar la muestra.",
+      "",
+      "Lo mejor es que una persona del consultorio confirme si conviene realizarlo o reagendar."
+    ].join("\n"),
+    contact_info: [
+      "Por este medio podemos ayudarte con citas, ubicacion, costos y dudas generales 😊",
+      "",
+      "Si necesitas atencion directa, escribe 'humano' para que una persona del consultorio te apoye."
+    ].join("\n"),
+    fallback: [
+      "Perdon, no entendi bien.",
+      "",
+      "¿Con que te ayudo?"
     ].join("\n")
   };
 

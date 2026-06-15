@@ -71,9 +71,9 @@ test("resumen previo pide confirmacion antes de agendar", () => {
     firstVisit: "Si",
     paymentType: "Particular"
   });
-  assert.match(message, /antes de confirmar/i);
-  assert.match(message, /responde SI/i);
-  assert.match(message, /NO para elegir otro horario/i);
+  assert.match(message, /confirmo/i);
+  assert.match(message, /Ana/i);
+  assert.match(message, /lunes.*2030/i);
 });
 
 test("ubicacion usa CLINIC_ADDRESS configurable", () => {
