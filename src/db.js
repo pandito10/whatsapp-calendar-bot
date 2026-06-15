@@ -563,6 +563,16 @@ export async function markCitaFailedByGoogleEvent(googleEventId, errorMessage) {
 
 export async function saveCita(citaData) {
   if (!isDatabaseEnabled()) return null;
+  if ((citaData.status ?? "confirmed") === "confirmed" && !String(citaData.googleEventId ?? "").trim()) {
+    throw new Error("google_event_id is required for confirmed appointments");
+  }
+  if ((citaData.status ?? "confirmed") === "confirmed") {
+    await failUnlinkedConfirmedCitasBetween(
+      citaData.slotStart,
+      citaData.slotEnd,
+      "Auto-expirada: cita confirmada sin google_event_id antes de guardar una cita real."
+    );
+  }
 
   let rows;
   try {
@@ -582,6 +592,24 @@ export async function saveCita(citaData) {
     slotEnd: row.slot_end,
     status: row.status
   };
+}
+
+export async function failUnlinkedConfirmedCitasBetween(startISO, endISO, errorMessage) {
+  if (!isDatabaseEnabled() || !startISO || !endISO) return [];
+
+  return await supabaseFetch(
+    `/rest/v1/citas?status=eq.confirmed&slot_start=lt.${encodeURIComponent(endISO)}&slot_end=gt.${encodeURIComponent(
+      startISO
+    )}&or=(google_event_id.is.null,google_event_id.eq.)`,
+    {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({
+        status: "failed",
+        error_message: String(errorMessage ?? "").slice(0, 500)
+      })
+    }
+  );
 }
 
 function buildCitaPayload(citaData, { legacy = false } = {}) {

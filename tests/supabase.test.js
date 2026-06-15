@@ -145,6 +145,11 @@ test("saveCita reintenta con payload legacy si falta una columna nueva", async (
     calls.push({ url: String(url), method: options?.method, body });
 
     if (calls.length === 1) {
+      assert.match(String(url), /or=\(google_event_id\.is\.null,google_event_id\.eq\.\)/);
+      return new Response(JSON.stringify([{ id: 44, status: "failed" }]), { status: 200 });
+    }
+
+    if (calls.length === 2) {
       return new Response(
         JSON.stringify({
           code: "PGRST204",
@@ -185,12 +190,56 @@ test("saveCita reintenta con payload legacy si falta una columna nueva", async (
     });
 
     assert.equal(cita.id, 7);
-    assert.equal(calls.length, 2);
-    assert.equal(calls[0].body.error_message, "test");
-    assert.equal(calls[1].body.error_message, undefined);
-    assert.equal(calls[1].body.first_visit, undefined);
-    assert.equal(calls[1].body.payment_type, undefined);
-    assert.equal(calls[1].body.reason, undefined);
+    assert.equal(calls.length, 3);
+    assert.equal(calls[0].method, "PATCH");
+    assert.equal(calls[0].body.status, "failed");
+    assert.equal(calls[1].body.error_message, "test");
+    assert.equal(calls[2].body.error_message, undefined);
+    assert.equal(calls[2].body.first_visit, undefined);
+    assert.equal(calls[2].body.payment_type, undefined);
+    assert.equal(calls[2].body.reason, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("saveCita rechaza cita confirmada sin google_event_id", async () => {
+  await assert.rejects(
+    () => saveCita({
+      phoneNumber: "5214771234567",
+      patientName: "Ana Lopez",
+      slotStart: "2030-06-17T22:40:00.000Z",
+      slotEnd: "2030-06-17T23:20:00.000Z",
+      status: "confirmed",
+      googleEventId: ""
+    }),
+    /google_event_id is required/
+  );
+});
+
+test("saveCita no inserta si no puede limpiar citas confirmadas sin google_event_id", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), method: options?.method });
+    return new Response(JSON.stringify({ message: "cleanup failed" }), { status: 500 });
+  };
+
+  try {
+    await assert.rejects(
+      () => saveCita({
+        phoneNumber: "5214771234567",
+        patientName: "Ana Lopez",
+        patientEmail: "ana@example.com",
+        googleEventId: "calendar-event-1",
+        slotStart: "2030-06-17T22:40:00.000Z",
+        slotEnd: "2030-06-17T23:20:00.000Z",
+        status: "confirmed"
+      }),
+      /Supabase request failed: 500/
+    );
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "PATCH");
   } finally {
     globalThis.fetch = originalFetch;
   }

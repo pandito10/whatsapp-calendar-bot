@@ -76,6 +76,17 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxScriptText, /scrollMessagesToBottom/);
     assert.match(inboxScriptText, /data-template/);
     assert.match(inboxScriptText, /data-copy-phone/);
+
+    const debug = await fetch("http://127.0.0.1:32131/debug/config", { headers: { Cookie: inboxCookie } });
+    assert.equal(debug.status, 200);
+    const debugJson = await debug.json();
+    assert.equal(debugJson.calendarId, "ginecologiaintegralgto@gmail.com");
+    assert.deepEqual(debugJson.busyCalendarIds, ["ginecologiaintegralgto@gmail.com"]);
+    assert.deepEqual(debugJson.activeAppointmentLocks, []);
+    assert.equal(debugJson.databaseEnabled, false);
+    assert.ok(Array.isArray(debugJson.activeAppointmentLocks));
+    assert.equal(JSON.stringify(debugJson).includes("whatsapp-token-test"), false);
+    assert.equal(JSON.stringify(debugJson).includes(baseEnv.INBOX_PASSWORD), false);
   } finally {
     await app.stop();
   }

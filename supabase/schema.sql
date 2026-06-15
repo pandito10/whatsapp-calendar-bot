@@ -96,9 +96,10 @@ end $$;
 
 create index if not exists citas_phone_idx on public.citas (phone_number);
 create index if not exists citas_slot_start_idx on public.citas (slot_start);
-create unique index if not exists citas_confirmed_slot_start_unique_idx
+drop index if exists citas_confirmed_slot_start_unique_idx;
+create unique index if not exists citas_confirmed_slot_start_with_event_unique_idx
   on public.citas (slot_start)
-  where status = 'confirmed';
+  where status = 'confirmed' and nullif(google_event_id, '') is not null;
 
 
 create table if not exists public.appointment_locks (
