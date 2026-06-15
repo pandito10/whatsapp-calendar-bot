@@ -496,8 +496,61 @@ async function handleInbox(req, url, res) {
     pending: await loadKnowledgeSuggestions("pending", 12),
     approved: await loadKnowledgeSuggestions("approved", 20)
   };
+  const diagnostics = await buildInboxDiagnostics();
 
-  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderInboxPage(list, selected, req, url, knowledgeSuggestions));
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderInboxPage(list, selected, req, url, knowledgeSuggestions, diagnostics));
+}
+
+async function buildInboxDiagnostics() {
+  const db = await checkDatabaseHealth();
+  let activeLocks = [];
+  try {
+    activeLocks = await loadActiveAppointmentLocks(20);
+  } catch (error) {
+    logSafeError("Could not load active appointment locks for inbox diagnostics", error);
+  }
+
+  const items = [
+    {
+      label: "WhatsApp",
+      ok: Boolean(config.whatsappAccessToken && config.whatsappPhoneNumberId),
+      detail: config.whatsappAccessToken && config.whatsappPhoneNumberId ? "Configurado" : "Faltan token o phone number id"
+    },
+    {
+      label: "Firma Meta",
+      ok: Boolean(config.whatsappAppSecret && config.requireWebhookSignature && !config.allowUnsignedWebhooks),
+      detail: config.whatsappAppSecret && config.requireWebhookSignature && !config.allowUnsignedWebhooks ? "Firmado" : "Revisar App Secret"
+    },
+    {
+      label: "Supabase",
+      ok: Boolean(db?.ok),
+      detail: db?.status ?? "desconocido"
+    },
+    {
+      label: "Google",
+      ok: Boolean(config.googleClientId && config.googleClientSecret && config.googleRefreshToken),
+      detail: config.googleClientId && config.googleClientSecret && config.googleRefreshToken ? "OAuth configurado" : "Faltan credenciales"
+    },
+    {
+      label: "Inbox",
+      ok: Boolean((config.inboxPassword || config.inboxPasswordHash) && config.cookieSecret),
+      detail: (config.inboxPassword || config.inboxPasswordHash) && config.cookieSecret ? "Protegido" : "Falta auth/cookie"
+    },
+    {
+      label: "Recordatorios",
+      ok: !config.enableReminderWorker || config.enablePatientReminderTemplates,
+      detail: config.enableReminderWorker
+        ? config.enablePatientReminderTemplates ? "Templates activos" : "Worker activo sin templates"
+        : "Apagados seguro"
+    }
+  ];
+
+  return {
+    ready: items.every((item) => item.ok),
+    items,
+    activeLocksCount: activeLocks.length,
+    generatedAt: new Date().toISOString()
+  };
 }
 
 function handleInboxScript(res) {
@@ -1104,7 +1157,7 @@ async function getInboxConversations() {
   return [...conversations.values()].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
 
-function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
+function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], diagnostics) {
   const csrf = createSessionCsrfToken(req);
   const q = normalizeText(url.searchParams.get("q") ?? "");
   const filter = url.searchParams.get("filter") ?? "all";
@@ -1125,6 +1178,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
   const quickReplies = selected ? renderQuickReplies() : "";
   const rightPanel = renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, windowState, knowledgeSuggestions });
   const filterOptions = renderInboxQuickFilters(filter, url.searchParams.get("q") ?? "");
+  const diagnosticsCard = renderInboxDiagnostics(diagnostics);
   const conversationLinks =
     filteredList.length === 0
       ? `<div class="empty-state">Todavia no hay conversaciones.</div>`
@@ -1334,6 +1388,41 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
     }
     .stat strong { display: block; font-size: 18px; line-height: 1; }
     .stat span { display: block; color: var(--muted); font-size: 11px; margin-top: 5px; }
+    .diagnostics-card {
+      margin: 0 14px 14px;
+      padding: 12px;
+      border: 1px solid #f7d3e1;
+      border-radius: 14px;
+      background: #fffafd;
+    }
+    .diagnostics-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .diagnostics-head strong { font-size: 13px; }
+    .diagnostics-grid {
+      display: grid;
+      gap: 7px;
+    }
+    .diagnostic-row {
+      display: grid;
+      grid-template-columns: 10px minmax(0, 82px) minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      color: #5f3046;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #16a34a;
+    }
+    .dot.warn { background: #f59e0b; }
+    .dot.err { background: #dc2626; }
     .thread {
       display: flex;
       gap: 12px;
@@ -1995,6 +2084,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = []) {
         <div class="stat"><strong>${stats.urgent}</strong><span>Urgentes</span></div>
         <div class="stat"><strong>${stats.noReply}</strong><span>No respondio</span></div>
       </div>
+      ${diagnosticsCard}
       <form class="tools" method="get" action="/inbox">
         <input name="q" value="${escapeHtml(url.searchParams.get("q") ?? "")}" placeholder="Buscar nombre, telefono, etiqueta o estado">
         <div class="tool-row">
@@ -2096,6 +2186,35 @@ function renderOperationalStatusBadges() {
   ];
 
   return badges.map((badge) => `<span class="health-pill ${badge.className}">${escapeHtml(badge.label)}</span>`).join("");
+}
+
+function renderInboxDiagnostics(diagnostics) {
+  if (!diagnostics) return "";
+  const rows = diagnostics.items
+    .map((item) => {
+      const dotClass = item.ok ? "ok" : "err";
+      return `<div class="diagnostic-row">
+        <span class="dot ${dotClass}"></span>
+        <strong>${escapeHtml(item.label)}</strong>
+        <span>${escapeHtml(item.detail)}</span>
+      </div>`;
+    })
+    .join("");
+
+  return `<div class="diagnostics-card">
+    <div class="diagnostics-head">
+      <strong>Diagnostico rapido</strong>
+      <span class="tag ${diagnostics.ready ? "confirmed" : "urgent"}">${diagnostics.ready ? "Listo" : "Revisar"}</span>
+    </div>
+    <div class="diagnostics-grid">
+      ${rows}
+      <div class="diagnostic-row">
+        <span class="dot ${diagnostics.activeLocksCount > 0 ? "warn" : "ok"}"></span>
+        <strong>Locks</strong>
+        <span>${diagnostics.activeLocksCount} horarios apartados temporalmente</span>
+      </div>
+    </div>
+  </div>`;
 }
 
 function renderInboxQuickFilters(current, query = "") {
@@ -2741,7 +2860,7 @@ async function handleIncomingText(from, text) {
 
     if (isNegativeConfirmation(normalized)) {
       await resetSlotSelection(from, session);
-      await replyToPatient(from, "Sin problema 😊 No agende esa cita. Dime que otra fecha quieres revisar y te paso horarios disponibles.");
+      await replyWithDateOptions(from, "Sin problema 😊 No agende esa cita. ¿Que otra fecha quieres revisar?");
       return;
     }
 
@@ -2755,7 +2874,7 @@ async function handleIncomingText(from, text) {
 
     if (!slotValidation.ok) {
       await resetSlotSelection(from, session);
-      await replyToPatient(from, "Ese horario ya no es valido. Dime que dia quieres revisar y te paso nuevos horarios disponibles.");
+      await replyWithDateOptions(from, "Ese horario ya no es valido. ¿Que dia quieres revisar para pasarte nuevos horarios?");
       return;
     }
 
@@ -2884,7 +3003,7 @@ async function offerAvailableSlots(from, session, options = {}) {
     await setPatientSession(from, { ...session, step: "waitlistOffer", waitlistDateISO: session.preferredDateISO, waitlistDateText: session.preferredDateText });
     await replyToPatientWithButtons(
       from,
-      `${options.prefix ?? ""}Por ahora no tengo horarios disponibles para ese dia 😕${buildAppointmentScheduleLinkSuffix()}\n\n¿Quieres que te agregue a lista de espera por si se libera un espacio?`,
+      buildNoSlotsWaitlistMessage(session, options.prefix),
       [
         { id: "waitlist_yes", title: "Si" },
         { id: "waitlist_other_day", title: "Otro dia" },
@@ -2949,7 +3068,7 @@ async function confirmAppointmentFromSession(from, session) {
 
   if (!slotValidation.ok) {
     await resetSlotSelection(from, session);
-    await replyToPatient(from, "Ese horario ya no es valido. Dime que dia quieres revisar y te paso nuevos horarios disponibles.");
+    await replyWithDateOptions(from, "Ese horario ya no es valido. ¿Que dia quieres revisar para pasarte nuevos horarios?");
     return;
   }
 
@@ -2959,20 +3078,14 @@ async function confirmAppointmentFromSession(from, session) {
     lock = await lockAppointmentSlot(from, slot);
     if (lock === false) {
       await resetSlotSelection(from, session);
-      await replyToPatient(
-        from,
-        "😕 Ese horario se acaba de apartar. Dime que dia te gustaria revisar y te paso nuevos horarios disponibles."
-      );
+      await replyWithDateOptions(from, "😕 Ese horario se acaba de apartar. ¿Que dia te gustaria revisar para pasarte nuevos horarios?");
       return;
     }
 
     const stillAvailable = await isSlotAvailable(slot);
     if (!stillAvailable) {
       await resetSlotSelection(from, session);
-      await replyToPatient(
-        from,
-        "😕 Ese horario se acaba de ocupar. Dime que dia te gustaria revisar y te paso nuevos horarios disponibles."
-      );
+      await replyWithDateOptions(from, "😕 Ese horario se acaba de ocupar. ¿Que dia te gustaria revisar para pasarte nuevos horarios?");
       return;
     }
 
@@ -3100,10 +3213,16 @@ function buildAvailabilityIntro(session, slots) {
     if (!isClinicWorkDate(requestedDateISO)) {
       return `📅 No, el ${requestedLabel} no trabajamos. Por el momento atendemos de lunes a viernes de 4:40 p.m. a 8:00 p.m.\n\nTe comparto opciones cercanas:`;
     }
-    return `📅 No tengo horarios disponibles para el ${requestedLabel}.\n\nTe comparto opciones cercanas:`;
+    return `📅 Para el ${requestedLabel} ya no encontre espacios libres.\n\nTe comparto opciones cercanas:`;
   }
 
   return "🕒 Tengo estos horarios disponibles:";
+}
+
+function buildNoSlotsWaitlistMessage(session, prefix = "") {
+  const requestedDateISO = session.preferredDateISO;
+  const requestedLabel = requestedDateISO ? ` para el ${formatDateOnlyFull(requestedDateISO)}` : " para ese dia";
+  return `${prefix ?? ""}Por ahora no tengo horarios disponibles${requestedLabel} 😕${buildAppointmentScheduleLinkSuffix()}\n\n¿Quieres que te agregue a lista de espera por si se libera un espacio?`;
 }
 
 function dateOnlyFromISO(value) {

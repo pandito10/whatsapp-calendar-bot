@@ -16,6 +16,7 @@ MVP para que un consultorio agende citas automaticamente por WhatsApp y cree eve
 - Notifica a la doctora por WhatsApp.
 - Guarda conversaciones y citas en Supabase cuando esta configurado.
 - Muestra un inbox web con modo humano.
+- Muestra diagnostico rapido en el inbox: WhatsApp, firma Meta, Supabase, Google, auth del inbox, recordatorios y locks activos.
 
 ## Lo que necesitas crear
 
@@ -498,6 +499,7 @@ Esta versión endurecida agrega varias protecciones para poder probar el robot c
 - Los errores redactan tokens, claves y teléfonos antes de mostrarse en logs.
 - El inbox muestra estado visual de DB, Google y firma Meta en la barra superior.
 - El inbox muestra estadisticas basicas: conversaciones, citas, seguimiento, modo humano, urgentes y pacientes sin respuesta.
+- El inbox incluye un diagnostico rapido para que recepcion vea si WhatsApp, Supabase, Google, firma Meta, auth del inbox y recordatorios estan sanos.
 - El inbox permite editar FAQs, activar/desactivar, borrar, agregar variaciones y asignar etiquetas manuales a conversaciones.
 - El bot guarda preguntas no reconocidas como pendientes para convertirlas en FAQ desde el inbox.
 - La agenda soporta buffer entre citas y minimo de anticipacion configurable.
