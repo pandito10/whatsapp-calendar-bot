@@ -7,12 +7,17 @@ loadDotEnv();
 // Unsigned webhooks are only accepted when ALLOW_UNSIGNED_WEBHOOKS=true is
 // explicitly set. If the variable is absent or any other value, it is false.
 const allowUnsignedWebhooks = process.env.ALLOW_UNSIGNED_WEBHOOKS === "true";
-const defaultGoogleCalendarId = "b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com";
-const defaultGoogleBusyCalendarIds = [
-    defaultGoogleCalendarId,
-    "ginecologiaintegralgto@gmail.com"
-];
-const googleCalendarId = process.env.GOOGLE_CALENDAR_ID || defaultGoogleCalendarId;
+const defaultGoogleCalendarId = "ginecologiaintegralgto@gmail.com";
+const defaultGoogleCalendarLabel = "agenda de citas DRA. CARRANZA";
+const legacyGoogleCalendarIds = new Set([
+    "b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com",
+    "primary"
+]);
+const legacyGoogleCalendarLabels = new Set(["calendario azul GINECOLOGIA INTEGRAL"]);
+const defaultGoogleBusyCalendarIds = [defaultGoogleCalendarId];
+const rawGoogleCalendarId = String(process.env.GOOGLE_CALENDAR_ID ?? "").trim();
+const googleCalendarId = normalizeGoogleCalendarId(rawGoogleCalendarId);
+const googleCalendarIdConfigured = Boolean(rawGoogleCalendarId) && googleCalendarId === rawGoogleCalendarId;
 
 const required = [
     "WHATSAPP_VERIFY_TOKEN",
@@ -80,10 +85,10 @@ export const config = {
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
     googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN,
     googleCalendarId,
-    googleCalendarLabel: process.env.GOOGLE_CALENDAR_LABEL ?? "calendario azul GINECOLOGIA INTEGRAL",
+    googleCalendarLabel: normalizeGoogleCalendarLabel(process.env.GOOGLE_CALENDAR_LABEL),
     googleCalendarEventColorId: process.env.GOOGLE_CALENDAR_EVENT_COLOR_ID ?? "9",
     googleCalendarEventSummaryPrefix: process.env.GOOGLE_CALENDAR_EVENT_SUMMARY_PREFIX ?? "DRA. CARRANZA-",
-    googleCalendarIdConfigured: Boolean(process.env.GOOGLE_CALENDAR_ID),
+    googleCalendarIdConfigured,
     googleBusyCalendarIds: parseGoogleBusyCalendarIds(process.env.GOOGLE_BUSY_CALENDAR_IDS, googleCalendarId, defaultGoogleBusyCalendarIds),
     googleRedirectUri:
           process.env.GOOGLE_REDIRECT_URI ??
@@ -214,10 +219,23 @@ function parseGoogleBusyCalendarIds(value, eventCalendarId, defaultBusyCalendarI
     const configuredIds = String(value ?? "")
           .split(",")
           .map((id) => id.trim())
-          .filter(Boolean);
+          .filter(Boolean)
+          .map(normalizeGoogleCalendarId);
     if (configuredIds.length > 0) return [...new Set(configuredIds)];
 
     return [...new Set(defaultBusyCalendarIds.filter(Boolean))];
+}
+
+function normalizeGoogleCalendarId(value) {
+    const id = String(value ?? "").trim();
+    if (!id || legacyGoogleCalendarIds.has(id)) return defaultGoogleCalendarId;
+    return id;
+}
+
+function normalizeGoogleCalendarLabel(value) {
+    const label = String(value ?? "").trim();
+    if (!label || legacyGoogleCalendarLabels.has(label)) return defaultGoogleCalendarLabel;
+    return label;
 }
 
 export function requireEnv(keys, serviceName) {

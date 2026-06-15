@@ -47,19 +47,19 @@ Meta:   https://whatsapp-calendar-bot-gw3e.onrender.com/webhook/TU_WEBHOOK_PATH_
 
 No uses `https://whatsapp-calendar-bot.onrender.com` para este bot. Ese dominio puede apuntar a otro servicio y no debe configurarse en Meta.
 
-El bot crea citas en el calendario azul **GINECOLOGIA INTEGRAL** y revisa ocupacion en el azul mas el calendario amarillo donde viven varias citas antiguas. Para este piloto debe estar asi:
+El calendario oficial del piloto es la agenda de citas **DRA. CARRANZA**. El link de Google Appointment Schedule que usa el consultorio corresponde a `ginecologiaintegralgto@gmail.com`; por eso ese correo es el `GOOGLE_CALENDAR_ID` correcto.
 
 ```text
-GOOGLE_CALENDAR_LABEL=calendario azul GINECOLOGIA INTEGRAL
-GOOGLE_CALENDAR_ID=b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com
+GOOGLE_CALENDAR_LABEL=agenda de citas DRA. CARRANZA
+GOOGLE_CALENDAR_ID=ginecologiaintegralgto@gmail.com
 GOOGLE_CALENDAR_EVENT_COLOR_ID=9
 GOOGLE_CALENDAR_EVENT_SUMMARY_PREFIX=DRA. CARRANZA-
-GOOGLE_BUSY_CALENDAR_IDS=b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com,ginecologiaintegralgto@gmail.com
+GOOGLE_BUSY_CALENDAR_IDS=ginecologiaintegralgto@gmail.com
 ```
 
-`GOOGLE_CALENDAR_ID` es donde caen las nuevas citas del bot. `GOOGLE_BUSY_CALENDAR_IDS` incluye tambien `ginecologiaintegralgto@gmail.com` porque ahi existen citas anteriores que deben bloquear disponibilidad.
-`GOOGLE_CALENDAR_EVENT_COLOR_ID=9` hace que las citas creadas por el bot usen el mismo azul visual de las citas buenas.
-`GOOGLE_CALENDAR_EVENT_SUMMARY_PREFIX=DRA. CARRANZA-` hace que el evento se vea con el mismo prefijo de la agenda azul.
+`GOOGLE_CALENDAR_ID` es donde caen las nuevas citas del bot. `GOOGLE_BUSY_CALENDAR_IDS` bloquea disponibilidad contra ese mismo calendario. Solo agrega otros calendarios si el consultorio confirma que tambien deben bloquear horarios.
+`GOOGLE_CALENDAR_EVENT_COLOR_ID=9` mantiene el color visual de las citas creadas por el bot.
+`GOOGLE_CALENDAR_EVENT_SUMMARY_PREFIX=DRA. CARRANZA-` hace que el evento se vea con el mismo prefijo de la agenda oficial.
 
 ## Configuracion
 

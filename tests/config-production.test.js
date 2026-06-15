@@ -15,7 +15,7 @@ const baseEnv = {
   GOOGLE_CLIENT_ID: "google-client",
   GOOGLE_CLIENT_SECRET: "google-secret",
   GOOGLE_REFRESH_TOKEN: "google-refresh",
-  GOOGLE_CALENDAR_ID: "b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com"
+  GOOGLE_CALENDAR_ID: "ginecologiaintegralgto@gmail.com"
 };
 
 test("produccion exige WHATSAPP_APP_SECRET si la firma es obligatoria", () => {
@@ -57,20 +57,46 @@ test("produccion acepta alias REQUIRE_SUPABASE_FOR_APPOINTMENTS para exigir Supa
   assert.match(result.stderr, /SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/);
 });
 
-test("si falta GOOGLE_CALENDAR_ID usa calendario azul y lo advierte en readiness", () => {
+test("si falta GOOGLE_CALENDAR_ID usa agenda oficial Dra Carranza y lo advierte en readiness", () => {
   const { GOOGLE_CALENDAR_ID: _googleCalendarId, ...envWithoutCalendarId } = baseEnv;
   const result = spawnSync(
     process.execPath,
     [
       "--input-type=module",
       "-e",
-      "const { config } = await import('./src/config.js'); const { assessProductionReadiness } = await import('./src/readiness.js'); const readiness = assessProductionReadiness({ dbOk: true }); if (config.googleCalendarId !== 'b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com') throw new Error(config.googleCalendarId); if (config.googleCalendarLabel !== 'calendario azul GINECOLOGIA INTEGRAL') throw new Error(config.googleCalendarLabel); if (config.googleCalendarIdConfigured !== false) throw new Error('expected default calendar'); if (config.googleBusyCalendarIds.length !== 2 || !config.googleBusyCalendarIds.includes(config.googleCalendarId) || !config.googleBusyCalendarIds.includes('ginecologiaintegralgto@gmail.com')) throw new Error('expected blue and legacy busy calendars'); if (!readiness.warnings.some((warning) => warning.includes('calendario azul'))) throw new Error('missing warning');"
+      "const { config } = await import('./src/config.js'); const { assessProductionReadiness } = await import('./src/readiness.js'); const readiness = assessProductionReadiness({ dbOk: true }); if (config.googleCalendarId !== 'ginecologiaintegralgto@gmail.com') throw new Error(config.googleCalendarId); if (config.googleCalendarLabel !== 'agenda de citas DRA. CARRANZA') throw new Error(config.googleCalendarLabel); if (config.googleCalendarIdConfigured !== false) throw new Error('expected default calendar'); if (config.googleBusyCalendarIds.length !== 1 || config.googleBusyCalendarIds[0] !== config.googleCalendarId) throw new Error('expected official busy calendar only'); if (!readiness.warnings.some((warning) => warning.includes('agenda de citas DRA. CARRANZA'))) throw new Error('missing warning');"
     ],
     {
       cwd: fileURLToPath(new URL("..", import.meta.url)),
       env: {
         ...envWithoutCalendarId,
         GOOGLE_CALENDAR_ID: "",
+        WHATSAPP_APP_SECRET: "app-secret",
+        SUPABASE_URL: "https://example.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "sb_secret_test"
+      },
+      encoding: "utf8"
+    }
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("normaliza calendario viejo o primary a la agenda oficial Dra Carranza", () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      "const { config } = await import('./src/config.js'); if (config.googleCalendarId !== 'ginecologiaintegralgto@gmail.com') throw new Error(config.googleCalendarId); if (config.googleBusyCalendarIds.length !== 1 || config.googleBusyCalendarIds[0] !== 'ginecologiaintegralgto@gmail.com') throw new Error(config.googleBusyCalendarIds.join(',')); if (config.googleCalendarIdConfigured !== false) throw new Error('legacy id should not count as configured');"
+    ],
+    {
+      cwd: fileURLToPath(new URL("..", import.meta.url)),
+      env: {
+        ...baseEnv,
+        GOOGLE_CALENDAR_ID: "primary",
+        GOOGLE_BUSY_CALENDAR_IDS: "primary,b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com",
+        GOOGLE_CALENDAR_LABEL: "calendario azul GINECOLOGIA INTEGRAL",
         WHATSAPP_APP_SECRET: "app-secret",
         SUPABASE_URL: "https://example.supabase.co",
         SUPABASE_SERVICE_ROLE_KEY: "sb_secret_test"

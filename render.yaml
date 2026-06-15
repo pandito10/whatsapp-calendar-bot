@@ -93,15 +93,15 @@ services:
       - key: GOOGLE_REFRESH_TOKEN
         sync: false
       - key: GOOGLE_CALENDAR_LABEL
-        value: calendario azul GINECOLOGIA INTEGRAL
+        value: agenda de citas DRA. CARRANZA
       - key: GOOGLE_CALENDAR_ID
-        value: b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com
+        value: ginecologiaintegralgto@gmail.com
       - key: GOOGLE_CALENDAR_EVENT_COLOR_ID
         value: "9"
       - key: GOOGLE_CALENDAR_EVENT_SUMMARY_PREFIX
         value: DRA. CARRANZA-
       - key: GOOGLE_BUSY_CALENDAR_IDS
-        value: b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com,ginecologiaintegralgto@gmail.com
+        value: ginecologiaintegralgto@gmail.com
       - key: AI_PROVIDER
         value: local
       - key: CLINIC_TIMEZONE

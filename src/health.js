@@ -44,7 +44,7 @@ export function buildOperationalHealth({ db, conversationCount = 0, memorySessio
       label: config.googleCalendarLabel,
       id: config.googleCalendarId,
       busyCalendarIds: config.googleBusyCalendarIds,
-      source: config.googleCalendarIdConfigured ? "env" : "default-calendario-azul",
+      source: config.googleCalendarIdConfigured ? "env" : "default-agenda-dra-carranza",
       usingConfiguredCalendar: config.googleCalendarIdConfigured
     },
     readiness,
