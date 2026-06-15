@@ -38,6 +38,13 @@ test("detecta servicios ginecologicos administrativos sin IA", () => {
   assert.equal(detectIntent("atienden embarazadas").intent, "medical_services");
 });
 
+test("detecta solicitud de resultados sin confundir servicios", () => {
+  assert.equal(detectIntent("me mandas mis resultados").intent, "patient_results");
+  assert.equal(detectIntent("ya estan mis estudios?").intent, "patient_results");
+  assert.equal(detectIntent("quiero mi diagnostico del paquete").intent, "patient_results");
+  assert.equal(detectIntent("que estudios hacen").intent, "medical_services");
+});
+
 test("detecta cancelar, reagendar y humano", () => {
   assert.equal(detectIntent("kiero cancelar").intent, "cancel_appointment");
   assert.equal(detectIntent("kiero cambiar mi cita").intent, "reschedule_appointment");

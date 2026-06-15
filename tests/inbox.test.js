@@ -74,10 +74,12 @@ test("filtra por estado, etiqueta, nombre y telefono", () => {
   assert.equal(filterInboxConversations(list, "2222", "all", now).length, 1);
   assert.equal(filterInboxConversations(list, "Urgente", "all", now).length, 1);
   assert.equal(filterInboxConversations(list, "", "followup", now).length, 1);
+  assert.equal(filterInboxConversations([conversation({ tags: ["Resultados"], botPaused: true })], "", "results", now).length, 1);
 });
 
 test("detecta modo humano, cita agendada y ventana de 24 horas", () => {
   assert.equal(getConversationStatus(conversation({ botPaused: true }), now).key, "human");
+  assert.equal(getConversationStatus(conversation({ botPaused: true, tags: ["Resultados"] }), now).key, "results");
   assert.equal(
     getConversationStatus(
       conversation({

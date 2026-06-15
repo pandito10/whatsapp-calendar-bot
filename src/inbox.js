@@ -39,6 +39,10 @@ export function getConversationStatus(conversation, nowMs = Date.now()) {
     return { key: "misunderstood", label: "Bot no entendio", className: "misunderstood", priority: 2 };
   }
 
+  if (tags.has("resultados")) {
+    return { key: "results", label: "Resultados pendientes", className: "human", priority: 3 };
+  }
+
   if (conversation?.botPaused) {
     return { key: "human", label: "Modo humano activo", className: "human", priority: 3 };
   }
@@ -117,7 +121,7 @@ export function filterInboxConversations(list, query = "", filter = "all", nowMs
       filter === "all" ||
       (filter === "priority" && status.priority <= 5) ||
       filter === status.key ||
-      (filter === "pending" && ["followup", "misunderstood", "awaiting_confirmation", "urgent", "closing_window", "expired_window", "stuck"].includes(status.key)) ||
+      (filter === "pending" && ["followup", "misunderstood", "awaiting_confirmation", "urgent", "results", "closing_window", "expired_window", "stuck"].includes(status.key)) ||
       (filter === "followup" && conversation.messages?.at(-1)?.sender === "patient") ||
       (filter === "waiting" && status.className === "waiting") ||
       (filter === "confirmed" && conversation.appointment?.status === "confirmed") ||

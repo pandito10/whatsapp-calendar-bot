@@ -42,6 +42,7 @@ export function detectIntent(value) {
       "necesito consulta", "quiero consultar", "apartar cita", "me urge una cita"
     ])],
     ["check_availability", () => isAvailabilityIntent(text)],
+    ["patient_results", () => isPatientResultsRequest(text)],
     ["cost", () => isPriceQuestion(text)],
     ["promotion", () => isPromotionQuestion(text)],
     ["payment_methods", () => isPaymentQuestion(text)],
@@ -210,12 +211,28 @@ function isPaymentQuestion(text) {
   return /\b(?:tarjeta|credito|debito|transferencia|efectivo|pago|formas de pago|forma de pago|metodos de pago|pagar con tarjeta|pagar con transferencia|pagar efectivo)\b/.test(text);
 }
 
+function isPatientResultsRequest(text) {
+  if (/\b(?:que|cuales)\s+(?:estudios|servicios)\b/.test(text)) return false;
+  if (/\b(?:hacen|tienen|ofrecen|realizan)\s+(?:ultrasonido|papanicolaou|papanicolau|papanicolao|colposcopia|estudios|servicios)\b/.test(text)) {
+    return false;
+  }
+
+  const mentionsDocument = /\b(?:resultado|resultados|estudio|estudios|examen|examenes|analisis|diagnostico|diagnosticos|reporte|reportes|archivo|archivos|documento|documentos)\b/.test(text);
+  if (!mentionsDocument) return false;
+
+  return (
+    /\b(?:mi|mis|mio|mia|mandame|mandar|manda|mandan|manden|enviar|envia|envian|entregar|entregan|pasame|pasa|subir|subieron|listo|listos|salio|salieron|recoger|consultar|ver)\b/.test(text) ||
+    /\b(?:resultado|resultados|diagnostico|diagnosticos|examen|examenes|analisis)\b/.test(text)
+  );
+}
+
 function isGeneralMenuQuestion(text) {
   return /\b(?:menu|info|informacion|informes|dudas|preguntas|opciones|ayuda)\b/.test(text);
 }
 
 function guessCategory(text) {
   if (hasAny(text, ["dolor", "sangrado", "embarazo", "fiebre"])) return "posible_urgencia";
+  if (hasAny(text, ["resultado", "resultados", "diagnostico", "diagnosticos", "examen", "examenes", "analisis"])) return "resultados";
   if (hasAny(text, ["servicio", "estudio", "ultra", "papan", "colpo"])) return "servicios";
   if (hasAny(text, ["pago", "tarjeta", "transferencia", "efectivo"])) return "formas_pago";
   if (hasAny(text, ["cita", "agenda", "horario"])) return "agenda";

@@ -164,7 +164,7 @@ El inbox permite:
 
 - Ver conversaciones.
 - Buscar por nombre o telefono.
-- Filtrar por pendientes, cita agendada, sin cita, primera vez, recurrentes o modo humano.
+- Filtrar por pendientes, resultados, cita agendada, sin cita, primera vez, recurrentes o modo humano.
 - Responder desde `/inbox` como humano.
 - Enviar un adjunto por respuesta: foto, video, PDF, Word, Excel, PowerPoint, TXT o CSV.
 - Cerrar la conversacion seleccionada para volver a la vista neutral de pacientes.
@@ -176,6 +176,18 @@ El inbox permite:
 Las acciones del inbox requieren sesion y CSRF. Los mensajes humanos se envian por WhatsApp desde backend y se guardan solo despues de respuesta exitosa de la API.
 Los adjuntos se suben primero a la Media API de WhatsApp y despues se envian como `image`, `video` o `document`. Supabase solo guarda metadata del envio (nombre, tipo, tamano e id de Meta), no el archivo completo. Esto reduce el riesgo de almacenar resultados medicos en la base del bot.
 Si una conversacion queda en modo humano mas de `BOT_PAUSE_TIMEOUT_MINUTES`, el bot la libera automaticamente al recibir un nuevo mensaje.
+
+### Solicitud de resultados o estudios
+
+El menu de WhatsApp incluye la opcion **Resultados**. Cuando una paciente la elige o escribe algo como "mis resultados", "mis estudios" o "mi diagnostico", el bot:
+
+- Marca la conversacion con etiquetas `Resultados` y `Humano requerido`.
+- Pausa el bot para que no mande documentos automaticamente.
+- Guarda una nota interna para verificar identidad y revisar que el archivo este aprobado.
+- Responde a la paciente que el consultorio revisara la solicitud por seguridad.
+- Avisa al numero administrador sin incluir datos medicos en la alerta.
+
+Regla de operacion: no enviar resultados, diagnosticos ni estudios solo por nombre. Antes de compartir un archivo por WhatsApp, el personal debe verificar identidad y confirmar que el documento fue aprobado por el consultorio. Si la ultima interaccion de la paciente ya paso de 24 horas, no se debe iniciar el envio con texto libre; usa una plantilla aprobada de Meta o espera a que la paciente escriba de nuevo.
 
 ## Aprendizaje supervisado
 
@@ -204,9 +216,9 @@ AI_PROVIDER=local
 
 Tambien se acepta `AI_PROVIDER=off`, `AI_PROVIDER=none` o dejarlo vacio; el sistema usara el parser local.
 
-Este modo entiende mensajes reales de WhatsApp con reglas locales: "quiero cita mañana", "kiero cita", "q horarios tienen", "kuanto cuesta", fechas tipo `15/06`, dias de la semana, respuestas `1`, `2` o `3`, cancelacion, reagendar, formas de pago, ubicacion, servicios, requisitos y urgencias medicas administrativas.
+Este modo entiende mensajes reales de WhatsApp con reglas locales: "quiero cita mañana", "kiero cita", "q horarios tienen", "kuanto cuesta", "mis resultados", fechas tipo `15/06`, dias de la semana, respuestas `1`, `2` o `3`, cancelacion, reagendar, formas de pago, ubicacion, servicios, requisitos y urgencias medicas administrativas.
 
-Cuando WhatsApp acepta mensajes interactivos, el saludo envia una lista con opciones como agendar, horarios, ubicacion, costos, pagos, servicios y humano. Si el telefono ya tiene una cita confirmada, el bot muestra un menu de paciente recurrente y puede reutilizar nombre/correo guardados. Cuando pide fecha, muestra fechas sugeridas en una lista interactiva y evita sugerir dias cerrados. Cuando muestra horarios disponibles, tambien envia una lista interactiva para elegir horario. Las confirmaciones importantes usan botones. Si Meta rechaza el formato interactivo o hay algun error temporal, el bot cae automaticamente a texto para no detener la conversacion.
+Cuando WhatsApp acepta mensajes interactivos, el saludo envia una lista con opciones como agendar, horarios, ubicacion, costos, pagos, servicios, humano y resultados. Si el telefono ya tiene una cita confirmada, el bot muestra un menu de paciente recurrente y puede reutilizar nombre/correo guardados. Cuando pide fecha, muestra fechas sugeridas en una lista interactiva y evita sugerir dias cerrados. Cuando muestra horarios disponibles, tambien envia una lista interactiva para elegir horario. Las confirmaciones importantes usan botones. Si Meta rechaza el formato interactivo o hay algun error temporal, el bot cae automaticamente a texto para no detener la conversacion.
 
 No usa Gemini, OpenAI, embeddings ni modelos externos para responder cuando `AI_PROVIDER=local/off/none`.
 
@@ -480,7 +492,7 @@ Terceros involucrados:
 
 Recomendacion: antes de usarlo con pacientes reales, prepara un aviso de privacidad del consultorio. Evita pedir sintomas, diagnosticos o informacion intima por WhatsApp. No uses este bot como expediente medico. Por default, el motivo que escriba el paciente no se manda a Google Calendar ni al aviso de admin; se recomienda revisar detalles sensibles solo en el inbox con personal autorizado.
 
-Si el personal envia resultados, fotos o archivos desde el inbox, recuerda que viajan por WhatsApp/Meta y quedan sujetos a las politicas y retencion de esa plataforma. El bot no guarda el archivo completo en Supabase; solo guarda metadata del envio para auditoria basica.
+Si el personal envia resultados, fotos o archivos desde el inbox, recuerda que viajan por WhatsApp/Meta y quedan sujetos a las politicas y retencion de esa plataforma. El bot no guarda el archivo completo en Supabase; solo guarda metadata del envio para auditoria basica. No uses envio automatico de resultados: deben pasar por verificacion humana y, fuera de la ventana de 24 horas, por plantilla aprobada de WhatsApp.
 
 ## Hardening técnico agregado
 
@@ -499,6 +511,7 @@ Esta versión endurecida agrega varias protecciones para poder probar el robot c
 - El inbox distingue pasos finos del flujo: esperando nombre, correo, servicio, tipo de consulta, fecha, horario o paciente atorada.
 - El inbox permite editar FAQs, activar/desactivar, borrar, agregar variaciones y asignar etiquetas manuales a conversaciones.
 - El bot guarda preguntas no reconocidas como pendientes para convertirlas en FAQ desde el inbox.
+- El bot detecta solicitudes de resultados/estudios, pausa automatizacion y las manda a revision humana segura.
 - La agenda soporta buffer entre citas y minimo de anticipacion configurable.
 - Si no hay horarios disponibles, puede guardar a la paciente en lista de espera.
 

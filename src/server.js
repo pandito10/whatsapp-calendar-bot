@@ -84,7 +84,8 @@ const mainMenuRows = [
   { id: "main_costs", title: "Costos", description: "Consulta y promocion" },
   { id: "main_payments", title: "Formas de pago", description: "Efectivo o transferencia" },
   { id: "main_services", title: "Servicios", description: "Dudas generales de servicios" },
-  { id: "main_human", title: "Hablar con persona", description: "Pedir apoyo del consultorio" }
+  { id: "main_human", title: "Hablar con persona", description: "Pedir apoyo del consultorio" },
+  { id: "main_results", title: "Resultados", description: "Solicitar estudios aprobados" }
 ];
 
 const interactiveReplyMap = {
@@ -94,11 +95,13 @@ const interactiveReplyMap = {
   main_costs: "4",
   main_payments: "5",
   main_services: "6",
+  main_results: "8",
   main_human: "7",
   returning_schedule: "quiero agendar otra cita",
   returning_next: "tengo cita",
   returning_reschedule: "quiero reagendar",
   returning_cancel: "quiero cancelar",
+  returning_results: "quiero mis resultados",
   returning_human: "quiero hablar con una persona",
   appointment_confirm_yes: "si",
   appointment_change_time: "no",
@@ -2224,6 +2227,7 @@ function renderInboxQuickFilters(current, query = "") {
     ["all", "Todas"],
     ["priority", "Prioridad"],
     ["urgent", "Urgentes"],
+    ["results", "Resultados"],
     ["misunderstood", "Bot no entendio"],
     ["awaiting_confirmation", "Por confirmar"],
     ["reschedule", "Reagendar"],
@@ -2465,6 +2469,7 @@ function renderQuickReplies() {
     ["Ubicacion", getIntentResponse("location")],
     ["Costos", `${getIntentResponse("cost")}\n\n${getIntentResponse("promotion")}`],
     ["Pago", getIntentResponse("payment_methods")],
+    ["Resultados", "Claro 😊 Para compartir resultados o estudios, primero verificamos identidad y que el archivo este aprobado por el consultorio. ¿Me confirmas el nombre completo de la paciente?"],
     ["Confirmar cita", "✅ Tu cita queda confirmada. Te esperamos en el consultorio. Si necesitas cambiar algo, escribenos por aqui."],
     ["Reagendar", "Claro 😊 Te ayudo a reagendar. ¿Que dia te gustaria revisar para el nuevo horario?"],
     ["Cancelar", "Para cancelar tu cita, confirmame por favor: ¿seguro que deseas cancelarla?"],
@@ -2694,6 +2699,11 @@ async function handleIncomingText(from, text) {
 
   if (detectedIntent.intent === "late_arrival") {
     await replyToPatient(from, getIntentResponse("late_arrival"));
+    return;
+  }
+
+  if (detectedIntent.intent === "patient_results") {
+    await handlePatientResultsRequest(from);
     return;
   }
 
@@ -3328,6 +3338,11 @@ async function handleMenuOption(from, text, intent = detectIntent(text).intent) 
     return true;
   }
 
+  if (option === 8 || intent === "patient_results") {
+    await handlePatientResultsRequest(from);
+    return true;
+  }
+
   if (option === 7 || intent === "direct_contact") {
     await setConversationHumanMode(from, true, "patient_request");
     setMemoryHumanMode(from, true);
@@ -3338,10 +3353,29 @@ async function handleMenuOption(from, text, intent = detectIntent(text).intent) 
   return false;
 }
 
+async function handlePatientResultsRequest(from) {
+  await addConversationTags(from, ["Resultados", "Humano requerido"]);
+  await setConversationHumanMode(from, true, "results_request");
+  setMemoryHumanMode(from, true);
+
+  try {
+    await saveConversationNote({
+      phoneNumber: from,
+      author: "bot",
+      body: "Solicitud de resultados/estudios. Verificar identidad de la paciente y enviar solo archivos aprobados por el consultorio. No enviar diagnosticos sin revision humana."
+    });
+  } catch (error) {
+    logSafeError("Could not save results request note", error);
+  }
+
+  await replyToPatient(from, getIntentResponse("patient_results"));
+  await notifyResultsRequest(from);
+}
+
 function menuOptionNumber(text) {
   const normalized = normalizeText(text);
-  const words = { uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7 };
-  if (/^[1-7]$/.test(normalized)) return Number(normalized);
+  const words = { uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8 };
+  if (/^[1-8]$/.test(normalized)) return Number(normalized);
   return words[normalized];
 }
 
@@ -3352,7 +3386,7 @@ async function replyToPatient(to, body) {
 }
 
 async function sendMainMenuToPatient(to) {
-  const body = "Hola 😊 Soy el asistente virtual del consultorio.\n\nPuedo ayudarte a agendar, revisar horarios, ubicacion, costos, formas de pago, servicios o pasarte con una persona.\n\nElige una opcion:";
+  const body = "Hola 😊 Soy el asistente virtual del consultorio.\n\nPuedo ayudarte a agendar, revisar horarios, ubicacion, costos, formas de pago, servicios, resultados o pasarte con una persona.\n\nElige una opcion:";
   try {
     await sendWhatsAppList(to, {
       body,
@@ -3380,6 +3414,7 @@ async function sendGreetingMenuToPatient(to) {
     { id: "returning_next", title: "Ver mi cita", description: "Consultar tu cita registrada" },
     { id: "returning_reschedule", title: "Reagendar", description: "Cambiar tu proxima cita" },
     { id: "returning_cancel", title: "Cancelar cita", description: "Cancelar con confirmacion" },
+    { id: "returning_results", title: "Resultados", description: "Solicitar estudios aprobados" },
     { id: "main_location", title: "Ubicacion", description: "Direccion del consultorio" },
     { id: "returning_human", title: "Hablar con persona", description: "Pedir apoyo del consultorio" }
   ];
@@ -3396,7 +3431,7 @@ async function sendGreetingMenuToPatient(to) {
     logSafeError(`Failed sending returning patient menu to ${maskPhone(to)}`, error);
     await replyToPatient(
       to,
-      `${body}\n\nPuedes escribirme: "agendar otra cita", "tengo cita", "reagendar", "cancelar", "ubicacion" o "humano".`
+      `${body}\n\nPuedes escribirme: "agendar otra cita", "tengo cita", "reagendar", "cancelar", "resultados", "ubicacion" o "humano".`
     );
   }
 }
@@ -3555,6 +3590,18 @@ async function notifyBotReply(to, body) {
   );
 }
 
+async function notifyResultsRequest(from) {
+  await safeSendWhatsAppText(
+    config.doctorWhatsappNumber,
+    [
+      "📎 Solicitud de resultados por WhatsApp",
+      `Telefono: ${maskPhone(from)}`,
+      "",
+      "Revisa el inbox, verifica identidad y envia solo archivos aprobados por el consultorio."
+    ].join("\n")
+  );
+}
+
 function buildForwardCopyMessage({ type, phone, body }) {
   const prefix = type === "bot" ? "🤖 Bot respondio" : "💬 Mensaje de paciente";
   const lines = [prefix, `Telefono: ${maskPhone(phone)}`];
@@ -3652,6 +3699,7 @@ function suggestTagsFromText(text, intent) {
   const tags = [];
   if (intent === "medical_urgent" || /urgente|emergencia|sangrado|dolor fuerte|me duele mucho/.test(text)) tags.push("Urgente", "Humano requerido");
   if (intent === "direct_contact") tags.push("Humano requerido");
+  if (intent === "patient_results" || /resultado|resultados|diagnostico|diagnosticos|examen|examenes|analisis|mis estudios/.test(text)) tags.push("Resultados", "Humano requerido");
   if (intent === "reschedule_appointment") tags.push("Reagendar");
   if (intent === "cancel_appointment") tags.push("Cancelar");
   if (/embarazo|prenatal/.test(text)) tags.push("Embarazo", "Control prenatal");
@@ -4083,6 +4131,7 @@ function getIntentResponse(intent) {
       "5. 💵 Formas de pago",
       "6. 🩺 Servicios",
       "7. 👩‍💼 Hablar con una persona",
+      "8. 📎 Resultados/estudios",
       "",
       "¿Que necesitas?"
     ].join("\n"),
@@ -4103,6 +4152,8 @@ function getIntentResponse(intent) {
       "Por seguridad, lo mejor es que te valore directamente la doctora.\n\nSi presentas dolor fuerte, sangrado abundante, fiebre, desmayo, dificultad para respirar o una emergencia, acude a urgencias o llama a los servicios de emergencia de tu localidad.\n\nTambien puedo ayudarte a agendar una cita o pasarte con una persona del consultorio.",
     medication_question:
       "Por seguridad, no puedo indicar medicamentos ni tratamientos por este medio.\n\nLo mejor es que la doctora pueda valorarte en consulta para darte la indicacion adecuada.\n\nSi gustas, puedo ayudarte a revisar horarios disponibles para agendar una cita.",
+    patient_results:
+      "Claro 😊 Puedo ayudarte con tu solicitud de resultados o estudios.\n\nPor seguridad, una persona del consultorio verificara tu identidad y confirmara que el archivo este aprobado antes de compartirlo por WhatsApp.\n\nYa deje tu solicitud marcada para revision en el inbox. Si tienes una urgencia medica, por favor acude a urgencias o contacta directamente al consultorio.",
     direct_contact:
       "Claro 😊 Ya dejo esta conversacion para que una persona del consultorio pueda revisarla.\n\nPuedes escribir tu duda por aqui. Si es una urgencia medica, acude a urgencias o llama a los servicios de emergencia de tu localidad.",
     appointment_requirements:
