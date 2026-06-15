@@ -58,7 +58,6 @@ GOOGLE_CALENDAR_ID=b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c
 GOOGLE_CALENDAR_EVENT_COLOR_ID=9
 GOOGLE_CALENDAR_EVENT_SUMMARY_PREFIX=DRA. CARRANZA-
 GOOGLE_BUSY_CALENDAR_IDS=b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com,ginecologiaintegralgto@gmail.com
-GOOGLE_APPOINTMENT_SCHEDULE_URL=https://calendar.google.com/calendar/appointments/schedules/AcZssZ06cQ6uXUY76PSivQEolqaSakinthwNtthXnS4-Ui1QF4setEP6dqRYe_wzgqYjrBMCyYwFJqSR?gv=true
 
 INBOX_PASSWORD=...
 COOKIE_SECRET=...
@@ -108,8 +107,6 @@ INCLUDE_PATIENT_CONTACT_IN_CALENDAR=false
 No actives `ENABLE_REMINDER_WORKER=true` para pacientes reales hasta tener templates de WhatsApp aprobados y probados.
 
 `GOOGLE_CALENDAR_ID` es donde el bot crea la cita. Para este piloto debe ser el calendario azul **GINECOLOGIA INTEGRAL**. `GOOGLE_BUSY_CALENDAR_IDS` son los calendarios que bloquean disponibilidad: el calendario azul donde caen las nuevas citas y `ginecologiaintegralgto@gmail.com`, donde viven varias citas antiguas de `DRA. CARRANZA`.
-
-`GOOGLE_APPOINTMENT_SCHEDULE_URL` es el link publico opcional de reservas de Google. El flujo principal sigue siendo WhatsApp, pero el bot puede mandar ese link como respaldo si el paciente pide reservar directo o si no hay horarios.
 
 ## Modo temporal sin App Secret
 

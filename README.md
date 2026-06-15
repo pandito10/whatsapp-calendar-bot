@@ -61,12 +61,6 @@ GOOGLE_BUSY_CALENDAR_IDS=b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58
 `GOOGLE_CALENDAR_EVENT_COLOR_ID=9` hace que las citas creadas por el bot usen el mismo azul visual de las citas buenas.
 `GOOGLE_CALENDAR_EVENT_SUMMARY_PREFIX=DRA. CARRANZA-` hace que el evento se vea con el mismo prefijo de la agenda azul.
 
-`GOOGLE_APPOINTMENT_SCHEDULE_URL` guarda el link publico de reservas de Google. En este piloto ya queda configurado con el link de la doctora; para otro consultorio cambialo por env. El bot lo usa como respaldo cuando alguien pide reservar directo, cuando no hay horarios disponibles o desde la respuesta rapida del inbox:
-
-```text
-GOOGLE_APPOINTMENT_SCHEDULE_URL=https://calendar.google.com/calendar/appointments/schedules/AcZssZ06cQ6uXUY76PSivQEolqaSakinthwNtthXnS4-Ui1QF4setEP6dqRYe_wzgqYjrBMCyYwFJqSR?gv=true
-```
-
 ## Configuracion
 
 ```bash

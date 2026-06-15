@@ -102,8 +102,6 @@ services:
         value: DRA. CARRANZA-
       - key: GOOGLE_BUSY_CALENDAR_IDS
         value: b96c51c36ae4dc56e6618c6da02e4002a1810aacabf241a63380d58821f4c620@group.calendar.google.com,ginecologiaintegralgto@gmail.com
-      - key: GOOGLE_APPOINTMENT_SCHEDULE_URL
-        value: https://calendar.google.com/calendar/appointments/schedules/AcZssZ06cQ6uXUY76PSivQEolqaSakinthwNtthXnS4-Ui1QF4setEP6dqRYe_wzgqYjrBMCyYwFJqSR?gv=true
       - key: AI_PROVIDER
         value: local
       - key: CLINIC_TIMEZONE
