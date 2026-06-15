@@ -69,6 +69,7 @@ import {
   updateKnowledgeSuggestion
 } from "./db.js";
 import { sendWhatsAppButtons, sendWhatsAppList, sendWhatsAppMedia, sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.js";
+import { appendLeadToSheet, appendAppointmentToSheet, appendUnknownQuestionToSheet, isSheetsEnabled } from "./sheets.js";
 
 const sessions = new Map();
 const processedMessages = new Map();
@@ -131,6 +132,9 @@ const interactiveReplyMap = {
   active_continue: "continuar",
   active_restart: "empezar de nuevo",
   active_human: "quiero hablar con una persona",
+  // Attendance confirmation buttons
+  attendance_yes: "confirmo asistencia",
+  attendance_cancel: "quiero cancelar",
   // Promo campaign buttons
   promo_schedule: "agendar",
   promo_info: "vi el anuncio",
@@ -340,6 +344,7 @@ server.listen(config.port, () => {
   warnAboutSecurityMode();
   console.log(`WhatsApp calendar bot listening on port ${config.port}`);
   startReminderWorker();
+  startDailyReportWorker();
   void cleanupAppointmentStateOnStartup();
 });
 
@@ -613,10 +618,16 @@ async function buildInboxDiagnostics() {
     },
     {
       label: "Recordatorios",
-      ok: !config.enableReminderWorker || config.enablePatientReminderTemplates,
+      ok: !config.enableReminderWorker || Boolean(config.whatsappReminderTemplate24h || config.whatsappReminderTemplate2h),
       detail: config.enableReminderWorker
-        ? config.enablePatientReminderTemplates ? "Templates activos" : "Worker activo sin templates"
-        : "Apagados seguro"
+        ? (config.whatsappReminderTemplate24h && config.whatsappReminderTemplate2h)
+          ? `Activos — 24h: ${config.whatsappReminderTemplate24h}, 2h: ${config.whatsappReminderTemplate2h}`
+          : config.whatsappReminderTemplate24h
+            ? `Solo 24h activo (${config.whatsappReminderTemplate24h}) — falta template 2h`
+            : config.whatsappReminderTemplate2h
+              ? `Solo 2h activo (${config.whatsappReminderTemplate2h}) — falta template 24h`
+              : "Worker activo pero faltan templates WHATSAPP_REMINDER_TEMPLATE_24H / _2H"
+        : "Apagados (ENABLE_REMINDER_WORKER=false)"
     }
   ];
 
@@ -1529,6 +1540,28 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
     .stat strong { display: block; font-size: 18px; line-height: 1; }
     .stat span { display: block; color: var(--muted); font-size: 11px; margin-top: 5px; }
+    .metrics-card {
+      margin: 0 14px 14px;
+      padding: 12px;
+      border: 1px solid #f7d3e1;
+      border-radius: 14px;
+      background: #fff0f7;
+    }
+    .metrics-head { margin-bottom: 8px; }
+    .metrics-head strong { font-size: 13px; }
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+    }
+    .metric-cell {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    .metric-cell strong { font-size: 17px; color: #9d174d; }
+    .metric-cell span { font-size: 10px; color: #8a5c6e; text-align: center; }
     .diagnostics-card {
       margin: 0 14px 14px;
       padding: 12px;
@@ -2225,6 +2258,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
         <div class="stat"><strong>${stats.urgent}</strong><span>Urgentes</span></div>
         <div class="stat"><strong>${stats.noReply}</strong><span>No respondio</span></div>
       </div>
+      ${renderTodayMetrics(list)}
       ${diagnosticsCard}
       <form class="tools" method="get" action="/inbox">
         <input name="q" value="${escapeHtml(url.searchParams.get("q") ?? "")}" placeholder="Buscar nombre, telefono, etiqueta o estado">
@@ -2341,6 +2375,39 @@ function renderOperationalStatusBadges() {
   return badges.map((badge) => `<span class="health-pill ${badge.className}">${escapeHtml(badge.label)}</span>`).join("");
 }
 
+function renderTodayMetrics(list) {
+  const tz = config.clinicTimezone;
+  const todayISO = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+
+  let total = 0;
+  let promoLeads = 0;
+  let scheduled = 0;
+  let human = 0;
+
+  for (const conv of list) {
+    const convDate = conv.updatedAt ? new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(conv.updatedAt)) : "";
+    if (convDate !== todayISO) continue;
+    total++;
+    const tags = conv.tags ?? [];
+    if (tags.some((t) => t.includes("Promo") || t.includes("promo"))) promoLeads++;
+    if (conv.appointment?.slotStart) scheduled++;
+    if (conv.botPaused) human++;
+  }
+
+  const pct = total > 0 ? Math.round((scheduled / total) * 100) : 0;
+
+  return `<div class="metrics-card">
+    <div class="metrics-head"><strong>Hoy</strong></div>
+    <div class="metrics-grid">
+      <div class="metric-cell"><strong>${total}</strong><span>Convs</span></div>
+      <div class="metric-cell"><strong>${promoLeads}</strong><span>Promo</span></div>
+      <div class="metric-cell"><strong>${scheduled}</strong><span>Agendadas</span></div>
+      <div class="metric-cell"><strong>${pct}%</strong><span>Conversion</span></div>
+      <div class="metric-cell"><strong>${human}</strong><span>Humano</span></div>
+    </div>
+  </div>`;
+}
+
 function renderInboxDiagnostics(diagnostics) {
   if (!diagnostics) return "";
   const rows = diagnostics.items
@@ -2395,6 +2462,25 @@ function renderInboxQuickFilters(current, query = "") {
   </div>`;
 }
 
+function renderLeadOriginSection(conv) {
+  if (!conv) return "";
+  const tags = conv.tags ?? [];
+  const isPromo = tags.some((t) => /promo|1200|paquete|chequeo/i.test(t));
+  const isMetaAds = tags.some((t) => /facebook|instagram|meta ads|anuncio/i.test(t));
+  const temp = tags.find((t) => /lead frio|lead tibio|lead caliente/i.test(t));
+  const origin = isMetaAds ? "Meta Ads" : isPromo ? "Promo $1,200" : "Organico / directo";
+  const interestTags = tags.filter((t) => /promo|1200|paquete|chequeo|ultrasonido|papanicolao|colposco/i.test(t));
+
+  return `<div class="panel-section">
+    <h2>Origen del lead</h2>
+    <div class="info-grid">
+      <div class="info-row"><span>Canal</span>${escapeHtml(origin)}</div>
+      ${temp ? `<div class="info-row"><span>Temperatura</span>${escapeHtml(temp)}</div>` : ""}
+      ${interestTags.length ? `<div class="info-row"><span>Interes</span>${escapeHtml(interestTags.join(", "))}</div>` : ""}
+    </div>
+  </div>`;
+}
+
 function renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, windowState, knowledgeSuggestions }) {
   if (!selected) {
     return `<aside class="patient-panel">
@@ -2441,6 +2527,8 @@ function renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, win
         <div class="info-row"><span>Flujo actual</span>${escapeHtml(formatSessionStep(selected.session?.step))}</div>
       </div>
     </div>
+
+    ${renderLeadOriginSection(selected)}
 
     <div class="panel-section">
       <h2>Cita actual</h2>
@@ -2743,13 +2831,19 @@ function formatAppointmentFull(value) {
 async function handleWhatsAppWebhook(body) {
   const messages = extractWhatsAppMessages(body);
   for (const message of messages) {
-    const messageText = extractWhatsAppMessageText(message);
-    if (!messageText) continue;
     if (!checkPhoneRateLimit(message.from)) {
       console.warn(`Phone rate limit exceeded for ${maskPhone(message.from)}`);
       continue;
     }
     if (await alreadyProcessed(message.id, message.from)) continue;
+
+    if (message.type === "audio") {
+      await handleIncomingAudio(message.from, message.audio ?? {});
+      continue;
+    }
+
+    const messageText = extractWhatsAppMessageText(message);
+    if (!messageText) continue;
 
     try {
       await handleIncomingText(message.from, messageText);
@@ -2892,6 +2986,11 @@ async function handleIncomingText(from, text) {
     return;
   }
 
+  if (normalized === "confirmo asistencia") {
+    await handleAttendanceConfirmation(from, true);
+    return;
+  }
+
   if (detectedIntent.intent === "confirm_appointment" && existing?.step !== "confirmingAppointment") {
     await handleConfirmAppointmentRequest(from);
     return;
@@ -2982,11 +3081,13 @@ async function handleIncomingText(from, text) {
     }
     throw error;
   }
+  const emailSkippedNow = config.emailOptional && /^(?:sin correo|no tengo correo|no tengo|omitir|no email|no correo|skip)$/.test(normalized);
   const session = {
     from,
     step: existing?.step ?? "collecting",
     name: parsed.name ?? existing?.name,
-    email: parsed.email ?? existing?.email,
+    email: emailSkippedNow ? undefined : (parsed.email ?? existing?.email),
+    emailSkipped: emailSkippedNow || existing?.emailSkipped,
     firstVisit: parsed.firstVisit ?? existing?.firstVisit,
     paymentType: parsed.paymentType ?? existing?.paymentType,
     reason: parsed.reason ?? existing?.reason,
@@ -3153,9 +3254,12 @@ async function handleIncomingText(from, text) {
     return;
   }
 
-  if (!session.email) {
+  if (!session.email && !session.emailSkipped) {
     await setPatientSession(from, { ...session, step: "collectingEmail" });
-    await replyToPatient(from, `📩 Gracias, ${session.name}. ¿Me compartes tu correo electronico para enviarte la confirmacion de Google Calendar?`);
+    const emailPrompt = config.emailOptional
+      ? `📩 Gracias, ${session.name}. ¿Me compartes tu correo electronico? (opcional — escribe "sin correo" para omitirlo)`
+      : `📩 Gracias, ${session.name}. ¿Me compartes tu correo electronico para enviarte la confirmacion de Google Calendar?`;
+    await replyToPatient(from, emailPrompt);
     return;
   }
 
@@ -3374,6 +3478,14 @@ async function finishConfirmedAppointment(from, session, slot, cita, name) {
   await cancelPreviousRescheduledAppointment(session);
   await deletePatientSession(from);
 
+  void appendAppointmentToSheet({
+    phone: from,
+    name,
+    slotLabel: slot.label,
+    service: session.reason ?? "",
+    status: "confirmed"
+  }).catch(() => {});
+
   try {
     await replyToPatient(from, buildPatientConfirmationMessage({ name, slot, email: session.email }));
   } catch (error) {
@@ -3430,16 +3542,19 @@ function buildAvailabilityIntro(session, slots) {
   const requestedDateISO = session.preferredDateISO;
   const requestedDate = requestedDateISO ? dateOnlyFromISO(requestedDateISO) : undefined;
   const firstSlotDate = slots[0]?.start ? zonedDateOnly(slots[0].start) : undefined;
+  const timeHint = session.preferredTimeRange ? ` (${session.preferredTimeRange})` : "";
 
   if (requestedDate && firstSlotDate && requestedDate !== firstSlotDate) {
     const requestedLabel = formatDateOnlyFull(requestedDateISO);
     if (!isClinicWorkDate(requestedDateISO)) {
       return `📅 No, el ${requestedLabel} no trabajamos. Por el momento atendemos de lunes a viernes de 4:40 p.m. a 8:00 p.m.\n\nTe comparto opciones cercanas:`;
     }
-    return `📅 Para el ${requestedLabel} ya no encontre espacios libres.\n\nTe comparto opciones cercanas:`;
+    return `📅 Para el ${requestedLabel}${timeHint} ya no encontre espacios libres.\n\nTe comparto opciones cercanas:`;
   }
 
-  return "🕒 Tengo estos horarios disponibles:";
+  return timeHint
+    ? `🕒 Tengo estos horarios disponibles${timeHint}:`
+    : "🕒 Tengo estos horarios disponibles:";
 }
 
 function buildNoSlotsWaitlistMessage(session, prefix = "") {
@@ -3499,6 +3614,41 @@ async function lockAppointmentSlot(from, slot) {
   });
 
   return lock || false;
+}
+
+async function handleIncomingAudio(from, audio) {
+  await recordConversationMessage(from, "patient", "[Audio / nota de voz]");
+  await notifyIncomingPatientMessage(from, "[Audio / nota de voz]");
+
+  const state = (await getConversationState(from)) ?? conversations.get(from);
+  if (state?.botPaused) {
+    console.log(`Bot paused for ${maskPhone(from)}; audio stored without auto-reply.`);
+    return;
+  }
+
+  console.log(`Audio message received from ${maskPhone(from)} mime=${audio.mime_type ?? "?"} voice=${audio.voice ?? false}`);
+
+  const body = [
+    "Recibimos tu nota de voz 😊",
+    "",
+    "Para atenderte mejor, ¿qué necesitas?"
+  ].join("\n");
+
+  try {
+    await sendWhatsAppButtons(from, {
+      body,
+      buttons: [
+        { id: "main_schedule", title: "Agendar cita" },
+        { id: "promo_info", title: "Ver promocion" },
+        { id: "main_human", title: "Hablar con persona" }
+      ]
+    });
+    await recordConversationMessage(from, "bot", body);
+    await notifyBotReply(from, body);
+  } catch (error) {
+    logSafeError(`Failed sending audio reply to ${maskPhone(from)}`, error);
+    await safeSendWhatsAppText(from, body);
+  }
 }
 
 async function handleMenuOption(from, text, intent = detectIntent(text).intent) {
@@ -3661,6 +3811,7 @@ async function sendFeaturedPromoResponse(to) {
   ].join("\n");
 
   await addConversationTags(to, ["Promo $1200", "Lead frio"]);
+  void appendLeadToSheet({ phone: to, intent: "promo_info", tags: ["Promo $1200", "Lead frio"] }).catch(() => {});
   try {
     await sendWhatsAppButtons(to, {
       body,
@@ -4382,22 +4533,71 @@ async function handleCancellationConfirmation(from, normalized, session) {
     return;
   }
 
+  let calendarOk = false;
+  let dbOk = false;
+
   try {
     await cancelAppointment(session.cancellationGoogleEventId);
-    await cancelCita(session.cancellationCitaId);
+    calendarOk = true;
+  } catch (error) {
+    logSafeError("Could not cancel Google Calendar event", error);
+  }
+
+  if (calendarOk) {
+    try {
+      await cancelCita(session.cancellationCitaId);
+      dbOk = true;
+    } catch (error) {
+      logSafeError("Could not cancel cita in Supabase", error);
+    }
+  }
+
+  if (calendarOk && dbOk) {
     await deletePatientSession(from);
-    await replyToPatient(from, "✅ Listo, tu cita fue cancelada. Si quieres, puedo ayudarte a reagendar.");
+    await replyToPatientWithButtons(from, "✅ Listo, tu cita fue cancelada.\n\n¿Quieres agendar una nueva cita?", [
+      { id: "main_schedule", title: "Agendar nueva cita" },
+      { id: "main_human", title: "Hablar con persona" }
+    ]);
     await safeSendWhatsAppText(
       config.doctorWhatsappNumber,
       `🛑 Cita cancelada por WhatsApp:\nPaciente: ${session.cancellationPatientName ?? "Paciente"}\nFecha: ${formatAppointmentFull(session.cancellationSlotStart)}\nTelefono: ${from}`
     );
     await notifyWaitlistForCancelledSlot(session.cancellationSlotStart);
-  } catch (error) {
-    logSafeError("Could not cancel appointment", error);
+  } else {
+    logSafeError(`Cancellation incomplete calendarOk=${calendarOk} dbOk=${dbOk} for ${maskPhone(from)}`, new Error("Partial cancellation"));
+    await setConversationHumanMode(from, true, "cancellation_failure");
+    setMemoryHumanMode(from, true);
     await replyToPatient(
       from,
-      "No pude cancelar la cita automaticamente. Por favor contacta directamente al consultorio para confirmar la cancelacion."
+      "No pude confirmar la cancelacion automaticamente. Deje este mensaje marcado para que alguien del consultorio lo revise y confirme la cancelacion contigo directamente."
     );
+    await safeSendWhatsAppText(
+      config.doctorWhatsappNumber,
+      `⚠️ Cancelacion incompleta — revisar manualmente:\nPaciente: ${session.cancellationPatientName ?? "Paciente"}\nFecha: ${formatAppointmentFull(session.cancellationSlotStart)}\nTelefono: ${from}\nCalendar: ${calendarOk ? "OK" : "FALLO"} | Supabase: ${dbOk ? "OK" : "FALLO"}`
+    );
+  }
+}
+
+async function handleAttendanceConfirmation(from, confirmed) {
+  const name = await getPatientDisplayName(from);
+  if (confirmed) {
+    await replyToPatient(from, `✅ Perfecto, ${firstName(name) ? `${firstName(name)}, ` : ""}te esperamos. Si necesitas cancelar o cambiar tu cita, escribe aqui antes de tu cita.`);
+    await addConversationTags(from, ["Confirmo asistencia"]);
+    await safeSendWhatsAppText(
+      config.doctorWhatsappNumber,
+      `✅ Paciente confirmo asistencia:\nTelefono: ${from}${name ? `\nNombre: ${name}` : ""}`
+    );
+  } else {
+    await handleCancellationRequest(from);
+  }
+}
+
+async function getPatientDisplayName(phone) {
+  try {
+    const cita = await getLatestConfirmedCitaByPhone(phone);
+    return cita?.patientName ?? "";
+  } catch {
+    return "";
   }
 }
 
@@ -4589,6 +4789,54 @@ function startReminderWorker() {
   }, Math.max(15_000, config.reminderWorkerIntervalMs)).unref?.();
 }
 
+let lastDailyReportDate = "";
+
+function startDailyReportWorker() {
+  if (!config.enableDailyReport) return;
+
+  const checkInterval = 60_000;
+  setInterval(() => {
+    const now = new Date();
+    const tz = config.clinicTimezone;
+    const localHour = Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: tz }).format(now));
+    const localDate = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(now);
+
+    if (localHour === config.dailyReportHour && localDate !== lastDailyReportDate) {
+      lastDailyReportDate = localDate;
+      void sendDailyReport(localDate).catch((err) => logSafeError("Daily report failed", err));
+    }
+  }, checkInterval).unref?.();
+}
+
+async function sendDailyReport(dateISO) {
+  let citas = [];
+  try {
+    const dayStart = new Date(`${dateISO}T00:00:00`);
+    const dayEnd = new Date(`${dateISO}T23:59:59`);
+    citas = (await loadConfirmedCitasBetween(dayStart.toISOString(), dayEnd.toISOString())) ?? [];
+  } catch (error) {
+    logSafeError("Could not load citas for daily report", error);
+  }
+
+  const dateLabel = new Intl.DateTimeFormat("es-MX", { dateStyle: "full", timeZone: config.clinicTimezone }).format(new Date(`${dateISO}T12:00:00`));
+  const lines = [
+    `📋 Reporte del dia — ${dateLabel}`,
+    `Total citas confirmadas: ${citas.length}`,
+    ""
+  ];
+
+  for (const cita of citas) {
+    const time = cita.slotStart
+      ? new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: config.clinicTimezone }).format(new Date(cita.slotStart))
+      : "?";
+    lines.push(`• ${time} — ${cita.patientName ?? "Paciente"}`);
+  }
+
+  if (citas.length === 0) lines.push("Sin citas confirmadas para hoy.");
+
+  await safeSendWhatsAppText(config.doctorWhatsappNumber, lines.join("\n"));
+}
+
 async function processDueReminders() {
   try {
     const reminders = await loadDueReminders();
@@ -4636,6 +4884,20 @@ async function sendReminder(reminder) {
       config.whatsappTemplateLanguage,
       [reminder.payload.patientName ?? "Paciente", reminder.payload.slotLabel ?? formatAppointmentFull(reminder.payload.slotStart)]
     );
+    return;
+  }
+
+  if (reminder.reminderType === "patient_attendance_confirm") {
+    const name = reminder.payload.patientName ?? "Paciente";
+    const slotLabel = reminder.payload.slotLabel ?? formatAppointmentFull(reminder.payload.slotStart);
+    const body = `⏰ Hola ${firstName(name)}, te recuerdo tu cita para ${slotLabel}.\n\n¿Confirmas tu asistencia?`;
+    await sendWhatsAppButtons(reminder.phoneNumber, {
+      body,
+      buttons: [
+        { id: "attendance_yes", title: "Si, voy" },
+        { id: "attendance_cancel", title: "Necesito cancelar" }
+      ]
+    });
   }
 }
 
@@ -4794,6 +5056,7 @@ async function saveUnrecognizedQuestion(from, text, category) {
   } catch (error) {
     logSafeError(`Could not save unrecognized question for ${maskPhone(from)}`, error);
   }
+  void appendUnknownQuestionToSheet({ phone: from, question: text, category: category ?? "desconocido" }).catch(() => {});
 }
 
 function isResetCommand(text) {

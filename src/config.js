@@ -71,6 +71,9 @@ export const config = {
     botPauseTimeoutMinutes: Number(process.env.BOT_PAUSE_TIMEOUT_MINUTES ?? 120),
     enableReminderWorker: process.env.ENABLE_REMINDER_WORKER === "true",
     enablePatientReminderTemplates: process.env.ENABLE_PATIENT_REMINDER_TEMPLATES === "true",
+    emailOptional: process.env.EMAIL_OPTIONAL === "true",
+    enableDailyReport: process.env.ENABLE_DAILY_REPORT === "true",
+    dailyReportHour: Number(process.env.DAILY_REPORT_HOUR ?? 20),
     requireDatabaseForAppointments:
           process.env.REQUIRE_SUPABASE_FOR_APPOINTMENTS === "true" ||
           process.env.REQUIRE_DB_FOR_APPOINTMENTS === "true" ||
