@@ -267,6 +267,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/inbox/reprompt") {
+      await handleInboxReprompt(req, url, res);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/inbox/reset-session") {
+      await handleInboxResetSession(req, url, res);
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/inbox/tags") {
       await handleInboxTags(req, url, res);
       return;
@@ -929,6 +939,72 @@ async function handleInboxRelease(req, url, res) {
 
   await setConversationHumanMode(phone, false);
   setMemoryHumanMode(phone, false);
+  await redirectInbox(res, phone);
+}
+
+async function handleInboxReprompt(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) return;
+  if (!checkRateLimit(req, url, "inbox-action")) {
+    res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8" }).end("too many requests");
+    return;
+  }
+
+  const form = await readForm(req, { maxBytes: config.maxRequestBytes });
+  if (!isValidCsrf(req, form.get("csrf"))) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const phone = normalizePhone(form.get("phone") ?? "");
+  if (!isValidWhatsAppPhone(phone)) {
+    await redirectInbox(res, "", "Telefono invalido.");
+    return;
+  }
+
+  const session = await getPatientSession(phone);
+  if (!session) {
+    await redirectInbox(res, phone, "No hay un flujo activo para reenviar.");
+    return;
+  }
+
+  try {
+    await continueActiveSession(phone, session);
+    await redirectInbox(res, phone);
+  } catch (error) {
+    logSafeError(`Could not resend active session prompt to ${maskPhone(phone)}`, error);
+    await redirectInbox(res, phone, "No se pudo reenviar el paso actual por WhatsApp.");
+  }
+}
+
+async function handleInboxResetSession(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) return;
+  if (!checkRateLimit(req, url, "inbox-action")) {
+    res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8" }).end("too many requests");
+    return;
+  }
+
+  const form = await readForm(req, { maxBytes: config.maxRequestBytes });
+  if (!isValidCsrf(req, form.get("csrf"))) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const phone = normalizePhone(form.get("phone") ?? "");
+  if (!isValidWhatsAppPhone(phone)) {
+    await redirectInbox(res, "", "Telefono invalido.");
+    return;
+  }
+
+  await deletePatientSession(phone);
+  try {
+    await saveConversationNote({
+      phoneNumber: phone,
+      author: "admin",
+      body: "Flujo del bot reiniciado desde el inbox."
+    });
+  } catch (error) {
+    logSafeError("Could not save reset session note", error);
+  }
   await redirectInbox(res, phone);
 }
 
@@ -2162,6 +2238,16 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
                       ? `<form method="post" action="/inbox/release"><input name="csrf" type="hidden" value="${escapeHtml(csrf)}"><input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}"><button type="submit">Devolver al bot</button></form>`
                       : `<form method="post" action="/inbox/takeover"><input name="csrf" type="hidden" value="${escapeHtml(csrf)}"><input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}"><button class="button-danger" type="submit">Tomar conversacion</button></form>`
                   }
+                  <form method="post" action="/inbox/reprompt">
+                    <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                    <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                    <button type="submit">Reenviar paso actual</button>
+                  </form>
+                  <form method="post" action="/inbox/reset-session">
+                    <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                    <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                    <button class="button-danger" type="submit">Reiniciar flujo</button>
+                  </form>
                   <form class="tag-form" method="post" action="/inbox/tags">
                     <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
                     <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
@@ -2703,6 +2789,11 @@ async function handleIncomingText(from, text) {
 
   if (existing && detectedIntent.intent === "greeting") {
     await replyWithActiveSessionButtons(from, buildActiveSessionGreeting(existing));
+    return;
+  }
+
+  if (existing && isVagueActiveSessionReply(normalized)) {
+    await replyWithActiveSessionButtons(from, buildVagueActiveSessionPrompt(existing));
     return;
   }
 
@@ -4451,6 +4542,20 @@ function buildActiveSessionGreeting(session) {
     "",
     "¿Quieres continuar donde ibamos o empezar de nuevo?"
   ].join("\n");
+}
+
+function buildVagueActiveSessionPrompt(session) {
+  const stepLabel = formatSessionStep(session.step).toLowerCase();
+  return [
+    "Te entiendo 😊 Para no confundirme ni mover tu cita por error:",
+    `tenemos un flujo abierto en ${stepLabel}.`,
+    "",
+    "¿Quieres continuar, empezar de nuevo o hablar con una persona?"
+  ].join("\n");
+}
+
+function isVagueActiveSessionReply(text) {
+  return /^(?:a ver|aver|ok|okay|va|sale|mmm|mm|no se|nose|pues|ya|aja|ah ok|bueno)$/.test(text);
 }
 
 function isAffirmativeConfirmation(text) {
