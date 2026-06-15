@@ -31,7 +31,7 @@ export function validateSlotSelection({ slot, session, selectedSlotIndex }) {
 
 export function buildPatientConfirmationMessage({ name, slot, email }) {
   const safeName = sanitizeShortText(name || "Paciente", 80);
-  return `✅ Listo, ${safeName}. Tu cita quedo agendada para ${slot.label}.${config.clinicAddress ? `\n\n📍 Ubicacion: ${config.clinicAddress}` : ""}${email ? "\n\n📩 Google Calendar tambien enviara la confirmacion a tu correo." : ""}\n\n⚠️ Si tienes dolor intenso, sangrado abundante o una urgencia, por favor acude a urgencias o contacta directamente al consultorio.`;
+  return `✅ Listo, ${safeName}. Tu cita quedo agendada para ${slot.label}.${config.clinicAddress ? `\n\n📍 Ubicacion: ${config.clinicAddress}` : ""}${email ? "\n\n📩 Google Calendar tambien enviara la confirmacion a tu correo." : "\n\n📩 Te recomendamos guardar esta fecha en tu agenda."}\n\n⚠️ Si tienes dolor intenso, sangrado abundante o una urgencia, por favor acude a urgencias o contacta directamente al consultorio.`;
 }
 
 export function buildLocationMessage() {

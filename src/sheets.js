@@ -250,6 +250,30 @@ export async function appendAppointmentToSheet(appointment) {
 }
 
 /**
+ * Append an unknown question row to the UnknownQuestions sheet.
+ */
+export async function appendUnknownQuestionToSheet(entry) {
+  if (!isSheetsEnabled()) return false;
+
+  try {
+    const row = [
+      entry.fecha ?? new Date().toISOString().slice(0, 10),
+      String(entry.telefono ?? ""),
+      String(entry.mensaje ?? "").slice(0, 500),
+      String(entry.normalizado ?? "").slice(0, 500),
+      String(entry.intent_detectado ?? "desconocido"),
+      String(entry.respuesta_bot ?? "fallback menu"),
+      String(entry.revisado ?? "no")
+    ];
+    await sheetsAppend("UnknownQuestions!A:G", [row]);
+    return true;
+  } catch (error) {
+    console.error("[sheets] Failed to append unknown question:", error?.message ?? error);
+    return false;
+  }
+}
+
+/**
  * Invalidate the FAQs cache so the next call re-fetches from Sheets.
  */
 export function invalidateFaqsCache() {
