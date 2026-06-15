@@ -35,8 +35,10 @@ import {
   acquireAppointmentLock,
   checkDatabaseHealth,
   cancelCita,
+  cleanupExpiredAppointmentLocks,
   cleanupProcessedWhatsAppMessages,
   deleteSession,
+  failUnlinkedConfirmedCitas,
   getConversationState,
   getLatestConfirmedCitaByPhone,
   getSession,
@@ -326,6 +328,7 @@ server.listen(config.port, () => {
   warnAboutSecurityMode();
   console.log(`WhatsApp calendar bot listening on port ${config.port}`);
   startReminderWorker();
+  void cleanupAppointmentStateOnStartup();
 });
 
 process.once("SIGTERM", () => gracefulShutdown("SIGTERM"));
@@ -375,6 +378,22 @@ function warnAboutSecurityMode() {
 
   if (config.inboxAllowLegacyTokenAccess) {
     console.warn("WARNING: INBOX_ALLOW_LEGACY_TOKEN_ACCESS=true allows URL/Bearer password access. Keep it false in production.");
+  }
+}
+
+async function cleanupAppointmentStateOnStartup() {
+  if (!isDatabaseEnabled()) return;
+
+  try {
+    const locks = await cleanupExpiredAppointmentLocks();
+    const unlinked = await failUnlinkedConfirmedCitas(
+      "Auto-expirada en arranque: cita confirmed sin google_event_id."
+    );
+    console.log(
+      `Appointment startup cleanup complete. expiredLocks=${locks?.ok ? "checked" : locks?.status ?? "unknown"} unlinkedConfirmed=${Array.isArray(unlinked) ? unlinked.length : 0}`
+    );
+  } catch (error) {
+    logSafeError("Could not cleanup stale appointment state on startup", error);
   }
 }
 

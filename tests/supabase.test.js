@@ -11,6 +11,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = "sb-service-role-test";
 
 const {
   acquireAppointmentLock,
+  failUnlinkedConfirmedCitas,
   loadActiveAppointmentLocks,
   loadConfirmedCitasBetween,
   rememberProcessedWhatsAppMessage,
@@ -240,6 +241,27 @@ test("saveCita no inserta si no puede limpiar citas confirmadas sin google_event
     );
     assert.equal(calls.length, 1);
     assert.equal(calls[0].method, "PATCH");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("limpieza global marca failed citas confirmadas sin google_event_id", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl;
+  let requestedBody;
+  globalThis.fetch = async (url, options) => {
+    requestedUrl = String(url);
+    requestedBody = options?.body ? JSON.parse(options.body) : undefined;
+    return new Response(JSON.stringify([{ id: 55, status: "failed" }]), { status: 200 });
+  };
+
+  try {
+    const rows = await failUnlinkedConfirmedCitas("limpieza de prueba");
+    assert.match(requestedUrl, /status=eq\.confirmed/);
+    assert.match(requestedUrl, /or=\(google_event_id\.is\.null,google_event_id\.eq\.\)/);
+    assert.equal(requestedBody.status, "failed");
+    assert.equal(rows.length, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

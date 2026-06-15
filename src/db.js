@@ -612,6 +612,19 @@ export async function failUnlinkedConfirmedCitasBetween(startISO, endISO, errorM
   );
 }
 
+export async function failUnlinkedConfirmedCitas(errorMessage) {
+  if (!isDatabaseEnabled()) return [];
+
+  return await supabaseFetch("/rest/v1/citas?status=eq.confirmed&or=(google_event_id.is.null,google_event_id.eq.)", {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify({
+      status: "failed",
+      error_message: String(errorMessage ?? "").slice(0, 500)
+    })
+  });
+}
+
 function buildCitaPayload(citaData, { legacy = false } = {}) {
   const basePayload = {
     phone_number: citaData.phoneNumber,
