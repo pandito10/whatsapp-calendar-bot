@@ -247,7 +247,7 @@ function normalizeHourRange(hour, period) {
 function parseReason(original, normalized, session) {
   if (session?.reason) return undefined;
   if (session?.step === "collectingService") {
-    return cleanSentence(original).slice(0, 80);
+    return normalizeServiceReason(original, normalized);
   }
 
   const reasonMatch = normalized.match(/\b(?:por|para|motivo)\s+([a-záéíóúñ ]{3,80})/i);
@@ -257,6 +257,26 @@ function parseReason(original, normalized, session) {
     .replace(/\b(?:mañana|hoy|pasado mañana|el lunes|el martes|el miercoles|el miércoles|el jueves|el viernes|el sabado|el sábado|el domingo)\b.*$/i, "")
     .trim();
   return reason ? cleanSentence(reason) : undefined;
+}
+
+function normalizeServiceReason(original, normalized) {
+  const text = normalizeText(normalized);
+  if (
+    /^(?:una|un)?\s*(?:cita|consulta|revision|chequeo)\s*$/.test(text) ||
+    /\b(?:quiero|ocupo|necesito|agendar|hacer|sacar|reservar)\b.*\b(?:cita|consulta)\b/.test(text)
+  ) {
+    return "Consulta";
+  }
+
+  if (/\b(?:promo|promocion|paquete|paquete promocional|1200)\b/.test(text)) return "Promocion";
+  if (/\b(?:ultrasonido|ultra)\b/.test(text)) return "Ultrasonido";
+  if (/\b(?:papanicolaou|papanicolau|papanicolao|papanicol)\b/.test(text)) return "Papanicolaou";
+  if (/\b(?:colposcopia|colposkopia|colpo)\b/.test(text)) return "Colposcopia";
+  if (/\b(?:embarazo|control prenatal|prenatal)\b/.test(text)) return "Control prenatal";
+  if (/\b(?:revision|chequeo|consulta)\b/.test(text)) return "Consulta";
+
+  const cleaned = cleanSentence(original).slice(0, 80);
+  return cleaned || "Consulta";
 }
 
 function parseDate(text, todayISO) {

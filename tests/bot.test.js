@@ -79,6 +79,16 @@ test("parser local extrae correo corregido durante confirmacion", async () => {
   assert.equal(result.email, "paciente.correcto@gmail.com");
 });
 
+test("parser local convierte respuesta generica de servicio en consulta", async () => {
+  const result = await understandMessage("Una cita", { step: "collectingService" });
+  assert.equal(result.reason, "Consulta");
+});
+
+test("parser local detecta promocion como servicio", async () => {
+  const result = await understandMessage("el paquete de promocion", { step: "collectingService" });
+  assert.equal(result.reason, "Promocion");
+});
+
 test("valida horario dentro de reglas del consultorio", () => {
   assert.equal(
     isSlotWithinClinicRules({ start: "2030-06-17T22:40:00.000Z", end: "2030-06-17T23:20:00.000Z" }),

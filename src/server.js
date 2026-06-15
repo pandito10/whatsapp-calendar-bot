@@ -113,8 +113,30 @@ const interactiveReplyMap = {
   reschedule_human: "3",
   waitlist_yes: "1",
   waitlist_other_day: "2",
-  waitlist_human: "3"
+  waitlist_human: "3",
+  service_consultation: "consulta",
+  service_promotion: "promocion",
+  service_ultrasound: "ultrasonido",
+  service_papanicolau: "papanicolaou",
+  service_colposcopy: "colposcopia",
+  service_prenatal: "control prenatal",
+  service_other: "otro motivo general",
+  first_visit_yes: "si",
+  first_visit_no: "no",
+  payment_private: "particular",
+  payment_network: "red medica",
+  payment_human: "quiero hablar con una persona"
 };
+
+const serviceOptionRows = [
+  { id: "service_consultation", title: "Consulta", description: "Revision general" },
+  { id: "service_promotion", title: "Promocion", description: "Paquete promocional" },
+  { id: "service_ultrasound", title: "Ultrasonido", description: "Duda o cita de ultrasonido" },
+  { id: "service_papanicolau", title: "Papanicolau", description: "Revision de papanicolaou" },
+  { id: "service_colposcopy", title: "Colposcopia", description: "Revision de colposcopia" },
+  { id: "service_prenatal", title: "Control prenatal", description: "Embarazo o seguimiento" },
+  { id: "service_other", title: "Otro motivo", description: "El consultorio lo revisa" }
+];
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -2767,7 +2789,7 @@ async function handleIncomingText(from, text) {
 
   if (!existing && detectedIntent.intent === "fallback" && !dateLikeRequest) {
     await saveUnrecognizedQuestion(from, text, detectedIntent.category);
-    await replyToPatient(from, getIntentResponse("fallback"));
+    await sendFallbackMenuToPatient(from);
     return;
   }
 
@@ -2908,7 +2930,7 @@ async function handleIncomingText(from, text) {
           pendingSlotSelectedIndex: parsed.selectedSlotIndex
         }, returningProfile);
         await setPatientSession(from, updated);
-        await replyToPatient(
+        await replyWithServiceOptions(
           from,
           `Perfecto 😊 Tomo como referencia este horario: ${slot.label}.\n\n${buildReturningPatientDataSummary(returningProfile)}\n\n¿Que servicio o motivo general quieres agendar esta vez?`
         );
@@ -2954,7 +2976,7 @@ async function handleIncomingText(from, text) {
     if (returningProfile?.patientName) {
       const updated = applyReturningProfile(session, returningProfile);
       await setPatientSession(from, updated);
-      await replyToPatient(from, buildReturningAppointmentPrompt(returningProfile));
+      await replyWithServiceOptions(from, buildReturningAppointmentPrompt(returningProfile));
       return;
     }
     await setPatientSession(from, session);
@@ -2970,22 +2992,22 @@ async function handleIncomingText(from, text) {
 
   if (!session.firstVisit) {
     await setPatientSession(from, { ...session, step: "collectingFirstVisit" });
-    await replyToPatient(from, "📝 ¿Es tu primera vez con nosotros? Responde si o no.");
+    await replyWithFirstVisitButtons(from, "📝 ¿Es tu primera vez con nosotros?");
     return;
   }
 
   if (!session.reason) {
     await setPatientSession(from, { ...session, step: "collectingService" });
-    await replyToPatient(
+    await replyWithServiceOptions(
       from,
-      "Gracias 😊 ¿Que servicio o motivo general quieres agendar?\n\nPuedes responder: consulta, ultrasonido, papanicolaou, colposcopia, control prenatal u otro motivo general."
+      "Gracias 😊 ¿Que servicio o motivo general quieres agendar?"
     );
     return;
   }
 
   if (!session.paymentType) {
     await setPatientSession(from, { ...session, step: "collectingPaymentType" });
-    await replyToPatient(from, "💳 ¿Tu consulta es particular o por parte de alguna red medica/aseguradora?");
+    await replyWithPaymentButtons(from, "💳 ¿Tu consulta es particular o por parte de alguna red medica/aseguradora?");
     return;
   }
 
@@ -3406,6 +3428,22 @@ async function sendMainMenuToPatient(to) {
   }
 }
 
+async function sendFallbackMenuToPatient(to) {
+  const body = "Perdon, no entendi bien 😅\n\nPuedo ayudarte con estas opciones:";
+  try {
+    await sendWhatsAppList(to, {
+      body,
+      buttonText: "Opciones",
+      sections: [{ title: "Menu del consultorio", rows: mainMenuRows }]
+    });
+    await recordConversationMessage(to, "bot", `${body}\n\n${mainMenuRows.map((row, index) => `${index + 1}. ${row.title}`).join("\n")}`);
+    await notifyBotReply(to, "Menu por fallback enviado.");
+  } catch (error) {
+    logSafeError(`Failed sending fallback menu to ${maskPhone(to)}`, error);
+    await replyToPatient(to, getIntentResponse("fallback"));
+  }
+}
+
 async function sendGreetingMenuToPatient(to) {
   const profile = await loadReturningPatientProfile(to);
   if (!profile?.patientName) {
@@ -3457,6 +3495,39 @@ async function replyWithDateOptions(to, body) {
   }
 }
 
+async function replyWithServiceOptions(to, body) {
+  try {
+    await sendWhatsAppList(to, {
+      body,
+      buttonText: "Servicios",
+      sections: [{ title: "Servicio o motivo", rows: serviceOptionRows }]
+    });
+    await recordConversationMessage(to, "bot", `${body}\n\n${serviceOptionRows.map((row, index) => `${index + 1}. ${row.title} - ${row.description}`).join("\n")}\n\nTambien puedes escribirlo con tus palabras.`);
+    await notifyBotReply(to, "Opciones de servicio enviadas.");
+  } catch (error) {
+    logSafeError(`Failed sending service options to ${maskPhone(to)}`, error);
+    await replyToPatient(
+      to,
+      `${body}\n\nPuedes responder: consulta, promocion, ultrasonido, papanicolaou, colposcopia, control prenatal u otro motivo general.`
+    );
+  }
+}
+
+async function replyWithFirstVisitButtons(to, body) {
+  await replyToPatientWithButtons(to, body, [
+    { id: "first_visit_yes", title: "Si" },
+    { id: "first_visit_no", title: "No" }
+  ]);
+}
+
+async function replyWithPaymentButtons(to, body) {
+  await replyToPatientWithButtons(to, body, [
+    { id: "payment_private", title: "Particular" },
+    { id: "payment_network", title: "Red medica" },
+    { id: "payment_human", title: "Persona" }
+  ]);
+}
+
 async function replyWithSlotOptions(to, { body, slots, allowSelection }) {
   const rows = buildSlotOptionRows(slots);
   const instruction = allowSelection
@@ -3489,7 +3560,7 @@ async function startAppointmentFlow(from) {
   if (profile?.patientName) {
     const session = applyReturningProfile({ from, step: "collecting" }, profile);
     await setPatientSession(from, session);
-    await replyToPatient(from, buildReturningAppointmentPrompt(profile));
+    await replyWithServiceOptions(from, buildReturningAppointmentPrompt(profile));
     return;
   }
 
