@@ -125,7 +125,10 @@ const interactiveReplyMap = {
   first_visit_no: "no",
   payment_private: "particular",
   payment_network: "red medica",
-  payment_human: "quiero hablar con una persona"
+  payment_human: "quiero hablar con una persona",
+  active_continue: "continuar",
+  active_restart: "empezar de nuevo",
+  active_human: "quiero hablar con una persona"
 };
 
 const serviceOptionRows = [
@@ -2687,6 +2690,22 @@ async function handleIncomingText(from, text) {
 
   const existing = await getPatientSession(from);
 
+  if (existing && isActiveSessionRestart(normalized)) {
+    await deletePatientSession(from);
+    await sendGreetingMenuToPatient(from);
+    return;
+  }
+
+  if (existing && isActiveSessionContinue(normalized)) {
+    await continueActiveSession(from, existing);
+    return;
+  }
+
+  if (existing && detectedIntent.intent === "greeting") {
+    await replyWithActiveSessionButtons(from, buildActiveSessionGreeting(existing));
+    return;
+  }
+
   if (existing?.step === "confirmingCancellation") {
     await handleCancellationConfirmation(from, normalized, existing);
     return;
@@ -3528,6 +3547,105 @@ async function replyWithPaymentButtons(to, body) {
   ]);
 }
 
+async function replyWithActiveSessionButtons(to, body) {
+  await replyToPatientWithButtons(to, body, [
+    { id: "active_continue", title: "Continuar" },
+    { id: "active_restart", title: "Nuevo inicio" },
+    { id: "active_human", title: "Persona" }
+  ]);
+}
+
+async function continueActiveSession(from, session) {
+  if (session.step === "confirmingCancellation") {
+    await replyToPatientWithButtons(
+      from,
+      `Claro, seguimos 😊\n\nEncontre tu cita para ${formatAppointmentFull(session.cancellationSlotStart)}.\n\n¿Seguro que deseas cancelarla?`,
+      [
+        { id: "cancel_yes", title: "Si, cancelar" },
+        { id: "cancel_no", title: "No, conservar" }
+      ]
+    );
+    return;
+  }
+
+  if (session.step === "confirmingReschedule") {
+    await replyToPatientWithButtons(
+      from,
+      `Claro, seguimos 😊\n\nEncontre tu cita para ${formatAppointmentFull(session.rescheduleFromSlotStart)}.\n¿Quieres cambiarla?`,
+      [
+        { id: "reschedule_yes", title: "Si, cambiar" },
+        { id: "reschedule_no", title: "No, conservar" },
+        { id: "reschedule_human", title: "Persona" }
+      ]
+    );
+    return;
+  }
+
+  if (session.step === "waitlistOffer") {
+    await replyToPatientWithButtons(
+      from,
+      buildNoSlotsWaitlistMessage(session, "Claro, seguimos 😊\n\n"),
+      [
+        { id: "waitlist_yes", title: "Si" },
+        { id: "waitlist_other_day", title: "Otro dia" },
+        { id: "waitlist_human", title: "Persona" }
+      ]
+    );
+    return;
+  }
+
+  if (session.step === "confirmingAppointment" && session.pendingSlot) {
+    await replyWithAppointmentReview(from, buildAppointmentReviewMessage({ ...session, slot: session.pendingSlot }));
+    return;
+  }
+
+  if ((session.step === "choosingSlot" || session.step === "choosingAvailabilitySlot") && session.offeredSlots?.length) {
+    await replyWithSlotOptions(from, {
+      body: `Claro, seguimos 😊\n\n${buildAvailabilityIntro(session, session.offeredSlots)}`,
+      slots: session.offeredSlots,
+      allowSelection: session.step === "choosingSlot" && !session.availabilityOnly
+    });
+    return;
+  }
+
+  if (!session.name) {
+    await replyToPatient(from, "😊 Claro, seguimos. ¿Me compartes tu nombre completo?");
+    return;
+  }
+
+  if (!session.email) {
+    await replyToPatient(from, `📩 Gracias, ${session.name}. ¿Me compartes tu correo electronico para enviarte la confirmacion de Google Calendar?`);
+    return;
+  }
+
+  if (!session.firstVisit) {
+    await replyWithFirstVisitButtons(from, "📝 ¿Es tu primera vez con nosotros?");
+    return;
+  }
+
+  if (!session.reason) {
+    await replyWithServiceOptions(from, "Gracias 😊 ¿Que servicio o motivo general quieres agendar?");
+    return;
+  }
+
+  if (!session.paymentType) {
+    await replyWithPaymentButtons(from, "💳 ¿Tu consulta es particular o por parte de alguna red medica/aseguradora?");
+    return;
+  }
+
+  if (session.pendingSlot) {
+    await replyWithAppointmentReview(from, buildAppointmentReviewMessage({ ...session, slot: session.pendingSlot }));
+    return;
+  }
+
+  if (!session.preferredDateText) {
+    await replyWithDateOptions(from, `📅 Gracias, ${session.name}. ¿Que dia te gustaria la cita?`);
+    return;
+  }
+
+  await offerAvailableSlots(from, session, { allowSelection: !session.availabilityOnly });
+}
+
 async function replyWithSlotOptions(to, { body, slots, allowSelection }) {
   const rows = buildSlotOptionRows(slots);
   const instruction = allowSelection
@@ -4315,6 +4433,24 @@ async function saveUnrecognizedQuestion(from, text, category) {
 
 function isResetCommand(text) {
   return /^(?:menu|menú|reiniciar|empezar de nuevo|volver al menu|volver al menú)$/.test(text);
+}
+
+function isActiveSessionContinue(text) {
+  return /^(?:continuar|seguir|seguimos|sigamos|continuemos|donde ibamos|donde vamos)$/.test(text);
+}
+
+function isActiveSessionRestart(text) {
+  return /^(?:nuevo inicio|empezar de nuevo|reiniciar|menu|menú|volver al menu|volver al menú)$/.test(text);
+}
+
+function buildActiveSessionGreeting(session) {
+  const stepLabel = formatSessionStep(session.step).toLowerCase();
+  return [
+    "Hola 😊 Veo que teniamos una conversacion en proceso.",
+    `Estabamos en: ${stepLabel}.`,
+    "",
+    "¿Quieres continuar donde ibamos o empezar de nuevo?"
+  ].join("\n");
 }
 
 function isAffirmativeConfirmation(text) {
