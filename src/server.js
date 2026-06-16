@@ -3273,7 +3273,7 @@ async function handleIncomingText(from, text) {
       if (returningProfile?.patientName) {
         const updated = applyReturningProfile({
           ...session,
-          step: "collecting",
+          step: "collectingService",
           availabilityOnly: false,
           pendingSlot: slot,
           pendingSlotSelectedIndex: parsed.selectedSlotIndex
@@ -4244,7 +4244,8 @@ async function startAppointmentFlow(from, options = {}) {
   const profile = await loadReturningPatientProfile(from);
 
   if (profile?.patientName) {
-    const session = applyReturningProfile({ from, step: "collecting" }, profile);
+    const sessionStep = presetReason ? "collecting" : "collectingService";
+    const session = applyReturningProfile({ from, step: sessionStep }, profile);
     if (presetReason) session.reason = presetReason;
     await setPatientSession(from, session);
     if (presetReason) {
