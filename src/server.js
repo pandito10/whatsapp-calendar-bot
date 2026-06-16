@@ -4043,7 +4043,7 @@ async function handleMenuOption(from, text, intent = detectIntent(text).intent) 
   }
 
   if (intent === "promotion") {
-    await replyToPatient(from, getIntentResponse("promotion"));
+    await sendPromoIncludesResponse(from);
     return true;
   }
 
