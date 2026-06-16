@@ -3335,6 +3335,13 @@ async function handleIncomingText(from, text) {
       await sendContactInfoResponse(from);
       return;
     }
+    if (detectedIntent.intent === "morning_hours" || detectedIntent.intent === "saturday") {
+      await replyToPatientWithButtons(from, faqAnswer, [
+        { id: "main_schedule", title: "Ver horarios" },
+        { id: "talk_human", title: "Hablar con persona" }
+      ]);
+      return;
+    }
     await replyToPatient(from, faqAnswer);
     return;
   }
@@ -4018,7 +4025,7 @@ async function handleMenuOption(from, text, intent = detectIntent(text).intent) 
   }
 
   if (option === 3 || intent === "location") {
-    await replyToPatient(from, getIntentResponse("location"));
+    await sendContactInfoResponse(from);
     return true;
   }
 
@@ -4038,7 +4045,15 @@ async function handleMenuOption(from, text, intent = detectIntent(text).intent) 
   }
 
   if (option === 4 || intent === "cost") {
-    await replyToPatient(from, `${getIntentResponse("cost")}\n\n${getIntentResponse("promotion")}`);
+    await replyToPatientWithButtons(
+      from,
+      `${getIntentResponse("cost")}\n\n${getIntentResponse("promotion")}`,
+      [
+        { id: "promo_schedule", title: "Agendar cita" },
+        { id: "promo_includes", title: "Que incluye" },
+        { id: "talk_human", title: "Hablar con persona" }
+      ]
+    );
     return true;
   }
 
@@ -4048,12 +4063,26 @@ async function handleMenuOption(from, text, intent = detectIntent(text).intent) 
   }
 
   if (option === 5 || intent === "payment_methods") {
-    await replyToPatient(from, getIntentResponse("payment_methods"));
+    await replyToPatientWithButtons(
+      from,
+      getIntentResponse("payment_methods"),
+      [
+        { id: "promo_schedule", title: "Agendar cita" },
+        { id: "talk_human", title: "Hablar con persona" }
+      ]
+    );
     return true;
   }
 
   if (option === 6 || intent === "medical_services") {
-    await replyToPatient(from, getIntentResponse("medical_services"));
+    await replyToPatientWithButtons(
+      from,
+      getIntentResponse("medical_services"),
+      [
+        { id: "promo_schedule", title: "Agendar cita" },
+        { id: "talk_human", title: "Hablar con persona" }
+      ]
+    );
     return true;
   }
 
