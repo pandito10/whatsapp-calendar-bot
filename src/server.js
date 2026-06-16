@@ -79,6 +79,8 @@ const maxMessagesPerConversation = 100;
 const rateLimitBuckets = new Map();
 let appSecretWarningShown = false;
 let isShuttingDown = false;
+const dailyReportsLog = [];
+const maxDailyReports = 30;
 
 const mainMenuRows = [
   { id: "main_schedule", title: "Agendar cita", description: "Iniciar registro y elegir horario" },
@@ -1332,7 +1334,6 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
   const rightPanel = renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, windowState, knowledgeSuggestions });
   const filterOptions = renderInboxQuickFilters(filter, url.searchParams.get("q") ?? "");
   const diagnosticsCard = renderInboxDiagnostics(diagnostics);
-  const dailyMetrics = buildDailyMetrics();
   const conversationLinks =
     filteredList.length === 0
       ? `<div class="empty-state">Todavia no hay conversaciones.</div>`
@@ -1564,6 +1565,21 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
     .metric-cell strong { font-size: 17px; color: #9d174d; }
     .metric-cell span { font-size: 10px; color: #8a5c6e; text-align: center; }
+    .report-entry summary {
+      cursor: pointer;
+      padding: 6px 0;
+      font-size: 12px;
+      list-style: none;
+    }
+    .report-entry summary::-webkit-details-marker { display: none; }
+    .report-body {
+      font-size: 12px;
+      line-height: 1.6;
+      padding: 6px 0 4px;
+      color: #5a2d4c;
+      border-top: 1px solid #f0d6e8;
+      margin-top: 4px;
+    }
     .diagnostics-card {
       margin: 0 14px 14px;
       padding: 12px;
@@ -2262,7 +2278,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       </div>
       ${renderTodayMetrics(list)}
       ${diagnosticsCard}
-      ${renderDailyMetrics(dailyMetrics)}
+      ${renderDailyReportsSection(dailyReportsLog)}
       <form class="tools" method="get" action="/inbox">
         <input name="q" value="${escapeHtml(url.searchParams.get("q") ?? "")}" placeholder="Buscar nombre, telefono, etiqueta o estado">
         <div class="tool-row">
@@ -2440,40 +2456,27 @@ function renderInboxDiagnostics(diagnostics) {
   </div>`;
 }
 
-function buildDailyMetrics() {
-  const todayISO = new Intl.DateTimeFormat("en-CA", {
-    timeZone: config.clinicTimezone
-  }).format(new Date());
-
-  let total = 0, promoLeads = 0, agendadas = 0, pendientes = 0;
-
-  for (const conversation of conversations.values()) {
-    const lastMsg = conversation.messages?.at(-1);
-    if (!lastMsg?.timestamp) continue;
-    if (lastMsg.timestamp.slice(0, 10) !== todayISO) continue;
-    total++;
-    const tags = new Set((conversation.tags ?? []).map((t) => t.toLowerCase()));
-    if (tags.has("promo $1200")) promoLeads++;
-    if (conversation.appointment?.status === "confirmed") agendadas++;
-    if (!conversation.appointment && !conversation.botPaused) pendientes++;
+function renderDailyReportsSection(log) {
+  if (!log || log.length === 0) {
+    if (!config.enableDailyReport) return "";
+    return `<div class="diagnostics-card" style="margin-top:0">
+      <div class="diagnostics-head"><strong>Reportes diarios</strong></div>
+      <p style="font-size:12px;color:var(--muted);padding:6px 0">El primer reporte se genera a las ${config.dailyReportHour}:00 h.</p>
+    </div>`;
   }
-
-  const convRate = promoLeads > 0 ? Math.round((agendadas / promoLeads) * 100) : 0;
-  return { total, promoLeads, agendadas, pendientes, convRate, todayISO };
-}
-
-function renderDailyMetrics(metrics) {
-  return `<div class="diagnostics-card" style="margin-top: 0;">
-    <div class="diagnostics-head">
-      <strong>Metricas de hoy</strong>
-      <span class="tag confirmed">${escapeHtml(metrics.todayISO)}</span>
-    </div>
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 12px;">
-      <div class="info-row" style="padding: 7px 9px;"><span>Conversaciones</span><strong>${metrics.total}</strong></div>
-      <div class="info-row" style="padding: 7px 9px;"><span>Promo $1200</span><strong>${metrics.promoLeads}</strong></div>
-      <div class="info-row" style="padding: 7px 9px;"><span>Agendadas</span><strong>${metrics.agendadas}</strong></div>
-      <div class="info-row" style="padding: 7px 9px;"><span>Conversion</span><strong>${metrics.convRate}%</strong></div>
-    </div>
+  const items = log.map((entry) => {
+    const timeLabel = entry.generatedAt
+      ? new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: config.clinicTimezone }).format(new Date(entry.generatedAt))
+      : "";
+    const lines = escapeHtml(String(entry.text ?? "")).replace(/\n/g, "<br>");
+    return `<details class="report-entry">
+      <summary><strong>${escapeHtml(entry.date)}</strong>${timeLabel ? ` <span style="color:var(--muted);font-size:11px">${timeLabel}</span>` : ""}</summary>
+      <div class="report-body">${lines}</div>
+    </details>`;
+  }).join("");
+  return `<div class="diagnostics-card" style="margin-top:0">
+    <div class="diagnostics-head"><strong>Reportes diarios</strong><span class="tag confirmed">${log.length}</span></div>
+    ${items}
   </div>`;
 }
 
@@ -4950,12 +4953,15 @@ async function sendDailyReport(todayISO) {
         : "?";
       return `• ${time} — ${cita.patientName ?? "Paciente"}`;
     }),
-    citas.length === 0 ? "Sin citas confirmadas para hoy." : undefined,
-    "",
-    "Revisa el inbox para mas detalles."
+    citas.length === 0 ? "Sin citas confirmadas para hoy." : undefined
   ].filter(Boolean).join("\n");
 
-  await safeSendWhatsAppText(config.doctorWhatsappNumber, lines);
+  dailyReportsLog.unshift({ date: todayISO, text: lines, generatedAt: new Date().toISOString() });
+  if (dailyReportsLog.length > maxDailyReports) dailyReportsLog.length = maxDailyReports;
+
+  if (config.enableDailyReport) {
+    await safeSendWhatsAppText(config.doctorWhatsappNumber, lines);
+  }
 }
 
 function startColdLeadFollowupWorker() {
