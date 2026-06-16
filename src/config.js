@@ -48,6 +48,7 @@ export const config = {
     whatsappTemplateLanguage: process.env.WHATSAPP_TEMPLATE_LANGUAGE ?? "es_MX",
     whatsappReminderTemplate24h: process.env.WHATSAPP_REMINDER_TEMPLATE_24H,
     whatsappReminderTemplate2h: process.env.WHATSAPP_REMINDER_TEMPLATE_2H,
+    whatsappCancellationTemplate: process.env.WHATSAPP_CANCELLATION_TEMPLATE ?? "",
     webhookPathSecret: process.env.WEBHOOK_PATH_SECRET,
     requireWebhookSignature: process.env.REQUIRE_WEBHOOK_SIGNATURE !== "false",
     allowUnsignedWebhooks: allowUnsignedWebhooks,
