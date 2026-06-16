@@ -4212,7 +4212,7 @@ async function sendFeaturedPromoResponse(to) {
     await notifyBotReply(to, "Promo $1200 enviada.");
   } catch (error) {
     logSafeError(`Failed sending promo buttons to ${maskPhone(to)}`, error);
-    await replyToPatient(to, `${body}\n\n¿Quieres agendar, ver que incluye o ver la ubicacion?`);
+    await replyToPatient(to, `${body}\n\nEscribe: *agendar*, *que incluye* o *ubicacion*`);
   }
 }
 
