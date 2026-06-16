@@ -1319,9 +1319,12 @@ function handleInboxLoginPage(req, res, error = "") {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Entrar al inbox</title>
   <style>
-    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #2d1724; background: #f0f6ff; }
+    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #2d1724; }
     * { box-sizing: border-box; }
-    body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top left, rgba(244, 114, 182, 0.28), transparent 28rem), linear-gradient(135deg, #fff7fb, #ffe4ef); }
+    body { min-height: 100vh; margin: 0; display: flex; flex-direction: column; background: linear-gradient(135deg, #fff7fb, #ffe4ef); }
+    .login-banner { width: 100%; max-height: 260px; overflow: hidden; line-height: 0; }
+    .login-banner img { width: 100%; height: 260px; object-fit: cover; object-position: center top; display: block; }
+    .login-wrap { flex: 1; display: grid; place-items: center; padding: 32px 24px; }
     main { width: min(420px, 100%); background: rgba(255, 255, 255, 0.92); border: 1px solid #f3c9d8; border-radius: 22px; padding: 30px; box-shadow: 0 20px 52px rgba(13, 61, 114, 0.14); }
     h1 { margin: 0 0 8px; font-size: 22px; }
     p { margin: 0 0 20px; color: #8a5c6e; line-height: 1.45; }
@@ -1333,17 +1336,22 @@ function handleInboxLoginPage(req, res, error = "") {
   </style>
 </head>
 <body>
-  <main>
-    <h1>Inbox del bot</h1>
-    <p>Entra con la clave privada del consultorio.</p>
-    ${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}
-    <form method="post" action="/inbox/login">
-      <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
-      <label for="password">Clave</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
-      <button type="submit">Entrar</button>
-    </form>
-  </main>
+  <div class="login-banner">
+    <img src="/public/dra_carranza_banner.png" alt="Dra. Carranza - Bienvenida a su consultorio virtual">
+  </div>
+  <div class="login-wrap">
+    <main>
+      <h1>Inbox del bot</h1>
+      <p>Entra con la clave privada del consultorio.</p>
+      ${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}
+      <form method="post" action="/inbox/login">
+        <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+        <label for="password">Clave</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+        <button type="submit">Entrar</button>
+      </form>
+    </main>
+  </div>
 </body>
 </html>`);
 }
