@@ -118,6 +118,63 @@ export async function cancelAppointment(googleEventId) {
   });
 }
 
+export async function getCalendarEvent(googleEventId) {
+  if (!googleEventId) return undefined;
+  const calendarId = encodeURIComponent(config.googleCalendarId);
+  const eventId = encodeURIComponent(googleEventId);
+  return googleRequest(`/calendar/v3/calendars/${calendarId}/events/${eventId}`, {
+    ignoreNotFound: true
+  });
+}
+
+let lastReconciliationAt = null;
+let lastReconciliationResult = null;
+
+export async function reconcileConfirmedCitasWithGoogleCalendar() {
+  const started = new Date();
+  let checked = 0;
+  let orphaned = 0;
+  let errors = 0;
+
+  try {
+    // Dynamic import to avoid circular dep — db.js doesn't import calendar.js
+    const { loadConfirmedCitasForReconciliation, markCitaFailedByGoogleEvent } = await import("./db.js");
+    const citas = await loadConfirmedCitasForReconciliation();
+
+    for (const cita of citas) {
+      try {
+        const event = await getCalendarEvent(cita.googleEventId);
+        checked++;
+        if (event === undefined) {
+          // 404/410 — event deleted from Calendar
+          await markCitaFailedByGoogleEvent(
+            cita.googleEventId,
+            "Evento no existe en Google Calendar; cita desincronizada"
+          );
+          orphaned++;
+          console.warn(`Reconciliation: cita ${cita.id} marked failed — event ${cita.googleEventId} not found in Calendar`);
+        }
+      } catch (error) {
+        // Network/transient error — do NOT cancel the cita
+        errors++;
+        console.warn(`Reconciliation: could not verify event ${cita.googleEventId}:`, error?.message);
+      }
+    }
+  } catch (error) {
+    console.error("Reconciliation failed:", error?.message);
+    errors++;
+  }
+
+  lastReconciliationAt = started.toISOString();
+  lastReconciliationResult = { checked, orphaned, errors };
+  console.log(`Reconciliation complete: checked=${checked} orphaned=${orphaned} errors=${errors}`);
+  return { checked, orphaned, errors };
+}
+
+export function getLastReconciliationResult() {
+  return { at: lastReconciliationAt, result: lastReconciliationResult };
+}
+
 function buildPatientDetails(patient) {
   return [
     "Cita creada por WhatsApp",
@@ -138,7 +195,7 @@ function buildWorkWindows(startDateISO) {
 
   for (let i = 0; windows.length < 5 && i < 14; i += 1) {
     const day = getWeekdayFromDateISO(dateISO);
-    if (config.workDays.includes(day)) {
+    if (config.workDays.includes(day) && !isBlockedDate(dateISO)) {
       const parts = splitDateISO(dateISO);
       windows.push({
         start: withTime(parts, config.workStart),

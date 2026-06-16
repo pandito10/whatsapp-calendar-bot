@@ -2,7 +2,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { URL } from "node:url";
 import { understandMessage, transcribeAudio } from "./ai.js";
-import { cancelAppointment, createAppointment, findAvailableSlots, isBlockedDate, isClinicWorkDateISO, isSlotAvailable } from "./calendar.js";
+import { cancelAppointment, createAppointment, findAvailableSlots, isBlockedDate, isClinicWorkDateISO, isSlotAvailable, reconcileConfirmedCitasWithGoogleCalendar, getLastReconciliationResult } from "./calendar.js";
 import { config } from "./config.js";
 import { buildDateOptionRows, dateOptionReplyText } from "./date-options.js";
 import { readForm, readRawBody } from "./form.js";
@@ -426,6 +426,13 @@ async function cleanupAppointmentStateOnStartup() {
     );
   } catch (error) {
     logSafeError("Could not cleanup stale appointment state on startup", error);
+  }
+
+  // Reconcile Supabase confirmed citas against Google Calendar
+  try {
+    await reconcileConfirmedCitasWithGoogleCalendar();
+  } catch (error) {
+    console.error("Startup reconciliation failed:", error?.message);
   }
 }
 
