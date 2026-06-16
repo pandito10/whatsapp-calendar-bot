@@ -2403,6 +2403,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
         <div class="stat"><strong>${stats.noReply}</strong><span>No respondio</span></div>
       </div>
       ${renderTodayMetrics(list)}
+      ${renderConversionMetrics(list)}
       ${diagnosticsCard}
       ${renderDailyReportsSection(dailyReportsLog)}
       ${renderCancelDaySection(csrf)}
@@ -2551,6 +2552,60 @@ function renderTodayMetrics(list) {
       <div class="metric-cell"><strong>${pct}%</strong><span>Conversion</span></div>
       <div class="metric-cell"><strong>${human}</strong><span>Humano</span></div>
     </div>
+  </div>`;
+}
+
+function renderConversionMetrics(list) {
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  const computePeriod = (days) => {
+    const cutoff = now - days * dayMs;
+    let total = 0;
+    let scheduled = 0;
+    for (const conv of list) {
+      const ts = conv.updatedAt ? new Date(conv.updatedAt).getTime() : 0;
+      if (!ts || ts < cutoff) continue;
+      total++;
+      if (conv.appointment?.slotStart) scheduled++;
+    }
+    return { total, scheduled, pct: total > 0 ? Math.round((scheduled / total) * 100) : 0 };
+  };
+
+  const week = computePeriod(7);
+  const month = computePeriod(30);
+
+  const cutoff30 = now - 30 * dayMs;
+  const tagCounts = new Map();
+  for (const conv of list) {
+    const ts = conv.updatedAt ? new Date(conv.updatedAt).getTime() : 0;
+    if (!ts || ts < cutoff30) continue;
+    for (const tag of conv.tags ?? []) {
+      const clean = String(tag).trim();
+      if (clean) tagCounts.set(clean, (tagCounts.get(clean) ?? 0) + 1);
+    }
+  }
+  const topTags = [...tagCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const topTagsHtml = topTags.length > 0
+    ? topTags.map(([tag, count]) => `<li style="display:flex;justify-content:space-between;padding:2px 0"><span>${escapeHtml(tag)}</span><strong>${count}</strong></li>`).join("")
+    : `<li style="color:var(--muted)">Aun sin datos suficientes</li>`;
+
+  return `<div class="metrics-card">
+    <div class="metrics-head"><strong>Conversion</strong></div>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      ${renderConvPeriodCell("7 dias", week)}
+      ${renderConvPeriodCell("30 dias", month)}
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Temas mas preguntados (30d)</div>
+    <ul style="list-style:none;margin:0;padding:0;font-size:12px">${topTagsHtml}</ul>
+  </div>`;
+}
+
+function renderConvPeriodCell(label, data) {
+  return `<div style="flex:1;background:#f4f4f6;border-radius:6px;padding:8px;text-align:center">
+    <div style="font-size:11px;color:var(--muted)">${escapeHtml(label)}</div>
+    <div style="font-size:18px;font-weight:700">${data.pct}%</div>
+    <div style="font-size:11px;color:var(--muted)">${data.scheduled}/${data.total} agendadas</div>
   </div>`;
 }
 
