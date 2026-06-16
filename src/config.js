@@ -125,10 +125,34 @@ export const config = {
     googleSheetsId: process.env.GOOGLE_SHEETS_ID ?? "",
     googleServiceAccountJson: process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? "",
     coldLeadFollowupEnabled: process.env.COLD_LEAD_FOLLOWUP_ENABLED === "true",
-    coldLeadFollowupHours: Number(process.env.COLD_LEAD_FOLLOWUP_HOURS ?? 6)
+    coldLeadFollowupHours: Number(process.env.COLD_LEAD_FOLLOWUP_HOURS ?? 6),
+    resendApiKey: process.env.RESEND_API_KEY ?? "",
+    resendFromEmail: process.env.RESEND_FROM_EMAIL ?? "",
+    blockedDates: parseBlockedDates(process.env.BLOCKED_DATES),
+    blockedDateRanges: parseBlockedDateRanges(process.env.BLOCKED_DATE_RANGES),
+    enablePostAppointmentSurvey: process.env.ENABLE_POST_APPOINTMENT_SURVEY === "true",
+    postAppointmentSurveyDelayHours: Number(process.env.POST_APPOINTMENT_SURVEY_DELAY_HOURS ?? 2)
 };
 
 validateStartupConfig();
+
+function parseBlockedDates(value) {
+    return String(value ?? "")
+          .split(",")
+          .map((d) => d.trim())
+          .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+}
+
+function parseBlockedDateRanges(value) {
+    return String(value ?? "")
+          .split(",")
+          .map((r) => r.trim())
+          .filter((r) => /^\d{4}-\d{2}-\d{2}:\d{4}-\d{2}-\d{2}$/.test(r))
+          .map((r) => {
+                const [start, end] = r.split(":");
+                return { start, end };
+          });
+}
 
 function validateStartupConfig() {
     if (config.nodeEnv === "production") {

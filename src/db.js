@@ -711,6 +711,28 @@ export async function loadConfirmedCitasBetween(startISO, endISO) {
     }));
 }
 
+export async function loadConfirmedCitasByDay(dateISO) {
+  if (!isDatabaseEnabled() || !dateISO) return [];
+
+  const dayStart = `${dateISO}T00:00:00.000Z`;
+  const dayEnd = `${dateISO}T23:59:59.999Z`;
+
+  const rows = await supabaseFetch(
+    `/rest/v1/citas?select=id,slot_start,slot_end,status,google_event_id,phone_number,patient_name,patient_email&status=eq.confirmed&slot_start=lt.${encodeURIComponent(dayEnd)}&slot_end=gt.${encodeURIComponent(dayStart)}`
+  );
+
+  return (rows ?? []).map((row) => ({
+    id: row.id,
+    slotStart: row.slot_start,
+    slotEnd: row.slot_end,
+    status: row.status,
+    googleEventId: row.google_event_id,
+    phoneNumber: row.phone_number,
+    patientName: row.patient_name,
+    patientEmail: row.patient_email
+  }));
+}
+
 export async function cancelCita(citaId) {
   if (!isDatabaseEnabled() || !citaId) return;
 

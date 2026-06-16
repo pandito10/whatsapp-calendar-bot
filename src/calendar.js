@@ -242,6 +242,15 @@ export function isClinicWorkDateISO(dateISO) {
   return config.workDays.includes(getWeekdayFromDateISO(dateISO));
 }
 
+export function isBlockedDate(dateISO) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateISO ?? ""))) return false;
+  if (config.blockedDates.includes(dateISO)) return true;
+  for (const range of config.blockedDateRanges) {
+    if (dateISO >= range.start && dateISO <= range.end) return true;
+  }
+  return false;
+}
+
 function getZonedWeekday(date) {
   const shortDay = new Intl.DateTimeFormat("en-US", {
     timeZone: config.clinicTimezone,
