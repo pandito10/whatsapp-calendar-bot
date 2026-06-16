@@ -1168,26 +1168,87 @@ async function handleInboxCancelDay(req, url, res) {
   const cancelMsg = form.get("message")?.trim() || `Lo sentimos, las citas del ${dateISO} han sido canceladas. Por favor contáctanos para reagendar.`;
   let cancelled = 0;
   let errors = 0;
+  let notifiedWhatsApp = 0;
+  let notifiedEmail = 0;
+  const needManualContact = [];
 
   for (const cita of citas) {
     try {
       if (cita.googleEventId) await cancelAppointment(cita.googleEventId);
       await cancelCita(cita.id);
-      if (cita.phoneNumber) {
-        await safeSendWhatsAppText(cita.phoneNumber, cancelMsg);
-        await recordConversationMessage(cita.phoneNumber, "bot", cancelMsg);
-      }
       cancelled++;
+
+      // Notify the patient through a Meta-compliant channel only.
+      const notified = await notifyPatientOfDayCancellation(cita, cancelMsg, dateISO);
+      if (notified === "whatsapp") notifiedWhatsApp++;
+      else if (notified === "email") notifiedEmail++;
+      else if (notified === "manual" && cita.phoneNumber) needManualContact.push(maskPhone(cita.phoneNumber));
     } catch (error) {
       logSafeError(`Could not cancel cita ${cita.id}`, error);
       errors++;
     }
   }
 
-  const summary = `Canceladas: ${cancelled}. Errores: ${errors}. Total citas del dia: ${citas.length}.`;
+  let summary = `Canceladas: ${cancelled} de ${citas.length}. Avisadas por WhatsApp: ${notifiedWhatsApp}. Por correo: ${notifiedEmail}.`;
+  if (needManualContact.length > 0) {
+    summary += ` ⚠️ ${needManualContact.length} requieren llamada (fuera de ventana 24h, sin correo): ${needManualContact.join(", ")}.`;
+  }
+  if (errors > 0) summary += ` Errores: ${errors}.`;
   dailyReportsLog.unshift({ date: dateISO, text: `[Cancelacion masiva] ${summary}`, generatedAt: new Date().toISOString() });
   if (dailyReportsLog.length > 30) dailyReportsLog.length = 30;
   await redirectInbox(res, "", summary);
+}
+
+// Returns "whatsapp" | "email" | "manual" | "none" depending on which
+// Meta-compliant channel was used to notify the patient of a cancellation.
+async function notifyPatientOfDayCancellation(cita, cancelMsg, dateISO) {
+  let usedWhatsApp = false;
+
+  if (cita.phoneNumber) {
+    const conversation = conversations.get(cita.phoneNumber);
+    const windowState = getWhatsAppWindowState(conversation);
+
+    if (windowState.key === "open" || windowState.key === "closing") {
+      // Inside the 24h customer service window: free-form text is allowed.
+      await safeSendWhatsAppText(cita.phoneNumber, cancelMsg);
+      await recordConversationMessage(cita.phoneNumber, "bot", cancelMsg);
+      usedWhatsApp = true;
+    } else if (config.whatsappCancellationTemplate) {
+      // Outside the window: only an approved template may be sent.
+      try {
+        await sendWhatsAppTemplate(
+          cita.phoneNumber,
+          config.whatsappCancellationTemplate,
+          config.whatsappTemplateLanguage,
+          [cita.patientName ?? "Paciente"]
+        );
+        await recordConversationMessage(cita.phoneNumber, "bot", `[Plantilla de cancelacion enviada para ${dateISO}]`);
+        usedWhatsApp = true;
+      } catch (error) {
+        logSafeError(`Cancellation template failed for ${maskPhone(cita.phoneNumber)}`, error);
+      }
+    }
+  }
+
+  // Email has no 24h restriction; use it as a compliant fallback/extra channel.
+  let usedEmail = false;
+  if (cita.patientEmail && isEmailEnabled()) {
+    try {
+      await sendCancellationEmail({
+        to: cita.patientEmail,
+        name: cita.patientName ?? "Paciente",
+        slotLabel: formatAppointmentFull(cita.slotStart),
+        clinicName: config.clinicName
+      });
+      usedEmail = true;
+    } catch (error) {
+      logSafeError("Cancellation email failed", error);
+    }
+  }
+
+  if (usedWhatsApp) return "whatsapp";
+  if (usedEmail) return "email";
+  return "manual";
 }
 
 function parseTags(value) {
@@ -2557,6 +2618,7 @@ function renderCancelDaySection(csrf) {
         <input name="date" type="date" required style="width:100%;margin-bottom:8px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px">
         <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Mensaje para pacientes (opcional)</label>
         <textarea name="message" rows="3" placeholder="Lo sentimos, las citas del dia han sido canceladas..." style="width:100%;margin-bottom:8px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px;resize:vertical"></textarea>
+        <p style="font-size:11px;color:var(--muted);margin:0 0 8px">Por reglas de Meta, a quien escribio hace +24h se le avisa por WhatsApp solo si hay plantilla aprobada; si no, por correo o se lista para llamada.</p>
         <button class="button-danger" type="submit" style="width:100%">Cancelar y notificar pacientes</button>
       </form>
     </details>
@@ -5116,6 +5178,14 @@ async function processPostAppointmentSurveys() {
       const slotEndMs = new Date(appointment.slotEnd).getTime();
       const elapsed = now - slotEndMs;
       if (elapsed < delayMs || elapsed > windowMs) continue;
+
+      // Meta compliance: only send a free-form survey while the 24h customer
+      // service window is still open. Outside it, sending free text is not
+      // allowed (would require an approved template + opt-in), so we skip.
+      const windowState = getWhatsAppWindowState(conversation, now);
+      if (windowState.key !== "open" && windowState.key !== "closing") {
+        continue;
+      }
 
       const surveyBody = [
         "Hola 😊 Esperamos que tu cita haya sido de tu agrado.",
