@@ -1,6 +1,7 @@
 import http from "node:http";
 import crypto from "node:crypto";
 import { URL } from "node:url";
+import { readFile } from "node:fs/promises";
 import { understandMessage, transcribeAudio } from "./ai.js";
 import { cancelAppointment, createAppointment, findAvailableSlots, isBlockedDate, isClinicWorkDateISO, isSlotAvailable, reconcileConfirmedCitasWithGoogleCalendar, getLastReconciliationResult } from "./calendar.js";
 import { config } from "./config.js";
@@ -250,6 +251,18 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && url.pathname === "/debug/config") {
       await handleDebugConfig(req, url, res);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname.startsWith("/public/")) {
+      const filename = url.pathname.slice("/public/".length);
+      if (!/^[\w.\-]+$/.test(filename)) { res.writeHead(400).end("Bad request"); return; }
+      try {
+        const data = await readFile(new URL(`../public/${filename}`, import.meta.url));
+        const ext = filename.split(".").pop().toLowerCase();
+        const mime = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml" }[ext] ?? "application/octet-stream";
+        res.writeHead(200, { "Content-Type": mime, "Cache-Control": "public, max-age=86400" }).end(data);
+      } catch { res.writeHead(404).end("Not found"); }
       return;
     }
 
@@ -1588,6 +1601,20 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       object-position: center top;
       border-radius: 50%;
     }
+    .inbox-banner {
+      width: 100%;
+      max-height: 220px;
+      overflow: hidden;
+      display: block;
+      line-height: 0;
+    }
+    .inbox-banner img {
+      width: 100%;
+      height: 220px;
+      object-fit: cover;
+      object-position: center top;
+      display: block;
+    }
     h1 {
       font-size: 18px;
       margin: 0;
@@ -2375,6 +2402,9 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
   </style>
 </head>
 <body class="${selected ? "has-selection" : "no-selection"}">
+  <div class="inbox-banner">
+    <img src="/public/dra_carranza_banner.png" alt="Dra. Carranza - Bienvenida a su consultorio virtual">
+  </div>
   <header>
     <div class="brand">
       <div class="brand-mark">${config.inboxDoctorImageUrl ? `<img src="${escapeHtml(config.inboxDoctorImageUrl)}" alt="Dra. Carranza">` : "Dra"}</div>
