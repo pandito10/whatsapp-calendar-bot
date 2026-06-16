@@ -3767,6 +3767,19 @@ async function finishConfirmedAppointment(from, session, slot, cita, name) {
   await scheduleAppointmentReminder(from, session, slot, cita);
   await cancelPreviousRescheduledAppointment(session);
   await deletePatientSession(from);
+
+  // Keep the in-memory conversation up to date so background workers
+  // (e.g. post-appointment survey) can read slotEnd without waiting for a restart.
+  const existing = conversations.get(from) ?? { phoneNumber: from, messages: [], updatedAt: new Date().toISOString() };
+  existing.appointment = {
+    patientName: name,
+    patientEmail: session.email ?? undefined,
+    googleEventId: cita?.googleEventId ?? undefined,
+    slotStart: slot.start,
+    slotEnd: slot.end,
+    status: "confirmed"
+  };
+  conversations.set(from, existing);
   void appendAppointmentToSheet({
     phone: from,
     name,
@@ -3941,8 +3954,7 @@ async function handleIncomingAudio(from, audio) {
       const transcript = await transcribeAudio(buffer, mimeType);
       if (transcript && transcript.trim().length > 2) {
         console.log(`Transcribed audio from ${maskPhone(from)}: "${transcript.slice(0, 80)}"`);
-        await recordConversationMessage(from, "patient", `[Transcripcion]: ${transcript}`);
-        await notifyIncomingPatientMessage(from, `[Transcripcion]: ${transcript}`);
+        // handleIncomingText records the message and notifies the inbox internally
         await handleIncomingText(from, transcript);
         return;
       }

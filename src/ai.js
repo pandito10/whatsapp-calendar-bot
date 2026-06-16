@@ -153,7 +153,7 @@ export async function transcribeAudio(buffer, mimeType) {
 
 function normalizeMimeType(mimeType) {
   const m = String(mimeType ?? "").toLowerCase().split(";")[0].trim();
-  if (m === "audio/ogg" || m === "audio/ogg; codecs=opus" || m.includes("ogg")) return "audio/ogg";
+  if (m.includes("ogg")) return "audio/ogg";
   if (m.includes("mp4") || m.includes("m4a")) return "audio/mp4";
   if (m.includes("mpeg") || m.includes("mp3")) return "audio/mpeg";
   if (m.includes("wav")) return "audio/wav";
