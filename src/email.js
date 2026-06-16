@@ -6,47 +6,30 @@ export function isEmailEnabled() {
 
 export async function sendAppointmentConfirmationEmail({ to, name, slotLabel, clinicName, clinicAddress }) {
   if (!isEmailEnabled() || !to) return;
-
-  const body = JSON.stringify({
-    from: config.resendFromEmail,
-    to: [to],
+  await sendResendEmail({
+    to,
     subject: `Confirmacion de cita — ${clinicName}`,
     html: buildConfirmationHtml({ name, slotLabel, clinicName, clinicAddress })
   });
-
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.resendApiKey}`
-    },
-    body,
-    signal: AbortSignal.timeout(10_000)
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Resend API error ${res.status}: ${text.slice(0, 200)}`);
-  }
 }
 
 export async function sendCancellationEmail({ to, name, slotLabel, clinicName }) {
   if (!isEmailEnabled() || !to) return;
-
-  const body = JSON.stringify({
-    from: config.resendFromEmail,
-    to: [to],
+  await sendResendEmail({
+    to,
     subject: `Cita cancelada — ${clinicName}`,
     html: buildCancellationHtml({ name, slotLabel, clinicName })
   });
+}
 
+async function sendResendEmail({ to, subject, html }) {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${config.resendApiKey}`
     },
-    body,
+    body: JSON.stringify({ from: config.resendFromEmail, to: [to], subject, html }),
     signal: AbortSignal.timeout(10_000)
   });
 

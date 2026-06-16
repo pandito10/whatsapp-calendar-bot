@@ -111,11 +111,9 @@ async function understandWithGemini(systemPrompt, message, session) {
 export async function transcribeAudio(buffer, mimeType) {
   if (config.aiProvider !== "gemini" || !config.geminiApiKey) return null;
 
-  requireEnv(["GEMINI_API_KEY"], "Gemini");
-
   const base64 = buffer.toString("base64");
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${config.geminiApiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${config.geminiModel}:generateContent?key=${config.geminiApiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -1202,19 +1202,16 @@ async function handleInboxCancelDay(req, url, res) {
 // Returns "whatsapp" | "email" | "manual" | "none" depending on which
 // Meta-compliant channel was used to notify the patient of a cancellation.
 async function notifyPatientOfDayCancellation(cita, cancelMsg, dateISO) {
-  let usedWhatsApp = false;
-
   if (cita.phoneNumber) {
-    const conversation = conversations.get(cita.phoneNumber);
-    const windowState = getWhatsAppWindowState(conversation);
+    const windowState = getWhatsAppWindowState(conversations.get(cita.phoneNumber));
 
     if (windowState.key === "open" || windowState.key === "closing") {
-      // Inside the 24h customer service window: free-form text is allowed.
       await safeSendWhatsAppText(cita.phoneNumber, cancelMsg);
       await recordConversationMessage(cita.phoneNumber, "bot", cancelMsg);
-      usedWhatsApp = true;
-    } else if (config.whatsappCancellationTemplate) {
-      // Outside the window: only an approved template may be sent.
+      return "whatsapp";
+    }
+
+    if (config.whatsappCancellationTemplate) {
       try {
         await sendWhatsAppTemplate(
           cita.phoneNumber,
@@ -1223,15 +1220,13 @@ async function notifyPatientOfDayCancellation(cita, cancelMsg, dateISO) {
           [cita.patientName ?? "Paciente"]
         );
         await recordConversationMessage(cita.phoneNumber, "bot", `[Plantilla de cancelacion enviada para ${dateISO}]`);
-        usedWhatsApp = true;
+        return "whatsapp";
       } catch (error) {
         logSafeError(`Cancellation template failed for ${maskPhone(cita.phoneNumber)}`, error);
       }
     }
   }
 
-  // Email has no 24h restriction; use it as a compliant fallback/extra channel.
-  let usedEmail = false;
   if (cita.patientEmail && isEmailEnabled()) {
     try {
       await sendCancellationEmail({
@@ -1240,14 +1235,12 @@ async function notifyPatientOfDayCancellation(cita, cancelMsg, dateISO) {
         slotLabel: formatAppointmentFull(cita.slotStart),
         clinicName: config.clinicName
       });
-      usedEmail = true;
+      return "email";
     } catch (error) {
       logSafeError("Cancellation email failed", error);
     }
   }
 
-  if (usedWhatsApp) return "whatsapp";
-  if (usedEmail) return "email";
   return "manual";
 }
 
@@ -3157,7 +3150,7 @@ async function handleIncomingText(from, text) {
     }
   }
 
-  if (lower === "encuesta excelente" || lower === "encuesta bien" || lower === "encuesta regular") {
+  if (lower.startsWith("encuesta ")) {
     await handleSurveyReply(from, lower);
     return;
   }
@@ -3948,7 +3941,7 @@ async function handleIncomingAudio(from, audio) {
 
   console.log(`Audio message received from ${maskPhone(from)} mime=${audio.mime_type ?? "?"} voice=${audio.voice ?? false}`);
 
-  if (audio.id && config.aiProvider === "gemini") {
+  if (audio.id) {
     try {
       const { buffer, mimeType } = await downloadWhatsAppAudio(audio.id);
       const transcript = await transcribeAudio(buffer, mimeType);
@@ -5227,6 +5220,8 @@ function startPostAppointmentSurveyWorker() {
   }, 30 * 60 * 1000).unref?.();
 }
 
+const SURVEY_BODY = "Hola 😊 Esperamos que tu cita haya sido de tu agrado.\n\n¿Como fue tu experiencia con nosotros?";
+
 async function processPostAppointmentSurveys() {
   const now = Date.now();
   const delayMs = config.postAppointmentSurveyDelayHours * 60 * 60 * 1000;
@@ -5235,33 +5230,20 @@ async function processPostAppointmentSurveys() {
   for (const [phone, conversation] of conversations.entries()) {
     try {
       if (conversation.botPaused) continue;
+      if ((conversation.tags ?? []).some((t) => t.toLowerCase() === "encuesta enviada")) continue;
 
-      const tags = new Set((conversation.tags ?? []).map((t) => t.toLowerCase()));
-      if (tags.has("encuesta enviada")) continue;
+      const slotEnd = conversation.appointment?.slotEnd;
+      if (!slotEnd) continue;
 
-      const appointment = conversation.appointment;
-      if (!appointment?.slotEnd) continue;
-
-      const slotEndMs = new Date(appointment.slotEnd).getTime();
-      const elapsed = now - slotEndMs;
+      const elapsed = now - new Date(slotEnd).getTime();
       if (elapsed < delayMs || elapsed > windowMs) continue;
 
-      // Meta compliance: only send a free-form survey while the 24h customer
-      // service window is still open. Outside it, sending free text is not
-      // allowed (would require an approved template + opt-in), so we skip.
+      // Meta compliance: free-form messages only allowed within the 24h window.
       const windowState = getWhatsAppWindowState(conversation, now);
-      if (windowState.key !== "open" && windowState.key !== "closing") {
-        continue;
-      }
-
-      const surveyBody = [
-        "Hola 😊 Esperamos que tu cita haya sido de tu agrado.",
-        "",
-        "¿Como fue tu experiencia con nosotros?"
-      ].join("\n");
+      if (windowState.key !== "open" && windowState.key !== "closing") continue;
 
       await sendWhatsAppButtons(phone, {
-        body: surveyBody,
+        body: SURVEY_BODY,
         buttons: [
           { id: "survey_great", title: "Excelente ⭐⭐⭐⭐⭐" },
           { id: "survey_good", title: "Bien 👍" },
@@ -5269,7 +5251,7 @@ async function processPostAppointmentSurveys() {
         ]
       });
 
-      await recordConversationMessage(phone, "bot", surveyBody);
+      await recordConversationMessage(phone, "bot", SURVEY_BODY);
       await addConversationTags(phone, ["encuesta enviada"]);
       console.log(`Post-appointment survey sent to ${maskPhone(phone)}`);
     } catch (error) {

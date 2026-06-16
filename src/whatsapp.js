@@ -97,26 +97,28 @@ export async function sendWhatsAppMedia(to, file, options = {}) {
 }
 
 export async function downloadWhatsAppAudio(mediaId) {
+  const authHeaders = { Authorization: `Bearer ${config.whatsappAccessToken}` };
+
   // Step 1: resolve the download URL
-  const metaUrl = `https://graph.facebook.com/v25.0/${mediaId}`;
-  const metaRes = await fetch(metaUrl, {
-    headers: { Authorization: `Bearer ${config.whatsappAccessToken}` },
-    signal: AbortSignal.timeout(10_000)
-  });
+  const metaRes = await resilientFetch(
+    `https://graph.facebook.com/v25.0/${mediaId}`,
+    { headers: authHeaders },
+    { label: "WhatsApp media meta", timeoutMs: 10_000, retries: 1 }
+  );
   if (!metaRes.ok) {
-    throw new Error(`WhatsApp media meta fetch failed: ${metaRes.status}`);
+    throw buildHttpError("WhatsApp media meta", metaRes, await readResponseTextSafe(metaRes));
   }
-  const meta = await metaRes.json();
-  const downloadUrl = meta.url;
-  if (!downloadUrl) throw new Error("WhatsApp media meta did not return url");
+  const meta = JSON.parse(await readResponseTextSafe(metaRes));
+  if (!meta.url) throw new Error("WhatsApp media meta did not return url");
 
   // Step 2: download binary
-  const audioRes = await fetch(downloadUrl, {
-    headers: { Authorization: `Bearer ${config.whatsappAccessToken}` },
-    signal: AbortSignal.timeout(30_000)
-  });
+  const audioRes = await resilientFetch(
+    meta.url,
+    { headers: authHeaders },
+    { label: "WhatsApp audio download", timeoutMs: 30_000, retries: 0 }
+  );
   if (!audioRes.ok) {
-    throw new Error(`WhatsApp audio download failed: ${audioRes.status}`);
+    throw buildHttpError("WhatsApp audio download", audioRes, await readResponseTextSafe(audioRes));
   }
 
   const buffer = Buffer.from(await audioRes.arrayBuffer());
