@@ -1,8 +1,8 @@
 import http from "node:http";
 import crypto from "node:crypto";
 import { URL } from "node:url";
-import { understandMessage } from "./ai.js";
-import { cancelAppointment, createAppointment, findAvailableSlots, isClinicWorkDateISO, isSlotAvailable } from "./calendar.js";
+import { understandMessage, transcribeAudio } from "./ai.js";
+import { cancelAppointment, createAppointment, findAvailableSlots, isBlockedDate, isClinicWorkDateISO, isSlotAvailable } from "./calendar.js";
 import { config } from "./config.js";
 import { buildDateOptionRows, dateOptionReplyText } from "./date-options.js";
 import { readForm, readRawBody } from "./form.js";
@@ -47,6 +47,7 @@ import {
   loadDueReminders,
   loadConversations,
   loadConfirmedCitasBetween,
+  loadConfirmedCitasByDay,
   loadWaitingListByDate,
   markReminderFailed,
   markReminderSent,
@@ -68,8 +69,9 @@ import {
   setSession,
   updateKnowledgeSuggestion
 } from "./db.js";
-import { sendWhatsAppButtons, sendWhatsAppList, sendWhatsAppMedia, sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.js";
+import { downloadWhatsAppAudio, sendWhatsAppButtons, sendWhatsAppList, sendWhatsAppMedia, sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.js";
 import { appendLeadToSheet, appendAppointmentToSheet, appendUnknownQuestionToSheet, isSheetsEnabled } from "./sheets.js";
+import { isEmailEnabled, sendAppointmentConfirmationEmail, sendCancellationEmail } from "./email.js";
 
 const sessions = new Map();
 const processedMessages = new Map();
@@ -137,6 +139,10 @@ const interactiveReplyMap = {
   // Attendance confirmation buttons
   attendance_yes: "confirmo asistencia",
   attendance_cancel: "quiero cancelar",
+  // Post-appointment survey buttons
+  survey_great: "encuesta excelente",
+  survey_good: "encuesta bien",
+  survey_regular: "encuesta regular",
   // Promo campaign buttons
   promo_schedule: "agendar promo",
   promo_info: "vi el anuncio",
@@ -307,6 +313,11 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/inbox/cancel-day") {
+      await handleInboxCancelDay(req, url, res);
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/inbox/knowledge/review") {
       await handleKnowledgeReview(req, url, res);
       return;
@@ -348,6 +359,7 @@ server.listen(config.port, () => {
   startReminderWorker();
   startDailyReportWorker();
   startColdLeadFollowupWorker();
+  startPostAppointmentSurveyWorker();
   void cleanupAppointmentStateOnStartup();
 });
 
@@ -1123,6 +1135,59 @@ async function handleInboxNote(req, url, res) {
   }
 
   await redirectInbox(res, phone);
+}
+
+async function handleInboxCancelDay(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) return;
+  if (!checkRateLimit(req, url, "inbox-action")) {
+    res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8" }).end("too many requests");
+    return;
+  }
+
+  const form = await readForm(req, { maxBytes: config.maxRequestBytes });
+  if (!isValidCsrf(req, form.get("csrf"))) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const dateISO = String(form.get("date") ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO)) {
+    await redirectInbox(res, "", "Fecha invalida.");
+    return;
+  }
+
+  let citas;
+  try {
+    citas = await loadConfirmedCitasByDay(dateISO);
+  } catch (error) {
+    logSafeError("Could not load citas for cancel-day", error);
+    await redirectInbox(res, "", "No se pudo cargar las citas del dia.");
+    return;
+  }
+
+  const cancelMsg = form.get("message")?.trim() || `Lo sentimos, las citas del ${dateISO} han sido canceladas. Por favor contáctanos para reagendar.`;
+  let cancelled = 0;
+  let errors = 0;
+
+  for (const cita of citas) {
+    try {
+      if (cita.googleEventId) await cancelAppointment(cita.googleEventId);
+      await cancelCita(cita.id);
+      if (cita.phoneNumber) {
+        await safeSendWhatsAppText(cita.phoneNumber, cancelMsg);
+        await recordConversationMessage(cita.phoneNumber, "bot", cancelMsg);
+      }
+      cancelled++;
+    } catch (error) {
+      logSafeError(`Could not cancel cita ${cita.id}`, error);
+      errors++;
+    }
+  }
+
+  const summary = `Canceladas: ${cancelled}. Errores: ${errors}. Total citas del dia: ${citas.length}.`;
+  dailyReportsLog.unshift({ date: dateISO, text: `[Cancelacion masiva] ${summary}`, generatedAt: new Date().toISOString() });
+  if (dailyReportsLog.length > 30) dailyReportsLog.length = 30;
+  await redirectInbox(res, "", summary);
 }
 
 function parseTags(value) {
@@ -2279,6 +2344,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       ${renderTodayMetrics(list)}
       ${diagnosticsCard}
       ${renderDailyReportsSection(dailyReportsLog)}
+      ${renderCancelDaySection(csrf)}
       <form class="tools" method="get" action="/inbox">
         <input name="q" value="${escapeHtml(url.searchParams.get("q") ?? "")}" placeholder="Buscar nombre, telefono, etiqueta o estado">
         <div class="tool-row">
@@ -2477,6 +2543,23 @@ function renderDailyReportsSection(log) {
   return `<div class="diagnostics-card" style="margin-top:0">
     <div class="diagnostics-head"><strong>Reportes diarios</strong><span class="tag confirmed">${log.length}</span></div>
     ${items}
+  </div>`;
+}
+
+function renderCancelDaySection(csrf) {
+  if (!isDatabaseEnabled()) return "";
+  return `<div class="diagnostics-card" style="margin-top:0">
+    <details>
+      <summary style="cursor:pointer;font-weight:600;font-size:13px;">🗓️ Cancelar citas de un dia</summary>
+      <form method="post" action="/inbox/cancel-day" style="margin-top:8px" onsubmit="return confirm('¿Cancelar TODAS las citas del dia seleccionado y notificar a los pacientes?')">
+        <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Fecha a cancelar</label>
+        <input name="date" type="date" required style="width:100%;margin-bottom:8px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Mensaje para pacientes (opcional)</label>
+        <textarea name="message" rows="3" placeholder="Lo sentimos, las citas del dia han sido canceladas..." style="width:100%;margin-bottom:8px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px;resize:vertical"></textarea>
+        <button class="button-danger" type="submit" style="width:100%">Cancelar y notificar pacientes</button>
+      </form>
+    </details>
   </div>`;
 }
 
@@ -2957,6 +3040,11 @@ async function handleIncomingText(from, text) {
     }
   }
 
+  if (lower === "encuesta excelente" || lower === "encuesta bien" || lower === "encuesta regular") {
+    await handleSurveyReply(from, lower);
+    return;
+  }
+
   const existing = await getPatientSession(from);
 
   if (existing && isActiveSessionRestart(normalized)) {
@@ -3389,6 +3477,12 @@ async function handleIncomingText(from, text) {
 
 async function offerAvailableSlots(from, session, options = {}) {
   const allowSelection = options.allowSelection !== false;
+
+  if (session.preferredDateISO && isBlockedDate(session.preferredDateISO)) {
+    await replyToPatient(from, "📅 Lo sentimos, ese dia el consultorio no tiene citas disponibles por vacaciones o dia no laborable.\n\n¿Te gustaria que revisara otro dia?");
+    return;
+  }
+
   let slots;
   try {
     slots = await findAvailableSlots(session.preferredDateText, session.preferredDateISO);
@@ -3570,6 +3664,16 @@ async function finishConfirmedAppointment(from, session, slot, cita, name) {
     logSafeError(`Could not send confirmed appointment message to ${maskPhone(from)}`, error);
   }
 
+  if (session.email && isEmailEnabled()) {
+    void sendAppointmentConfirmationEmail({
+      to: session.email,
+      name,
+      slotLabel: slot.label,
+      clinicName: config.clinicName,
+      clinicAddress: config.clinicAddress
+    }).catch((error) => logSafeError("Could not send confirmation email", error));
+  }
+
   try {
     await sendWhatsAppText(
       config.doctorWhatsappNumber,
@@ -3714,10 +3818,26 @@ async function handleIncomingAudio(from, audio) {
 
   console.log(`Audio message received from ${maskPhone(from)} mime=${audio.mime_type ?? "?"} voice=${audio.voice ?? false}`);
 
+  if (audio.id && config.aiProvider === "gemini") {
+    try {
+      const { buffer, mimeType } = await downloadWhatsAppAudio(audio.id);
+      const transcript = await transcribeAudio(buffer, mimeType);
+      if (transcript && transcript.trim().length > 2) {
+        console.log(`Transcribed audio from ${maskPhone(from)}: "${transcript.slice(0, 80)}"`);
+        await recordConversationMessage(from, "patient", `[Transcripcion]: ${transcript}`);
+        await notifyIncomingPatientMessage(from, `[Transcripcion]: ${transcript}`);
+        await handleIncomingText(from, transcript);
+        return;
+      }
+    } catch (error) {
+      logSafeError(`Could not transcribe audio from ${maskPhone(from)}`, error);
+    }
+  }
+
   const body = [
     "Recibimos tu nota de voz 😊",
     "",
-    "Para atenderte mejor, ¿qué necesitas?"
+    "Para atenderte mejor, ¿que necesitas?"
   ].join("\n");
 
   try {
@@ -4968,6 +5088,68 @@ async function sendDailyReport(todayISO) {
   if (config.enableDailyReport) {
     await safeSendWhatsAppText(config.doctorWhatsappNumber, lines);
   }
+}
+
+function startPostAppointmentSurveyWorker() {
+  if (!config.enablePostAppointmentSurvey) return;
+
+  setInterval(() => {
+    void processPostAppointmentSurveys();
+  }, 30 * 60 * 1000).unref?.();
+}
+
+async function processPostAppointmentSurveys() {
+  const now = Date.now();
+  const delayMs = config.postAppointmentSurveyDelayHours * 60 * 60 * 1000;
+  const windowMs = delayMs + 60 * 60 * 1000;
+
+  for (const [phone, conversation] of conversations.entries()) {
+    try {
+      if (conversation.botPaused) continue;
+
+      const tags = new Set((conversation.tags ?? []).map((t) => t.toLowerCase()));
+      if (tags.has("encuesta enviada")) continue;
+
+      const appointment = conversation.appointment;
+      if (!appointment?.slotEnd) continue;
+
+      const slotEndMs = new Date(appointment.slotEnd).getTime();
+      const elapsed = now - slotEndMs;
+      if (elapsed < delayMs || elapsed > windowMs) continue;
+
+      const surveyBody = [
+        "Hola 😊 Esperamos que tu cita haya sido de tu agrado.",
+        "",
+        "¿Como fue tu experiencia con nosotros?"
+      ].join("\n");
+
+      await sendWhatsAppButtons(phone, {
+        body: surveyBody,
+        buttons: [
+          { id: "survey_great", title: "Excelente ⭐⭐⭐⭐⭐" },
+          { id: "survey_good", title: "Bien 👍" },
+          { id: "survey_regular", title: "Regular" }
+        ]
+      });
+
+      await recordConversationMessage(phone, "bot", surveyBody);
+      await addConversationTags(phone, ["encuesta enviada"]);
+      console.log(`Post-appointment survey sent to ${maskPhone(phone)}`);
+    } catch (error) {
+      logSafeError(`Could not send survey to ${maskPhone(phone)}`, error);
+    }
+  }
+}
+
+async function handleSurveyReply(from, rating) {
+  const labelMap = {
+    "encuesta excelente": "Excelente ⭐⭐⭐⭐⭐",
+    "encuesta bien": "Bien 👍",
+    "encuesta regular": "Regular"
+  };
+  const label = labelMap[rating] ?? rating;
+  await addConversationTags(from, [`encuesta: ${label.toLowerCase()}`]);
+  await replyToPatient(from, `¡Muchas gracias por tu calificacion! 😊 Nos da mucho gusto que hayas venido.${rating === "encuesta regular" ? " Si tuviste alguna inconveniencia, dejanos saber por aqui y con gusto lo atendemos." : ""}`);
 }
 
 function startColdLeadFollowupWorker() {

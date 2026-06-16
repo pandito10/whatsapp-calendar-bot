@@ -108,6 +108,59 @@ async function understandWithGemini(systemPrompt, message, session) {
   return parseJson(data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}");
 }
 
+export async function transcribeAudio(buffer, mimeType) {
+  if (config.aiProvider !== "gemini" || !config.geminiApiKey) return null;
+
+  requireEnv(["GEMINI_API_KEY"], "Gemini");
+
+  const base64 = buffer.toString("base64");
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${config.geminiApiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  mimeType: normalizeMimeType(mimeType),
+                  data: base64
+                }
+              },
+              {
+                text: "Transcribe this audio message to text in Spanish. Return only the transcribed text, nothing else. If you cannot understand it, return an empty string."
+              }
+            ]
+          }
+        ],
+        generationConfig: { temperature: 0 }
+      }),
+      signal: AbortSignal.timeout(30_000)
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Gemini transcription failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const text = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? "").trim();
+  return text || null;
+}
+
+function normalizeMimeType(mimeType) {
+  const m = String(mimeType ?? "").toLowerCase().split(";")[0].trim();
+  if (m === "audio/ogg" || m === "audio/ogg; codecs=opus" || m.includes("ogg")) return "audio/ogg";
+  if (m.includes("mp4") || m.includes("m4a")) return "audio/mp4";
+  if (m.includes("mpeg") || m.includes("mp3")) return "audio/mpeg";
+  if (m.includes("wav")) return "audio/wav";
+  if (m.includes("webm")) return "audio/webm";
+  return "audio/ogg";
+}
+
 function parseJson(value) {
   const trimmed = value.trim();
   const json = trimmed.startsWith("```") ? trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "") : trimmed;

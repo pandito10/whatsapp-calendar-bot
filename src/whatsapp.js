@@ -96,6 +96,34 @@ export async function sendWhatsAppMedia(to, file, options = {}) {
   return { mediaId, mediaType };
 }
 
+export async function downloadWhatsAppAudio(mediaId) {
+  // Step 1: resolve the download URL
+  const metaUrl = `https://graph.facebook.com/v25.0/${mediaId}`;
+  const metaRes = await fetch(metaUrl, {
+    headers: { Authorization: `Bearer ${config.whatsappAccessToken}` },
+    signal: AbortSignal.timeout(10_000)
+  });
+  if (!metaRes.ok) {
+    throw new Error(`WhatsApp media meta fetch failed: ${metaRes.status}`);
+  }
+  const meta = await metaRes.json();
+  const downloadUrl = meta.url;
+  if (!downloadUrl) throw new Error("WhatsApp media meta did not return url");
+
+  // Step 2: download binary
+  const audioRes = await fetch(downloadUrl, {
+    headers: { Authorization: `Bearer ${config.whatsappAccessToken}` },
+    signal: AbortSignal.timeout(30_000)
+  });
+  if (!audioRes.ok) {
+    throw new Error(`WhatsApp audio download failed: ${audioRes.status}`);
+  }
+
+  const buffer = Buffer.from(await audioRes.arrayBuffer());
+  const mimeType = meta.mime_type ?? audioRes.headers.get("content-type") ?? "audio/ogg";
+  return { buffer, mimeType };
+}
+
 export async function uploadWhatsAppMedia(file) {
   const url = `https://graph.facebook.com/v25.0/${config.whatsappPhoneNumberId}/media`;
   const form = new FormData();
