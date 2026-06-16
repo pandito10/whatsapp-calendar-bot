@@ -73,7 +73,7 @@ export const config = {
     enablePatientReminderTemplates: process.env.ENABLE_PATIENT_REMINDER_TEMPLATES === "true",
     emailOptional: process.env.EMAIL_OPTIONAL === "true",
     enableDailyReport: process.env.ENABLE_DAILY_REPORT === "true",
-    dailyReportHour: Number(process.env.DAILY_REPORT_HOUR ?? 20),
+    dailyReportHour: Number(process.env.DAILY_REPORT_HOUR ?? 22),
     requireDatabaseForAppointments:
           process.env.REQUIRE_SUPABASE_FOR_APPOINTMENTS === "true" ||
           process.env.REQUIRE_DB_FOR_APPOINTMENTS === "true" ||
@@ -113,6 +113,7 @@ export const config = {
           process.env.INCLUDE_PATIENT_CONTACT_IN_CALENDAR === "true" &&
           process.env.MASK_PATIENT_PHONE_IN_CALENDAR === "false",
     promotionPrice: process.env.PROMOTION_PRICE ?? "1200",
+    promotionDetails: process.env.PROMOTION_DETAILS ?? "",
     appointmentMinutes: Number(process.env.APPOINTMENT_DURATION_MINUTES ?? process.env.APPOINTMENT_MINUTES ?? 40),
     appointmentBufferMinutes: Number(process.env.APPOINTMENT_BUFFER_MINUTES ?? 0),
     minAdvanceHours: Number(process.env.MIN_APPOINTMENT_ADVANCE_HOURS ?? 0),

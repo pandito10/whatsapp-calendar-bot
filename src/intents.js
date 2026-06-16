@@ -209,7 +209,12 @@ function isPriceQuestion(text) {
 }
 
 function isPromotionQuestion(text) {
-  return /\b(?:promocion|promosion|paquete|promo|oferta|sigue la promo|todavia tienen promo)\b/.test(text);
+  return (
+    /\b(?:promocion|promosion|promo|oferta)\b/.test(text) ||
+    /\b(?:paquete(?:\s+promocional)?)\b/.test(text) ||
+    /\b(?:sigue la promo|siguen con la promo|todavia tienen promo|aun tienen promo|tienen promo|tiene promo)\b/.test(text) ||
+    /\b(?:que incluye la promo|que tiene la promo|que tiene el paquete|cuanto incluye la promo)\b/.test(text)
+  );
 }
 
 function isPaymentQuestion(text) {

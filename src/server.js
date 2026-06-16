@@ -3774,8 +3774,13 @@ async function handleMenuOption(from, text, intent = detectIntent(text).intent) 
     return true;
   }
 
-  if (option === 4 || intent === "cost" || intent === "promotion") {
+  if (option === 4 || intent === "cost") {
     await replyToPatient(from, `${getIntentResponse("cost")}\n\n${getIntentResponse("promotion")}`);
+    return true;
+  }
+
+  if (intent === "promotion") {
+    await replyToPatient(from, getIntentResponse("promotion"));
     return true;
   }
 
@@ -5097,7 +5102,9 @@ function getIntentResponse(intent) {
     morning_hours: "🌙 No atendemos por la manana. Solo por la tarde, de 4:40 p.m. a 8:00 p.m.\n\n¿Quieres que revise horarios por la tarde?",
     saturday: "📅 No atendemos los sabados ni domingos. Solo de lunes a viernes por la tarde.\n\n¿Quieres que revise disponibilidad entre semana?",
     cost: `💰 La consulta tiene un costo de ${formatMoney(config.consultationPrice)} MXN.\n\n🎁 Tambien contamos con paquete de promocion en ${formatMoney(config.promotionPrice)} MXN.`,
-    promotion: `🎁 Si, aun contamos con paquete de promocion en ${formatMoney(config.promotionPrice)} MXN.\n\nSi gustas, tambien puedo ayudarte a revisar horarios disponibles para agendar tu cita.`,
+    promotion: config.promotionDetails
+      ? `🎁 Si, contamos con paquete promocional en ${formatMoney(config.promotionPrice)} MXN.\n\nIncluye:\n${config.promotionDetails}\n\n¿Quieres revisar horarios disponibles?`
+      : `🎁 Si, contamos con paquete promocional en ${formatMoney(config.promotionPrice)} MXN.\n\nPara confirmarte exactamente que incluye segun el servicio que necesitas, puedo ayudarte a agendar o pasarte con una persona del consultorio.\n\n¿Quieres revisar horarios disponibles?`,
     payment_methods: "💵 Por el momento aceptamos efectivo o transferencia bancaria.\n\nNo contamos con pago con tarjeta por ahora.",
     schedule_appointment: "😊 Claro, te ayudo a agendar tu cita.\n\n¿Me compartes tu nombre completo?",
     check_availability: "🕒 Claro. ¿Para que dia te gustaria revisar disponibilidad?\n\nPuedes decirme, por ejemplo: hoy, manana, viernes o una fecha especifica.",
