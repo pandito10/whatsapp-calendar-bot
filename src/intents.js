@@ -219,8 +219,6 @@ function isPromotionQuestion(text) {
   if (/\b(?:promocion|promosion|promo|oferta)\b/.test(text)) return true;
   if (/\b(?:paquete(?:\s+promocional)?)\b/.test(text)) return true;
   if (/\b(?:sigue la promo|siguen con la promo|todavia tienen promo|aun tienen promo|tienen promo|tiene promo)\b/.test(text)) return true;
-  if (/\b(?:de que se trata|en que consiste|que incluye|que trae|que tiene)\b/.test(text) &&
-      !/\b(?:ultrasonido|papanicolaou|colposcopia|prenatal|consulta general)\b/.test(text)) return true;
   return false;
 }
 
@@ -257,6 +255,12 @@ function isFeaturedPromoQuestion(text) {
     "consulta con ultrasonido", "papanicolaou precio", "ultrasonido precio",
     "el de 1200", "los 1200", "cuanto incluye", "que incluye el paquete"
   ])) return true;
+
+  // "que incluye / que trae / de que se trata" without a specific non-promo service = asking about promo
+  if (
+    /\b(?:que incluye|que trae|que tiene|de que se trata|en que consiste|que contiene)\b/.test(text) &&
+    !/\b(?:ultrasonido|papanicolaou|colposcopia|prenatal|consulta general)\b/.test(text)
+  ) return true;
 
   // Price anchors for the promo
   if (/\b1200\b/.test(text)) return true;
