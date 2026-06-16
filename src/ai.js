@@ -246,6 +246,10 @@ function normalizeHourRange(hour, period) {
 
 function parseReason(original, normalized, session) {
   if (session?.reason) return undefined;
+
+  const knownService = normalizeKnownServiceReason(original, normalized);
+  if (knownService) return knownService;
+
   if (session?.step === "collectingService") {
     return normalizeServiceReason(original, normalized);
   }
@@ -257,6 +261,17 @@ function parseReason(original, normalized, session) {
     .replace(/\b(?:mañana|hoy|pasado mañana|el lunes|el martes|el miercoles|el miércoles|el jueves|el viernes|el sabado|el sábado|el domingo)\b.*$/i, "")
     .trim();
   return reason ? cleanSentence(reason) : undefined;
+}
+
+function normalizeKnownServiceReason(original, normalized) {
+  const text = normalizeText(normalized);
+  if (/\b(?:promo|promocion|paquete|paquete promocional|1200)\b/.test(text)) return "Promocion";
+  if (/\b(?:ultrasonido|ultra)\b/.test(text)) return "Ultrasonido";
+  if (/\b(?:papanicolaou|papanicolau|papanicolao|papanicol)\b/.test(text)) return "Papanicolaou";
+  if (/\b(?:colposcopia|colposkopia|colpo)\b/.test(text)) return "Colposcopia";
+  if (/\b(?:embarazo|control prenatal|prenatal)\b/.test(text)) return "Control prenatal";
+  if (/^(?:consulta|revision|chequeo)$/.test(text)) return "Consulta";
+  return undefined;
 }
 
 function normalizeServiceReason(original, normalized) {
@@ -283,8 +298,8 @@ function parseDate(text, todayISO) {
   const today = parseISODate(todayISO);
 
   if (/\bhoy\b/.test(text)) return formatISODate(today);
-  if (/\bmanana\b|\bmañana\b/.test(text)) return formatISODate(addDays(today, 1));
   if (/\bpasado manana\b|\bpasado mañana\b/.test(text)) return formatISODate(addDays(today, 2));
+  if (/\bmanana\b|\bmañana\b/.test(text)) return formatISODate(addDays(today, 1));
 
   const slash = text.match(/\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b/);
   if (slash) {
