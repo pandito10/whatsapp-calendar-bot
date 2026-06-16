@@ -3,9 +3,9 @@ services:
     name: whatsapp-calendar-bot
     runtime: node
     plan: starter
-    buildCommand: npm install
-    startCommand: npm start
-    healthCheckPath: /health/live
+    buildCommand: ""
+    startCommand: node src/server.js
+    healthCheckPath: /health/ready
     autoDeploy: true
     envVars:
       - key: NODE_ENV
@@ -64,6 +64,10 @@ services:
         value: "8000"
       - key: EXTERNAL_REQUEST_RETRIES
         value: "2"
+      - key: BLOCKED_DATES
+        sync: false
+      - key: BLOCKED_DATE_RANGES
+        sync: false
       - key: ENABLE_REMINDER_WORKER
         value: "false"
       - key: ENABLE_PATIENT_REMINDER_TEMPLATES
@@ -148,3 +152,15 @@ services:
         value: "false"
       - key: FORWARD_CONVERSATION_BODIES
         value: "false"
+      - key: ENABLE_DAILY_REPORT
+        value: "false"
+      - key: COLD_LEAD_FOLLOWUP_ENABLED
+        value: "false"
+      - key: ENABLE_POST_APPOINTMENT_SURVEY
+        value: "false"
+      - key: SHEETS_ENABLED
+        value: "false"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: WHATSAPP_CANCELLATION_TEMPLATE
+        sync: false
