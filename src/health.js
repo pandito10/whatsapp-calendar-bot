@@ -1,5 +1,6 @@
 import { config } from "./config.js";
 import { assessProductionReadiness } from "./readiness.js";
+import { getLastReconciliationResult } from "./calendar.js";
 
 export function buildOperationalHealth({ db, conversationCount = 0, memorySessionCount = 0, processedMessageCount = 0 } = {}) {
   const databaseOk = Boolean(db?.ok);
@@ -25,6 +26,7 @@ export function buildOperationalHealth({ db, conversationCount = 0, memorySessio
   if (production && !inboxProtected) problems.push("inbox_not_protected");
 
   const readiness = assessProductionReadiness({ dbOk: databaseOk });
+  const reconciliation = getLastReconciliationResult();
 
   return {
     app: problems.length === 0 ? "ok" : "degraded",
@@ -47,6 +49,15 @@ export function buildOperationalHealth({ db, conversationCount = 0, memorySessio
       source: config.googleCalendarIdConfigured ? "env" : "default-agenda-dra-carranza",
       usingConfiguredCalendar: config.googleCalendarIdConfigured
     },
+    reconciliation: reconciliation.result
+      ? {
+          at: reconciliation.at,
+          checked: reconciliation.result.checked,
+          orphaned: reconciliation.result.orphaned,
+          errors: reconciliation.result.errors,
+          ok: reconciliation.result.errors === 0
+        }
+      : { ok: null, detail: "not yet run" },
     readiness,
     problems
   };

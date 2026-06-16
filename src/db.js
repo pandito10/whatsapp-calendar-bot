@@ -711,6 +711,18 @@ export async function loadConfirmedCitasBetween(startISO, endISO) {
     }));
 }
 
+export async function loadConfirmedCitasForReconciliation() {
+  if (!isDatabaseEnabled()) return [];
+  // Only future or recent (last 48h) citas with google_event_id
+  const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const rows = await supabaseFetch(
+    `/rest/v1/citas?select=id,google_event_id,slot_start&status=eq.confirmed&google_event_id=not.is.null&slot_start=gt.${encodeURIComponent(since)}`
+  );
+  return (rows ?? [])
+    .filter((row) => String(row.google_event_id ?? "").trim().length > 0)
+    .map((row) => ({ id: row.id, googleEventId: row.google_event_id, slotStart: row.slot_start }));
+}
+
 export async function loadConfirmedCitasByDay(dateISO) {
   if (!isDatabaseEnabled() || !dateISO) return [];
 
