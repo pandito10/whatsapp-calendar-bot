@@ -360,6 +360,7 @@ server.listen(config.port, () => {
   startDailyReportWorker();
   startColdLeadFollowupWorker();
   startPostAppointmentSurveyWorker();
+  startReconciliationWorker();
   void cleanupAppointmentStateOnStartup();
 });
 
@@ -5284,6 +5285,17 @@ function startColdLeadFollowupWorker() {
   setInterval(() => {
     void processColdLeadFollowups();
   }, 30 * 60 * 1000).unref?.();
+}
+
+function startReconciliationWorker() {
+  if (!isDatabaseEnabled()) return;
+  // Re-reconcile every 6 hours so Calendar events deleted while the server is
+  // running stop blocking slots without requiring a restart.
+  setInterval(() => {
+    reconcileConfirmedCitasWithGoogleCalendar().catch((err) => {
+      console.error("Periodic reconciliation failed:", err?.message);
+    });
+  }, 6 * 60 * 60 * 1000).unref?.();
 }
 
 async function processColdLeadFollowups() {
