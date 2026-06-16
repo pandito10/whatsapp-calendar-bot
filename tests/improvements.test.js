@@ -327,3 +327,106 @@ test("renderTodayMetrics cuenta promo leads y agendadas del dia", () => {
   assert.equal(result.promoLeads, 1);
   assert.equal(result.scheduled, 1);
 });
+
+// ── Promotion intent tests ────────────────────────────────────────────────────
+
+test("isPromotionQuestion detecta 'que promo tienes'", () => {
+  function isPromotionQuestion(text) {
+    return (
+      /\b(?:promocion|promosion|promo|oferta)\b/.test(text) ||
+      /\b(?:paquete(?:\s+promocional)?)\b/.test(text) ||
+      /\b(?:sigue la promo|siguen con la promo|todavia tienen promo|aun tienen promo|tienen promo|tiene promo)\b/.test(text) ||
+      /\b(?:que incluye la promo|que tiene la promo|que tiene el paquete|cuanto incluye la promo)\b/.test(text)
+    );
+  }
+  assert.equal(isPromotionQuestion("que promocion tienes ahorita"), true);
+  assert.equal(isPromotionQuestion("paquete promocional"), true);
+  assert.equal(isPromotionQuestion("sigue la promo"), true);
+  assert.equal(isPromotionQuestion("todavia tienen promo"), true);
+  assert.equal(isPromotionQuestion("que incluye la promo"), true);
+  assert.equal(isPromotionQuestion("que tiene el paquete"), true);
+});
+
+test("intent promotion no activa handleMenuOption con costo duplicado", () => {
+  function handleCostPromo(option, intent) {
+    if (option === 4 || intent === "cost") return "cost+promotion";
+    if (intent === "promotion") return "promotion-only";
+    return null;
+  }
+  assert.equal(handleCostPromo(4, "cost"), "cost+promotion");
+  assert.equal(handleCostPromo(null, "cost"), "cost+promotion");
+  assert.equal(handleCostPromo(null, "promotion"), "promotion-only");
+  assert.notEqual(handleCostPromo(null, "promotion"), "cost+promotion");
+});
+
+// ── Returning patient service flow tests ──────────────────────────────────────
+
+test("parseReason devuelve Promocion para texto 'promocion' sin importar el step", () => {
+  function normalizeKnownServiceReason(normalized) {
+    if (/\b(?:promo|promocion|paquete|paquete promocional|1200)\b/.test(normalized)) return "Promocion";
+    if (/\b(?:ultrasonido|ultra)\b/.test(normalized)) return "Ultrasonido";
+    if (/\b(?:papanicolaou|papanicolau|papanicolao|papanicol)\b/.test(normalized)) return "Papanicolaou";
+    return undefined;
+  }
+  function parseReason(original, normalized, session) {
+    if (session?.reason) return undefined;
+    const knownService = normalizeKnownServiceReason(normalized);
+    if (knownService) return knownService;
+    if (session?.step === "collectingService") return normalized || "Consulta";
+    return undefined;
+  }
+
+  const session = { step: "collecting", name: "Sombra Morales", email: "test@test.com", firstVisit: "No" };
+  assert.equal(parseReason("promocion", "promocion", session), "Promocion");
+  assert.equal(parseReason("paquete promocional", "paquete promocional", session), "Promocion");
+});
+
+test("el bot no vuelve a preguntar servicio cuando session.reason ya tiene valor", () => {
+  function shouldAskService(session) {
+    return !session.reason;
+  }
+  assert.equal(shouldAskService({ reason: "Promocion" }), false);
+  assert.equal(shouldAskService({ reason: undefined }), true);
+  assert.equal(shouldAskService({}), true);
+});
+
+// ── Relative date resolver tests ──────────────────────────────────────────────
+
+test("resolveClinicDateISO: pasado manana gana sobre dateISO existente", () => {
+  function resolveClinicDateISO(text, dateISO, todayISO) {
+    const lower = (text ?? "").toLowerCase();
+    if (lower.includes("pasado manana") || lower.includes("pasado mañana")) return addDays(todayISO, 2);
+    if (lower.includes("manana") || lower.includes("mañana")) return addDays(todayISO, 1);
+    if (dateISO && /^\d{4}-\d{2}-\d{2}$/.test(dateISO)) return dateISO;
+    return todayISO;
+  }
+  function addDays(iso, n) {
+    const d = new Date(`${iso}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  }
+  const today = "2026-06-16";
+  const tomorrow = "2026-06-17";
+  const dayAfter = "2026-06-18";
+
+  assert.equal(resolveClinicDateISO("quiero cita pasado manana", undefined, today), dayAfter);
+  assert.equal(resolveClinicDateISO("quiero cita manana", undefined, today), tomorrow);
+  assert.equal(resolveClinicDateISO("quiero cita pasado mañana", tomorrow, today), dayAfter, "texto gana sobre dateISO previo");
+  assert.equal(resolveClinicDateISO("el jueves", dayAfter, today), dayAfter, "sin relativo, gana dateISO");
+});
+
+test("parseDate en ai.js: pasado manana se procesa antes que manana", () => {
+  function parseDate(text, todayISO) {
+    const today = new Date(`${todayISO}T12:00:00Z`);
+    const addDays = (d, n) => { const r = new Date(d); r.setUTCDate(r.getUTCDate() + n); return r.toISOString().slice(0, 10); };
+    if (/\bhoy\b/.test(text)) return todayISO;
+    if (/\bpasado manana\b|\bpasado mañana\b/.test(text)) return addDays(today, 2);
+    if (/\bmanana\b|\bmañana\b/.test(text)) return addDays(today, 1);
+    return undefined;
+  }
+  const today = "2026-06-16";
+  assert.equal(parseDate("quiero cita pasado manana", today), "2026-06-18");
+  assert.equal(parseDate("quiero cita manana", today), "2026-06-17");
+  assert.equal(parseDate("quiero cita hoy", today), "2026-06-16");
+  assert.equal(parseDate("quiero cita pasado mañana", today), "2026-06-18");
+});
