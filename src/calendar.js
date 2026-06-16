@@ -222,17 +222,17 @@ function formatSlot(date) {
 }
 
 export function resolveClinicDateISO(text, dateISO, now = new Date()) {
-  if (dateISO && /^\d{4}-\d{2}-\d{2}$/.test(dateISO)) {
-    return dateISO;
-  }
-
   const lower = (text ?? "").toLowerCase();
   const today = getClinicTodayISO(now);
+
   if (lower.includes("pasado manana") || lower.includes("pasado mañana")) {
     return addDaysISO(today, 2);
   }
   if (lower.includes("manana") || lower.includes("mañana")) {
     return addDaysISO(today, 1);
+  }
+  if (dateISO && /^\d{4}-\d{2}-\d{2}$/.test(dateISO)) {
+    return dateISO;
   }
   return today;
 }
