@@ -107,6 +107,7 @@ export const config = {
     clinicTimezone: process.env.CLINIC_TIMEZONE ?? "America/Mexico_City",
     clinicName: process.env.CLINIC_NAME ?? "Consultorio Ginecologico",
     clinicAddress: process.env.CLINIC_ADDRESS ?? "",
+    inboxDoctorImageUrl: process.env.INBOX_DOCTOR_IMAGE_URL ?? "",
     consultationPrice: process.env.CONSULTATION_PRICE ?? "1000",
     includeSensitiveAppointmentNotes: process.env.INCLUDE_SENSITIVE_APPOINTMENT_NOTES === "true",
     maskPatientPhoneInCalendar: process.env.MASK_PATIENT_PHONE_IN_CALENDAR !== "false",

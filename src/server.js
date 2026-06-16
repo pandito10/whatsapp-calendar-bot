@@ -1306,16 +1306,16 @@ function handleInboxLoginPage(req, res, error = "") {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Entrar al inbox</title>
   <style>
-    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #2d1724; background: #fff1f6; }
+    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #2d1724; background: #f0f6ff; }
     * { box-sizing: border-box; }
     body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top left, rgba(244, 114, 182, 0.28), transparent 28rem), linear-gradient(135deg, #fff7fb, #ffe4ef); }
-    main { width: min(420px, 100%); background: rgba(255, 255, 255, 0.92); border: 1px solid #f3c9d8; border-radius: 22px; padding: 30px; box-shadow: 0 20px 52px rgba(157, 23, 77, 0.14); }
+    main { width: min(420px, 100%); background: rgba(255, 255, 255, 0.92); border: 1px solid #f3c9d8; border-radius: 22px; padding: 30px; box-shadow: 0 20px 52px rgba(13, 61, 114, 0.14); }
     h1 { margin: 0 0 8px; font-size: 22px; }
     p { margin: 0 0 20px; color: #8a5c6e; line-height: 1.45; }
     label { display: block; font-weight: 700; font-size: 14px; margin-bottom: 8px; }
     input { width: 100%; border: 1px solid #f1b9cf; border-radius: 14px; padding: 12px; font: inherit; }
-    input:focus { border-color: #db2777; box-shadow: 0 0 0 4px rgba(219, 39, 119, 0.12); outline: none; }
-    button { width: 100%; margin-top: 14px; border: 0; border-radius: 14px; padding: 12px; background: linear-gradient(135deg, #db2777, #f472b6); color: white; font: inherit; font-weight: 800; cursor: pointer; box-shadow: 0 12px 24px rgba(219, 39, 119, 0.2); }
+    input:focus { border-color: #1a5fa8; box-shadow: 0 0 0 4px rgba(26, 95, 168, 0.12); outline: none; }
+    button { width: 100%; margin-top: 14px; border: 0; border-radius: 14px; padding: 12px; background: linear-gradient(135deg, #1a5fa8, #60a5fa); color: white; font: inherit; font-weight: 800; cursor: pointer; box-shadow: 0 12px 24px rgba(26, 95, 168, 0.2); }
     .error { margin-bottom: 14px; padding: 10px 12px; border-radius: 10px; color: #991b1b; background: #fee2e2; border: 1px solid #fecaca; }
   </style>
 </head>
@@ -1529,26 +1529,26 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     :root {
       color-scheme: light;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #fff1f6;
-      color: #2d1724;
-      --line: #f3c9d8;
-      --muted: #8a5c6e;
-      --brand: #db2777;
-      --brand-dark: #9d174d;
-      --brand-soft: #fce7f3;
-      --brand-pale: #fff5f8;
+      background: #f0f6ff;
+      color: #0d2240;
+      --line: #bfd6f0;
+      --muted: #4a6a8a;
+      --brand: #1a5fa8;
+      --brand-dark: #0d3d72;
+      --brand-soft: #ddeeff;
+      --brand-pale: #f0f7ff;
       --surface: #ffffff;
-      --soft: #fff7fb;
-      --shadow: rgba(157, 23, 77, 0.12);
+      --soft: #f5f9ff;
+      --shadow: rgba(13, 61, 114, 0.12);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
       background:
-        radial-gradient(circle at top left, rgba(244, 114, 182, 0.26), transparent 32rem),
-        radial-gradient(circle at 88% 12%, rgba(251, 207, 232, 0.72), transparent 24rem),
-        linear-gradient(135deg, #fff7fb 0%, #ffe4ef 48%, #fff7fb 100%);
+        radial-gradient(circle at top left, rgba(96, 165, 250, 0.18), transparent 32rem),
+        radial-gradient(circle at 88% 12%, rgba(191, 214, 240, 0.5), transparent 24rem),
+        linear-gradient(135deg, #f5f9ff 0%, #ddeeff 48%, #f5f9ff 100%);
     }
     header {
       height: 72px;
@@ -1556,8 +1556,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       align-items: center;
       justify-content: space-between;
       padding: 0 28px;
-      border-bottom: 1px solid rgba(243, 201, 216, 0.86);
-      background: rgba(255, 247, 251, 0.9);
+      border-bottom: 1px solid rgba(191, 214, 240, 0.86);
+      background: rgba(255, 255, 255, 0.92);
       backdrop-filter: blur(14px);
       position: sticky;
       top: 0;
@@ -1571,13 +1571,22 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     .brand-mark {
       display: grid;
       place-items: center;
-      width: 38px;
-      height: 38px;
-      border-radius: 12px;
-      background: linear-gradient(135deg, #db2777, #f472b6);
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #1a5fa8, #60a5fa);
       color: #ffffff;
       font-weight: 800;
-      box-shadow: 0 12px 28px rgba(219, 39, 119, 0.26);
+      font-size: 13px;
+      box-shadow: 0 6px 18px rgba(26, 95, 168, 0.28);
+      overflow: hidden;
+    }
+    .brand-mark img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center top;
+      border-radius: 50%;
     }
     h1 {
       font-size: 18px;
@@ -1602,10 +1611,10 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     .health-pill {
       border-radius: 999px;
       padding: 7px 10px;
-      border: 1px solid #f3c9d8;
+      border: 1px solid #bfd6f0;
       background: #ffffff;
-      color: #6b2144;
-      box-shadow: 0 6px 14px rgba(157, 23, 77, 0.06);
+      color: #0d3d72;
+      box-shadow: 0 6px 14px rgba(13, 61, 114, 0.06);
     }
     .health-pill.ok { color: #166534; background: #dcfce7; border-color: #bbf7d0; }
     .health-pill.warn { color: #92400e; background: #fef3c7; border-color: #fde68a; }
@@ -1622,8 +1631,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       padding: 10px 12px;
       border-radius: 14px;
       background: rgba(255, 255, 255, 0.82);
-      border: 1px solid #f7d3e1;
-      box-shadow: 0 10px 22px rgba(157, 23, 77, 0.08);
+      border: 1px solid #bfd6f0;
+      box-shadow: 0 10px 22px rgba(13, 61, 114, 0.08);
     }
     .metric-pill strong { display: block; font-size: 18px; line-height: 1; }
     .metric-pill span { color: var(--muted); display: block; font-size: 11px; margin-top: 5px; }
@@ -1643,7 +1652,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
     .sidebar-head {
       padding: 18px 18px 12px;
-      border-bottom: 1px solid #f9d8e5;
+      border-bottom: 1px solid #bfd6f0;
     }
     .sidebar-head strong {
       display: block;
@@ -1691,7 +1700,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       align-items: center;
       gap: 2px;
     }
-    .metric-cell strong { font-size: 17px; color: #9d174d; }
+    .metric-cell strong { font-size: 17px; color: #0d3d72; }
     .metric-cell span { font-size: 10px; color: #8a5c6e; text-align: center; }
     .report-entry summary {
       cursor: pointer;
@@ -1757,7 +1766,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       background: #fff0f6;
     }
     .thread.active {
-      background: #fce7f3;
+      background: #ddeeff;
       border-left: 4px solid var(--brand);
       padding-left: 12px;
     }
@@ -1769,7 +1778,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       display: grid;
       place-items: center;
       color: #ffffff;
-      background: linear-gradient(135deg, #be185d, #f472b6);
+      background: linear-gradient(135deg, #1a5fa8, #60a5fa);
       font-weight: 800;
       font-size: 13px;
     }
@@ -1820,7 +1829,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       align-items: center;
       width: fit-content;
       color: #475569;
-      background: #fff1f6;
+      background: #f0f6ff;
       border: 1px solid #f7d3e1;
       border-radius: 999px;
       padding: 4px 8px;
@@ -1854,7 +1863,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
     .filter-chip {
       flex: 0 0 auto;
-      color: #9d174d;
+      color: #0d3d72;
       background: #fff7fb;
       border: 1px solid #f7d3e1;
       border-radius: 999px;
@@ -1865,7 +1874,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
     .filter-chip.active {
       color: #ffffff;
-      background: linear-gradient(135deg, #db2777, #f472b6);
+      background: linear-gradient(135deg, #1a5fa8, #60a5fa);
       border-color: transparent;
     }
     .tools input, .tools select, textarea {
@@ -1878,7 +1887,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
     .tools input:focus, .tools select:focus, textarea:focus {
       border-color: var(--brand);
-      box-shadow: 0 0 0 4px rgba(219, 39, 119, 0.12);
+      box-shadow: 0 0 0 4px rgba(26, 95, 168, 0.12);
       outline: none;
     }
     .tool-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
@@ -1886,18 +1895,18 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       border: 0;
       border-radius: 12px;
       padding: 10px 12px;
-      background: linear-gradient(135deg, var(--brand), #f472b6);
+      background: linear-gradient(135deg, var(--brand), #60a5fa);
       color: #ffffff;
       font: inherit;
       font-weight: 800;
       text-decoration: none;
       cursor: pointer;
-      box-shadow: 0 10px 18px rgba(219, 39, 119, 0.16);
+      box-shadow: 0 10px 18px rgba(26, 95, 168, 0.16);
       transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
     }
     button:hover, .button-link:hover {
       transform: translateY(-1px);
-      box-shadow: 0 14px 24px rgba(219, 39, 119, 0.2);
+      box-shadow: 0 14px 24px rgba(26, 95, 168, 0.2);
     }
     button:disabled {
       cursor: wait;
@@ -1999,7 +2008,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     .chip {
       flex: 0 0 auto;
       color: var(--brand-dark);
-      background: #fce7f3;
+      background: #ddeeff;
       border: 1px solid #f9a8d4;
       padding: 7px 10px;
       border-radius: 999px;
@@ -2016,7 +2025,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       margin: 18px 24px 0;
       padding: 14px 16px;
       border-radius: 14px;
-      background: #fff1f6;
+      background: #f0f6ff;
       border: 1px solid #f9a8d4;
       color: #831843;
     }
@@ -2044,7 +2053,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       overflow: auto;
       background:
         linear-gradient(rgba(255, 247, 251, 0.88), rgba(255, 247, 251, 0.88)),
-        radial-gradient(circle, rgba(219, 39, 119, 0.08) 1px, transparent 1px);
+        radial-gradient(circle, rgba(26, 95, 168, 0.08) 1px, transparent 1px);
       background-size: auto, 18px 18px;
       flex: 1;
     }
@@ -2058,20 +2067,20 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       padding: 11px 13px 10px;
       border-radius: 16px 16px 16px 4px;
       background: var(--surface);
-      box-shadow: 0 8px 22px rgba(157, 23, 77, 0.08);
+      box-shadow: 0 8px 22px rgba(13, 61, 114, 0.08);
       line-height: 1.45;
       white-space: normal;
       overflow-wrap: anywhere;
     }
     .bot .bubble {
       color: #831843;
-      background: #fce7f3;
+      background: #ddeeff;
       border-radius: 16px 16px 4px 16px;
     }
     .human { justify-content: flex-end; }
     .human .bubble {
       color: #ffffff;
-      background: linear-gradient(135deg, #be185d, #ec4899);
+      background: linear-gradient(135deg, #1a5fa8, #ec4899);
       border-radius: 16px 16px 4px 16px;
     }
     .human .meta { color: rgba(255, 255, 255, 0.78); }
@@ -2086,7 +2095,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       gap: 2px;
       margin-top: 10px;
       padding: 10px 11px;
-      border: 1px solid rgba(219, 39, 119, 0.18);
+      border: 1px solid rgba(26, 95, 168, 0.18);
       border-radius: 12px;
       background: rgba(255, 255, 255, 0.72);
       font-size: 13px;
@@ -2139,8 +2148,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
     .quick-reply {
       flex: 0 0 auto;
-      background: #fff1f6;
-      color: #9d174d;
+      background: #f0f6ff;
+      color: #0d3d72;
       border: 1px solid #f9a8d4;
       padding: 8px 10px;
       font-size: 12px;
@@ -2368,9 +2377,9 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
 <body class="${selected ? "has-selection" : "no-selection"}">
   <header>
     <div class="brand">
-      <div class="brand-mark">Dra</div>
+      <div class="brand-mark">${config.inboxDoctorImageUrl ? `<img src="${escapeHtml(config.inboxDoctorImageUrl)}" alt="Dra. Carranza">` : "Dra"}</div>
       <div>
-        <h1>Inbox del bot</h1>
+        <h1>Dra. Carranza — Consultorio Virtual</h1>
         <div class="subtitle">Conversaciones del consultorio</div>
       </div>
     </div>
