@@ -216,13 +216,12 @@ function isPriceQuestion(text) {
 }
 
 function isPromotionQuestion(text) {
-  return (
-    /\b(?:promocion|promosion|promo|oferta)\b/.test(text) ||
-    /\b(?:paquete(?:\s+promocional)?)\b/.test(text) ||
-    /\b(?:sigue la promo|siguen con la promo|todavia tienen promo|aun tienen promo|tienen promo|tiene promo)\b/.test(text) ||
-    /\b(?:que incluye la promo|que tiene la promo|que tiene el paquete|cuanto incluye la promo)\b/.test(text) ||
-    /\b(?:de que se trata la promo|en que consiste la promo|trata la promo|consiste la promo)\b/.test(text)
-  );
+  if (/\b(?:promocion|promosion|promo|oferta)\b/.test(text)) return true;
+  if (/\b(?:paquete(?:\s+promocional)?)\b/.test(text)) return true;
+  if (/\b(?:sigue la promo|siguen con la promo|todavia tienen promo|aun tienen promo|tienen promo|tiene promo)\b/.test(text)) return true;
+  if (/\b(?:de que se trata|en que consiste|que incluye|que trae|que tiene)\b/.test(text) &&
+      !/\b(?:ultrasonido|papanicolaou|colposcopia|prenatal|consulta general)\b/.test(text)) return true;
+  return false;
 }
 
 function isPaymentQuestion(text) {
