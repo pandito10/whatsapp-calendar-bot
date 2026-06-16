@@ -76,6 +76,7 @@ import { isEmailEnabled, sendAppointmentConfirmationEmail, sendCancellationEmail
 const sessions = new Map();
 const processedMessages = new Map();
 const processedMessageTtlMs = 24 * 60 * 60 * 1000;
+const phoneCurrentlyProcessing = new Set();
 const conversations = new Map();
 const maxMessagesPerConversation = 100;
 const rateLimitBuckets = new Map();
@@ -3097,22 +3098,34 @@ async function handleWhatsAppWebhook(body) {
     }
     if (await alreadyProcessed(message.id, message.from)) continue;
 
-    if (message.type === "audio") {
-      await handleIncomingAudio(message.from, message.audio ?? {});
+    const from = message.from;
+
+    if (phoneCurrentlyProcessing.has(from)) {
+      // Meta already received 200 so it won't retry. A concurrent request from
+      // the same phone is almost always a duplicate delivery — skip it.
+      console.warn(`Concurrent message skipped for ${maskPhone(from)} — previous still processing`);
       continue;
     }
 
-    const messageText = extractWhatsAppMessageText(message);
-    if (!messageText) continue;
-
+    phoneCurrentlyProcessing.add(from);
     try {
-      await handleIncomingText(message.from, messageText);
+      if (message.type === "audio") {
+        await handleIncomingAudio(from, message.audio ?? {});
+        continue;
+      }
+
+      const messageText = extractWhatsAppMessageText(message);
+      if (!messageText) continue;
+
+      await handleIncomingText(from, messageText);
     } catch (error) {
-      logSafeError(`Failed handling WhatsApp message ${message.id ?? "without-id"} from ${maskPhone(message.from)}`, error);
+      logSafeError(`Failed handling WhatsApp message ${message.id ?? "without-id"} from ${maskPhone(from)}`, error);
       await safeSendWhatsAppText(
-        message.from,
+        from,
         "🙏 Perdon, tuve un problema revisando la agenda. Por favor intenta de nuevo en un momento o escribe directamente al consultorio."
       );
+    } finally {
+      phoneCurrentlyProcessing.delete(from);
     }
   }
 }
