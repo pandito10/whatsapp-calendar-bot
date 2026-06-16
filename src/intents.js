@@ -151,7 +151,14 @@ function normalizeWhatsAppWord(word) {
     ocupo: "necesito",
     urje: "urge",
     urgen: "urge",
-    sangradoo: "sangrado"
+    sangradoo: "sangrado",
+    prmocion: "promocion",
+    promoicon: "promocion",
+    promoion: "promocion",
+    promcion: "promocion",
+    paqutte: "paquete",
+    pquete: "paquete",
+    oie: "oye"
   };
   return dictionary[word] ?? word;
 }
@@ -213,7 +220,8 @@ function isPromotionQuestion(text) {
     /\b(?:promocion|promosion|promo|oferta)\b/.test(text) ||
     /\b(?:paquete(?:\s+promocional)?)\b/.test(text) ||
     /\b(?:sigue la promo|siguen con la promo|todavia tienen promo|aun tienen promo|tienen promo|tiene promo)\b/.test(text) ||
-    /\b(?:que incluye la promo|que tiene la promo|que tiene el paquete|cuanto incluye la promo)\b/.test(text)
+    /\b(?:que incluye la promo|que tiene la promo|que tiene el paquete|cuanto incluye la promo)\b/.test(text) ||
+    /\b(?:de que se trata la promo|en que consiste la promo|trata la promo|consiste la promo)\b/.test(text)
   );
 }
 

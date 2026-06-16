@@ -5102,7 +5102,7 @@ function getIntentResponse(intent) {
     location: buildLocationMessage(),
     morning_hours: "🌙 No atendemos por la manana. Solo por la tarde, de 4:40 p.m. a 8:00 p.m.\n\n¿Quieres que revise horarios por la tarde?",
     saturday: "📅 No atendemos los sabados ni domingos. Solo de lunes a viernes por la tarde.\n\n¿Quieres que revise disponibilidad entre semana?",
-    cost: `💰 La consulta tiene un costo de ${formatMoney(config.consultationPrice)} MXN.\n\n🎁 Tambien contamos con paquete de promocion en ${formatMoney(config.promotionPrice)} MXN.`,
+    cost: `💰 La consulta tiene un costo de ${formatMoney(config.consultationPrice)} MXN.`,
     promotion: config.promotionDetails
       ? `🎁 Si, contamos con paquete promocional en ${formatMoney(config.promotionPrice)} MXN.\n\nIncluye:\n${config.promotionDetails}\n\n¿Quieres revisar horarios disponibles?`
       : `🎁 Si, contamos con paquete promocional en ${formatMoney(config.promotionPrice)} MXN.\n\nPara confirmarte exactamente que incluye segun el servicio que necesitas, puedo ayudarte a agendar o pasarte con una persona del consultorio.\n\n¿Quieres revisar horarios disponibles?`,
