@@ -92,7 +92,17 @@ export async function loadConversations() {
         .join(",")})&order=created_at.desc&limit=100`
     )) ??
     (await safeSupabaseFetch(
+      `/rest/v1/conversation_notes?select=id,phone_number,body,created_at&phone_number=in.(${phoneNumbers
+        .map(encodeURIComponent)
+        .join(",")})&order=created_at.desc&limit=100`
+    )) ??
+    (await safeSupabaseFetch(
       `/rest/v1/conversation_notes?select=id,phone_number,note,author,created_at&phone_number=in.(${phoneNumbers
+        .map(encodeURIComponent)
+        .join(",")})&order=created_at.desc&limit=100`
+    )) ??
+    (await safeSupabaseFetch(
+      `/rest/v1/conversation_notes?select=id,phone_number,note,created_at&phone_number=in.(${phoneNumbers
         .map(encodeURIComponent)
         .join(",")})&order=created_at.desc&limit=100`
     )) ??
@@ -159,7 +169,7 @@ export async function loadConversations() {
     conversation.notes.push({
       id: note.id,
       body: note.body ?? note.note,
-      author: note.author,
+      author: note.author ?? "consultorio",
       createdAt: note.created_at
     });
   }
@@ -251,12 +261,30 @@ export async function saveConversationNote({ phoneNumber, body, author = "consul
       body: JSON.stringify(payload)
     });
   } catch (error) {
-    if (!/body|42703/i.test(error?.message ?? "")) throw error;
+    const message = error?.message ?? "";
+    if (/author/i.test(message)) {
+      const { author: _author, ...payloadWithoutAuthor } = payload;
+      await supabaseFetch("/rest/v1/conversation_notes", {
+        method: "POST",
+        body: JSON.stringify(payloadWithoutAuthor)
+      });
+      return;
+    }
+    if (!/body|42703/i.test(message)) throw error;
     const { body: note, ...legacyPayload } = payload;
-    await supabaseFetch("/rest/v1/conversation_notes", {
-      method: "POST",
-      body: JSON.stringify({ ...legacyPayload, note })
-    });
+    try {
+      await supabaseFetch("/rest/v1/conversation_notes", {
+        method: "POST",
+        body: JSON.stringify({ ...legacyPayload, note })
+      });
+    } catch (legacyError) {
+      if (!/author/i.test(legacyError?.message ?? "")) throw legacyError;
+      const { author: _author, ...legacyPayloadWithoutAuthor } = legacyPayload;
+      await supabaseFetch("/rest/v1/conversation_notes", {
+        method: "POST",
+        body: JSON.stringify({ ...legacyPayloadWithoutAuthor, note })
+      });
+    }
   }
 }
 
