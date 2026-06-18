@@ -3,9 +3,9 @@ import crypto from "node:crypto";
 const baseUrl = requireValue("BASE_URL", process.env.BASE_URL ?? process.env.PUBLIC_BASE_URL);
 const webhookSecret = process.env.WEBHOOK_PATH_SECRET;
 const appSecret = process.env.WHATSAPP_APP_SECRET;
-const phoneNumberId = requireValue("WHATSAPP_PHONE_NUMBER_ID", process.env.WHATSAPP_PHONE_NUMBER_ID);
+const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const wabaId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || "WABA_ID_DE_PRUEBA";
-const displayPhone = requireValue("WHATSAPP_DISPLAY_PHONE_NUMBER", process.env.WHATSAPP_DISPLAY_PHONE_NUMBER);
+const displayPhone = process.env.WHATSAPP_DISPLAY_PHONE_NUMBER;
 
 const checks = [];
 
@@ -30,7 +30,7 @@ await check("inbox redirige a login", async () => {
   if (location !== "/inbox/login") throw new Error(`location inesperado: ${location}`);
 });
 
-if (webhookSecret && appSecret) {
+if (webhookSecret && appSecret && phoneNumberId && displayPhone) {
   await check("webhook rechaza status sin firma", async () => {
     const payload = buildStatusPayload();
     const response = await fetchUrl(`/webhook/${encodeURIComponent(webhookSecret)}`, {
@@ -60,7 +60,7 @@ if (webhookSecret && appSecret) {
     name: "webhook firmado",
     ok: false,
     skipped: true,
-    message: "faltan WEBHOOK_PATH_SECRET o WHATSAPP_APP_SECRET"
+    message: "faltan WEBHOOK_PATH_SECRET, WHATSAPP_APP_SECRET, WHATSAPP_PHONE_NUMBER_ID o WHATSAPP_DISPLAY_PHONE_NUMBER"
   });
 }
 
