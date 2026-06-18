@@ -89,22 +89,26 @@ export async function loadConversations() {
     (await safeSupabaseFetch(
       `/rest/v1/conversation_notes?select=id,phone_number,body,author,created_at&phone_number=in.(${phoneNumbers
         .map(encodeURIComponent)
-        .join(",")})&order=created_at.desc&limit=100`
+        .join(",")})&order=created_at.desc&limit=100`,
+      { silentSchemaMismatch: true }
     )) ??
     (await safeSupabaseFetch(
       `/rest/v1/conversation_notes?select=id,phone_number,body,created_at&phone_number=in.(${phoneNumbers
         .map(encodeURIComponent)
-        .join(",")})&order=created_at.desc&limit=100`
+        .join(",")})&order=created_at.desc&limit=100`,
+      { silentSchemaMismatch: true }
     )) ??
     (await safeSupabaseFetch(
       `/rest/v1/conversation_notes?select=id,phone_number,note,author,created_at&phone_number=in.(${phoneNumbers
         .map(encodeURIComponent)
-        .join(",")})&order=created_at.desc&limit=100`
+        .join(",")})&order=created_at.desc&limit=100`,
+      { silentSchemaMismatch: true }
     )) ??
     (await safeSupabaseFetch(
       `/rest/v1/conversation_notes?select=id,phone_number,note,created_at&phone_number=in.(${phoneNumbers
         .map(encodeURIComponent)
-        .join(",")})&order=created_at.desc&limit=100`
+        .join(",")})&order=created_at.desc&limit=100`,
+      { silentSchemaMismatch: true }
     )) ??
     [];
   const byPhone = new Map();
@@ -915,12 +919,20 @@ export async function checkDatabaseHealth() {
 }
 
 async function safeSupabaseFetch(path, options = {}) {
+  const { silentSchemaMismatch = false, ...fetchOptions } = options;
   try {
-    return await supabaseFetch(path, options);
+    return await supabaseFetch(path, fetchOptions);
   } catch (error) {
+    if (silentSchemaMismatch && isSchemaMismatchError(error)) {
+      return undefined;
+    }
     console.warn("Supabase optional request failed:", error.message);
     return undefined;
   }
+}
+
+function isSchemaMismatchError(error) {
+  return /42703|PGRST204|column .* does not exist|Could not find .* column/i.test(error?.message ?? "");
 }
 
 async function supabaseFetch(path, options = {}) {
