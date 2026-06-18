@@ -54,6 +54,57 @@ export async function sendWhatsAppButtons(to, { body, buttons }) {
   });
 }
 
+export async function sendInteractiveButtons(to, body, buttons) {
+  return sendWhatsAppButtons(to, { body, buttons });
+}
+
+export async function sendInteractiveList(to, body, sections) {
+  return sendWhatsAppList(to, {
+    body,
+    buttonText: "Ver opciones",
+    sections
+  });
+}
+
+export async function sendMessageWithOptions(to, body, options = []) {
+  const normalizedOptions = normalizeOptions(options);
+  if (normalizedOptions.length === 0) {
+    return sendWhatsAppText(to, body);
+  }
+
+  const fallbackText = buildOptionsFallbackText(body, normalizedOptions);
+
+  if (normalizedOptions.length === 1) {
+    return sendWhatsAppText(
+      to,
+      `${body}\n\nPuedes responder: ${normalizedOptions[0].title}`
+    );
+  }
+
+  if (normalizedOptions.length <= 3) {
+    try {
+      return await sendInteractiveButtons(to, body, normalizedOptions);
+    } catch (error) {
+      console.warn(`WhatsApp buttons failed for ${maskPhone(to)}; falling back to text.`);
+      return sendWhatsAppText(to, fallbackText);
+    }
+  }
+
+  if (normalizedOptions.length <= 10) {
+    try {
+      return await sendInteractiveList(to, body, [{
+        title: "Opciones",
+        rows: normalizedOptions
+      }]);
+    } catch (error) {
+      console.warn(`WhatsApp list failed for ${maskPhone(to)}; falling back to text.`);
+      return sendWhatsAppText(to, fallbackText);
+    }
+  }
+
+  return sendWhatsAppText(to, fallbackText);
+}
+
 export async function sendWhatsAppTemplate(to, templateName, languageCode, bodyParameters = []) {
   const components = bodyParameters.length > 0
     ? [{
@@ -184,6 +235,22 @@ function getMediaMessageType(file) {
   if (contentType.startsWith("image/")) return "image";
   if (contentType.startsWith("video/")) return "video";
   return "document";
+}
+
+function normalizeOptions(options) {
+  return options
+    .filter(Boolean)
+    .map((option, index) => ({
+      id: String(option.id ?? `option_${index + 1}`),
+      title: String(option.title ?? option.label ?? `Opcion ${index + 1}`),
+      ...(option.description ? { description: String(option.description) } : {})
+    }));
+}
+
+function buildOptionsFallbackText(body, options) {
+  return `${body}\n\n${options
+    .map((option, index) => `${index + 1}. ${option.title}`)
+    .join("\n")}`;
 }
 
 function maskPhone(value) {

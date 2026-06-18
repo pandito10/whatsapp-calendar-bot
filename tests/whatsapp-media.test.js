@@ -116,3 +116,91 @@ test("envia botones interactivos para confirmaciones de WhatsApp", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("sendMessageWithOptions usa botones cuando hay hasta tres opciones", async () => {
+  const originalFetch = globalThis.fetch;
+  process.env.WHATSAPP_VERIFY_TOKEN = "verify-token-test";
+  process.env.WHATSAPP_PHONE_NUMBER_ID = "123456789";
+  process.env.WHATSAPP_ACCESS_TOKEN = "whatsapp-token-test";
+  process.env.DOCTOR_WHATSAPP_NUMBER = "5210000000000";
+  process.env.AI_PROVIDER = "local";
+
+  globalThis.fetch = async (_url, options) => {
+    const payload = JSON.parse(options.body);
+    assert.equal(payload.type, "interactive");
+    assert.equal(payload.interactive.type, "button");
+    assert.equal(payload.interactive.action.buttons[0].reply.id, "promo_schedule");
+    return new Response(JSON.stringify({ messages: [{ id: "wamid.options.buttons" }] }), { status: 200 });
+  };
+
+  try {
+    const { sendMessageWithOptions } = await import(`../src/whatsapp.js?optionsButtons=${Date.now()}`);
+    await sendMessageWithOptions("5214770000000", "Elige", [
+      { id: "promo_schedule", title: "Agendar" },
+      { id: "promo_includes", title: "Que incluye" },
+      { id: "location", title: "Ubicacion" }
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("sendMessageWithOptions usa lista cuando hay cuatro a diez opciones", async () => {
+  const originalFetch = globalThis.fetch;
+  process.env.WHATSAPP_VERIFY_TOKEN = "verify-token-test";
+  process.env.WHATSAPP_PHONE_NUMBER_ID = "123456789";
+  process.env.WHATSAPP_ACCESS_TOKEN = "whatsapp-token-test";
+  process.env.DOCTOR_WHATSAPP_NUMBER = "5210000000000";
+  process.env.AI_PROVIDER = "local";
+
+  globalThis.fetch = async (_url, options) => {
+    const payload = JSON.parse(options.body);
+    assert.equal(payload.type, "interactive");
+    assert.equal(payload.interactive.type, "list");
+    assert.equal(payload.interactive.action.sections[0].rows.length, 4);
+    return new Response(JSON.stringify({ messages: [{ id: "wamid.options.list" }] }), { status: 200 });
+  };
+
+  try {
+    const { sendMessageWithOptions } = await import(`../src/whatsapp.js?optionsList=${Date.now()}`);
+    await sendMessageWithOptions("5214770000000", "Elige", [
+      { id: "slot_1", title: "Opcion 1" },
+      { id: "slot_2", title: "Opcion 2" },
+      { id: "slot_3", title: "Opcion 3" },
+      { id: "slot_4", title: "Opcion 4" }
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("sendMessageWithOptions cae a texto si Meta rechaza el interactivo", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  process.env.WHATSAPP_VERIFY_TOKEN = "verify-token-test";
+  process.env.WHATSAPP_PHONE_NUMBER_ID = "123456789";
+  process.env.WHATSAPP_ACCESS_TOKEN = "whatsapp-token-test";
+  process.env.DOCTOR_WHATSAPP_NUMBER = "5210000000000";
+  process.env.AI_PROVIDER = "local";
+
+  globalThis.fetch = async (_url, options) => {
+    calls.push(JSON.parse(options.body));
+    if (calls.length === 1) {
+      return new Response(JSON.stringify({ error: { message: "bad interactive" } }), { status: 400 });
+    }
+    assert.equal(calls[1].type, "text");
+    assert.match(calls[1].text.body, /1\. Agendar/);
+    return new Response(JSON.stringify({ messages: [{ id: "wamid.options.text" }] }), { status: 200 });
+  };
+
+  try {
+    const { sendMessageWithOptions } = await import(`../src/whatsapp.js?optionsFallback=${Date.now()}`);
+    await sendMessageWithOptions("5214770000000", "Elige", [
+      { id: "promo_schedule", title: "Agendar" },
+      { id: "talk_human", title: "Humano" }
+    ]);
+    assert.equal(calls.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

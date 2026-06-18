@@ -43,6 +43,11 @@ test("detecta featured_promo desde me interesa la promo", () => {
   assert.equal(detectIntent("me interesa la promo").intent, "featured_promo");
 });
 
+test("detecta promo_schedule cuando quieren agendar la promocion", () => {
+  assert.equal(detectIntent("quiero agendar la promo").intent, "promo_schedule");
+  assert.equal(detectIntent("apartar el paquete de 1200").intent, "promo_schedule");
+});
+
 // recent_sex_before_exam tests
 test("detecta recent_sex_before_exam desde tuve relaciones hoy", () => {
   assert.equal(detectIntent("tuve relaciones hoy").intent, "recent_sex_before_exam");

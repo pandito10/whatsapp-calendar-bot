@@ -37,6 +37,7 @@ export function detectIntent(value) {
       "confirmada", "confirmar cita", "ya quedo", "quedo confirmada",
       "me confirmas", "tengo cita", "mi cita esta confirmada"
     ])],
+    ["promo_schedule", () => isPromoScheduleQuestion(text)],
     ["schedule_appointment", () => hasAny(text, [
       "agendar", "hacer cita", "sacar cita", "reservar", "quiero una cita",
       "necesito una cita", "necesito cita", "quiero cita", "agendar consulta",
@@ -269,6 +270,13 @@ function isFeaturedPromoQuestion(text) {
   if (/^informes$/.test(text)) return true;
 
   return false;
+}
+
+function isPromoScheduleQuestion(text) {
+  return (
+    /\b(?:agendar|agenda|cita|apartar|reservar)\b/.test(text) &&
+    /\b(?:promo|promocion|paquete|1200|chequeo ginecologico|chequeo completo|papanicolaou|ultrasonido pelvico)\b/.test(text)
+  );
 }
 
 function isRecentSexBeforeExamQuestion(text) {

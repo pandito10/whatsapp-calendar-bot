@@ -70,7 +70,7 @@ import {
   setSession,
   updateKnowledgeSuggestion
 } from "./db.js";
-import { downloadWhatsAppAudio, sendWhatsAppButtons, sendWhatsAppList, sendWhatsAppMedia, sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.js";
+import { downloadWhatsAppAudio, sendMessageWithOptions, sendWhatsAppButtons, sendWhatsAppList, sendWhatsAppMedia, sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.js";
 import { appendLeadToSheet, appendAppointmentToSheet, appendUnknownQuestionToSheet, isSheetsEnabled } from "./sheets.js";
 import { isEmailEnabled, sendAppointmentConfirmationEmail, sendCancellationEmail } from "./email.js";
 
@@ -149,14 +149,23 @@ const interactiveReplyMap = {
   promo_schedule: "agendar promo",
   promo_info: "vi el anuncio",
   promo_includes: "que incluye el chequeo",
+  payment_methods: "formas de pago",
   location: "ubicacion",
   talk_human: "quiero hablar con una persona",
   reschedule: "quiero reagendar",
+  cancel_appointment: "quiero cancelar mi cita",
   search_new_date: "disponibilidad",
   confirm_yes: "si",
   confirm_no: "no",
   date_tomorrow: "cita manana",
-  choose_morning: "atienden en la manana"
+  date_this_week: "esta semana",
+  date_other: "otra fecha",
+  choose_morning: "atienden en la manana",
+  choose_afternoon: "en la tarde",
+  choose_any_time: "cualquier horario",
+  choose_other_day: "otra fecha",
+  confirm_to_human: "quiero hablar con una persona",
+  medical_emergency: "urgencia medica"
 };
 
 const serviceOptionRows = [
@@ -778,6 +787,17 @@ async function handleInboxSend(req, url, res) {
     return;
   }
 
+  const conversationForWindow = await loadConversationForInboxSend(phone);
+  const windowState = getWhatsAppWindowState(conversationForWindow);
+  if (windowState.key === "expired") {
+    await redirectInbox(
+      res,
+      phone,
+      "No se puede enviar texto libre: ya pasaron mas de 24 horas desde el ultimo mensaje del paciente. Pidele que escriba de nuevo o usa una plantilla aprobada de Meta."
+    );
+    return;
+  }
+
   try {
     if (validAttachment) {
       const mediaResult = await sendWhatsAppMedia(phone, validAttachment, { caption: message });
@@ -806,8 +826,47 @@ async function handleInboxSend(req, url, res) {
     await redirectInbox(res, phone);
   } catch (error) {
     logSafeError(`Could not send inbox reply to ${maskPhone(phone)}`, error);
-    await redirectInbox(res, phone, "No se pudo enviar el mensaje por WhatsApp.");
+    await redirectInbox(res, phone, classifyWhatsAppInboxSendError(error));
   }
+}
+
+async function loadConversationForInboxSend(phone) {
+  const inMemory = conversations.get(phone);
+  if (inMemory?.messages?.length) return inMemory;
+
+  try {
+    const saved = await loadConversations();
+    return saved?.find((conversation) => conversation.phoneNumber === phone) ?? inMemory;
+  } catch (error) {
+    logSafeError(`Could not load conversation before inbox send to ${maskPhone(phone)}`, error);
+    return inMemory;
+  }
+}
+
+function classifyWhatsAppInboxSendError(error) {
+  const message = String(error?.message ?? "");
+  if (/131047|24.?hour|24 horas|customer service window|outside.*window/i.test(message)) {
+    return "WhatsApp rechazo el mensaje porque la ventana de 24 horas ya cerro. Pidele al paciente que escriba de nuevo o usa una plantilla aprobada de Meta.";
+  }
+  if (/190|oauth|access token|invalid token|expired token/i.test(message)) {
+    return "WhatsApp rechazo el envio por token invalido o vencido. Revisa WHATSAPP_TOKEN/WHATSAPP_ACCESS_TOKEN del numero nuevo en Render.";
+  }
+  if (/131030|allowed list|lista de autorizados|recipient phone number not in allowed list/i.test(message)) {
+    return "WhatsApp rechazo el envio porque el destinatario no esta autorizado para este numero. Si estas usando el entorno de prueba, agrega ese telefono a destinatarios permitidos en Meta. Si ya es el numero real, revisa que Render use el token y Phone Number ID del numero nuevo.";
+  }
+  if (/phone_number_id|not linked|does not exist|unsupported post request/i.test(message)) {
+    return "WhatsApp rechazo el envio por Phone Number ID incorrecto. Revisa WHATSAPP_PHONE_NUMBER_ID del numero nuevo en Render.";
+  }
+  if (/permission|permissions|131031|10|200/i.test(message)) {
+    return "WhatsApp rechazo el envio por permisos de Meta. Revisa que el token tenga permiso de WhatsApp y que el numero nuevo este conectado a la app.";
+  }
+  if (/131026|recipient|undeliverable|not a valid whatsapp/i.test(message)) {
+    return "WhatsApp no pudo entregar al telefono del paciente. Revisa que el numero tenga WhatsApp y este en formato internacional.";
+  }
+  if (/429|rate limit|too many/i.test(message)) {
+    return "WhatsApp limito temporalmente los envios. Espera un momento y prueba de nuevo.";
+  }
+  return "No se pudo enviar el mensaje por WhatsApp. Revisa logs de Render para ver el error de Meta.";
 }
 
 function validateInboxAttachment(file) {
@@ -3159,10 +3218,13 @@ async function handleWhatsAppWebhook(body) {
         continue;
       }
 
-      const messageText = extractWhatsAppMessageText(message);
+      const messagePayload = extractWhatsAppMessage(message);
+      const messageText = messagePayload.text;
       if (!messageText) continue;
 
-      await handleIncomingText(from, messageText);
+      await handleIncomingText(from, messageText, {
+        patientDisplayBody: messagePayload.patientDisplayBody
+      });
     } catch (error) {
       logSafeError(`Failed handling WhatsApp message ${message.id ?? "without-id"} from ${maskPhone(from)}`, error);
       await safeSendWhatsAppText(
@@ -3184,25 +3246,52 @@ function extractWhatsAppMessages(body) {
 }
 
 function extractWhatsAppMessageText(message) {
-  if (message.type === "text") return message.text?.body;
-  if (message.type === "interactive") {
-    const reply = message.interactive?.list_reply ?? message.interactive?.button_reply;
-    return slotOptionReplyText(reply?.id) ?? dateOptionReplyText(reply?.id) ?? interactiveReplyMap[reply?.id] ?? reply?.title;
-  }
-  if (message.type === "button") {
-    return interactiveReplyMap[message.button?.payload] ?? message.button?.text;
-  }
-  return undefined;
+  return extractWhatsAppMessage(message).text;
 }
 
-async function handleIncomingText(from, text) {
+function extractWhatsAppMessage(message) {
+  if (message.type === "text") {
+    return {
+      text: message.text?.body,
+      patientDisplayBody: message.text?.body
+    };
+  }
+  if (message.type === "interactive") {
+    const reply = message.interactive?.list_reply ?? message.interactive?.button_reply;
+    const text = slotOptionReplyText(reply?.id) ?? dateOptionReplyText(reply?.id) ?? interactiveReplyMap[reply?.id] ?? reply?.title;
+    return {
+      text,
+      patientDisplayBody: buildInteractivePatientDisplay(reply, text)
+    };
+  }
+  if (message.type === "button") {
+    const text = interactiveReplyMap[message.button?.payload] ?? message.button?.text;
+    return {
+      text,
+      patientDisplayBody: buildInteractivePatientDisplay({
+        id: message.button?.payload,
+        title: message.button?.text
+      }, text)
+    };
+  }
+  return { text: undefined, patientDisplayBody: undefined };
+}
+
+function buildInteractivePatientDisplay(reply, parsedText) {
+  const title = reply?.title ?? parsedText ?? "opcion";
+  const id = reply?.id;
+  return `Paciente toco: ${title}${id ? `\nPayload: ${id}` : ""}`;
+}
+
+async function handleIncomingText(from, text, options = {}) {
   console.log(`Incoming WhatsApp from ${maskPhone(from)}`);
   const lower = text.trim().toLowerCase();
   const normalized = normalizeText(text);
   const detectedIntent = detectIntent(normalized);
-  await recordConversationMessage(from, "patient", text);
+  const patientDisplayBody = options.patientDisplayBody ?? text;
+  await recordConversationMessage(from, "patient", patientDisplayBody);
   await addConversationTags(from, suggestTagsFromText(normalized, detectedIntent.intent));
-  await notifyIncomingPatientMessage(from, text);
+  await notifyIncomingPatientMessage(from, patientDisplayBody);
 
   const conversationState = (await getConversationState(from)) ?? conversations.get(from);
   if (conversationState?.botPaused) {
@@ -3231,6 +3320,11 @@ async function handleIncomingText(from, text) {
 
   if (existing && isActiveSessionContinue(normalized)) {
     await continueActiveSession(from, existing);
+    return;
+  }
+
+  if (existing?.step === "promoOffer") {
+    await handlePromoOfferReply(from, normalized, detectedIntent.intent);
     return;
   }
 
@@ -3274,15 +3368,36 @@ async function handleIncomingText(from, text) {
     return;
   }
 
-  if (detectedIntent.intent === "medical_urgent") {
+  if (detectedIntent.intent === "medical_urgent" || detectedIntent.intent === "medical_emergency") {
     setMemoryTags(from, suggestTagsFromText(normalized, detectedIntent.intent));
-    await replyToPatient(from, getIntentResponse("medical_urgent"));
+    await replyToPatientWithButtons(
+      from,
+      getIntentResponse("medical_urgent"),
+      [
+        { id: "talk_human", title: "Persona" },
+        { id: "location", title: "Ubicacion" },
+        { id: "promo_schedule", title: "Agendar" }
+      ]
+    );
     return;
   }
 
   if (detectedIntent.intent === "recent_sex_before_exam") {
     await addConversationTags(from, ["Papanicolaou", "Revisar indicacion"]);
     await sendRecentSexBeforeExamResponse(from);
+    return;
+  }
+
+  if (detectedIntent.intent === "medication_question") {
+    await replyToPatientWithButtons(
+      from,
+      getIntentResponse("medication_question"),
+      [
+        { id: "promo_schedule", title: "Agendar" },
+        { id: "talk_human", title: "Persona" },
+        { id: "promo_info", title: "Ver promo" }
+      ]
+    );
     return;
   }
 
@@ -3354,6 +3469,19 @@ async function handleIncomingText(from, text) {
 
   if (!existing && normalized === "agendar promo") {
     await startAppointmentFlow(from, { reason: "Chequeo ginecologico completo $1,200" });
+    return;
+  }
+
+  if (!existing && isAmbiguousShortReply(normalized)) {
+    await replyToPatientWithButtons(
+      from,
+      "Va 😊 ¿A que te refieres?",
+      [
+        { id: "promo_schedule", title: "Agendar" },
+        { id: "promo_info", title: "Ver promo" },
+        { id: "talk_human", title: "Humano" }
+      ]
+    );
     return;
   }
 
@@ -4054,7 +4182,7 @@ async function handleIncomingAudio(from, audio) {
 
 async function handleMenuOption(from, text, intent = detectIntent(text).intent) {
   const option = menuOptionNumber(text);
-  if (text === "agendar promo") {
+  if (text === "agendar promo" || intent === "promo_schedule") {
     await startAppointmentFlow(from, { reason: "Chequeo ginecologico completo $1,200" });
     return true;
   }
@@ -4146,6 +4274,69 @@ async function handleMenuOption(from, text, intent = detectIntent(text).intent) 
   return false;
 }
 
+async function handlePromoOfferReply(from, text, intent) {
+  if (
+    text === "agendar promo" ||
+    intent === "promo_schedule" ||
+    intent === "schedule_appointment" ||
+    isAffirmativeConfirmation(text) ||
+    hasAny(text, ["me interesa", "agendar", "apartar", "reservar", "cita"])
+  ) {
+    await startAppointmentFlow(from, { reason: "Chequeo ginecologico completo $1,200" });
+    return;
+  }
+
+  if (
+    text === "que incluye el chequeo" ||
+    intent === "featured_promo" ||
+    hasAny(text, ["que incluye", "incluye", "que trae", "que tiene", "detalles"])
+  ) {
+    await sendPromoIncludesResponse(from);
+    return;
+  }
+
+  if (intent === "location" || text === "ubicacion") {
+    await sendContactInfoResponse(from);
+    return;
+  }
+
+  if (intent === "payment_methods" || text === "formas de pago") {
+    await replyToPatientWithButtons(
+      from,
+      getIntentResponse("payment_methods"),
+      [
+        { id: "promo_schedule", title: "Agendar" },
+        { id: "promo_info", title: "Ver promo" },
+        { id: "talk_human", title: "Humano" }
+      ]
+    );
+    return;
+  }
+
+  if (intent === "direct_contact" || text === "quiero hablar con una persona") {
+    await setConversationHumanMode(from, true, "promo_human_request");
+    setMemoryHumanMode(from, true);
+    await replyToPatient(from, getIntentResponse("direct_contact"));
+    return;
+  }
+
+  if (isNegativeConfirmation(text)) {
+    await deletePatientSession(from);
+    await replyToPatient(from, "Sin problema 😊 Si luego quieres agendar la promocion o resolver una duda, aqui estoy.");
+    return;
+  }
+
+  await replyToPatientWithButtons(
+    from,
+    "Te ayudo 😊 ¿Quieres agendar la promocion, ver que incluye o hablar con una persona?",
+    [
+      { id: "promo_schedule", title: "Agendar" },
+      { id: "promo_includes", title: "Que incluye" },
+      { id: "talk_human", title: "Humano" }
+    ]
+  );
+}
+
 async function handlePatientResultsRequest(from) {
   await addConversationTags(from, ["Resultados", "Humano requerido"]);
   await setConversationHumanMode(from, true, "results_request");
@@ -4161,7 +4352,15 @@ async function handlePatientResultsRequest(from) {
     logSafeError("Could not save results request note", error);
   }
 
-  await replyToPatient(from, getIntentResponse("patient_results"));
+  await replyToPatientWithButtons(
+    from,
+    getIntentResponse("patient_results"),
+    [
+      { id: "talk_human", title: "Persona" },
+      { id: "promo_schedule", title: "Agendar" },
+      { id: "location", title: "Ubicacion" }
+    ]
+  );
   await notifyResultsRequest(from);
 }
 
@@ -4243,6 +4442,7 @@ async function sendFeaturedPromoResponse(to) {
   ].join("\n");
 
   await addConversationTags(to, ["Promo $1200", "Lead frio"]);
+  await setPromoOfferSession(to, "frio");
   void appendLeadToSheet({ phone: to, intent: "promo_info", tags: ["Promo $1200", "Lead frio"] }).catch(() => {});
   try {
     await sendWhatsAppButtons(to, {
@@ -4279,6 +4479,7 @@ async function sendPromoIncludesResponse(to) {
   ].join("\n");
 
   await addConversationTags(to, ["Promo $1200", "Lead tibio"]);
+  await setPromoOfferSession(to, "tibio");
   try {
     await sendWhatsAppButtons(to, {
       body,
@@ -4294,6 +4495,20 @@ async function sendPromoIncludesResponse(to) {
     logSafeError(`Failed sending promo includes buttons to ${maskPhone(to)}`, error);
     await replyToPatient(to, body);
   }
+}
+
+async function setPromoOfferSession(to, leadStage) {
+  await setPatientSession(to, {
+    from: to,
+    step: "promoOffer",
+    lastIntent: "featured_promo",
+    lastBotQuestion: "promo_agenda_cta",
+    lastOfferedOptions: ["promo_schedule", "promo_includes", "location"],
+    selectedPromo: "featured_promo",
+    leadStage,
+    appointmentService: "Chequeo ginecologico completo $1,200",
+    reason: "Chequeo ginecologico completo $1,200"
+  });
 }
 
 async function sendRecentSexBeforeExamResponse(to) {
@@ -4404,11 +4619,7 @@ async function sendGreetingMenuToPatient(to) {
 async function replyWithDateOptions(to, body) {
   const rows = buildDateOptionRows();
   try {
-    await sendWhatsAppList(to, {
-      body,
-      buttonText: "Ver fechas",
-      sections: [{ title: "Fechas sugeridas", rows }]
-    });
+    await sendMessageWithOptions(to, body, rows);
     await recordConversationMessage(to, "bot", `${body}\n\n${rows.map((row, index) => `${index + 1}. ${row.title} - ${row.description}`).join("\n")}\n\nTambien puedes escribir otra fecha.`);
     await notifyBotReply(to, "Opciones de fecha enviadas.");
   } catch (error) {
@@ -4557,11 +4768,7 @@ async function replyWithSlotOptions(to, { body, slots, allowSelection }) {
   const fallbackText = buildSlotOptionsText(body, slots, allowSelection);
 
   try {
-    await sendWhatsAppList(to, {
-      body: `${body}\n\n${instruction}`,
-      buttonText: "Elegir horario",
-      sections: [{ title: "Horarios disponibles", rows }]
-    });
+    await sendMessageWithOptions(to, `${body}\n\n${instruction}`, rows);
     await recordConversationMessage(to, "bot", fallbackText);
     await notifyBotReply(to, "Horarios disponibles enviados.");
   } catch (error) {
@@ -5651,6 +5858,10 @@ function isResetCommand(text) {
 
 function isSkipEmailText(text) {
   return /^(?:sin correo|no tengo correo|no tengo|sin email|omitir|saltar|no quiero correo|no email|no tiene)$/.test(text);
+}
+
+function isAmbiguousShortReply(text) {
+  return /^(?:si|sí|ok|okay|va|sale|claro|bueno|me interesa|quiero|agendar|agenda|apartar|reservar|ya)$/.test(text);
 }
 
 function isActiveSessionContinue(text) {
