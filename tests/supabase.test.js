@@ -469,3 +469,31 @@ test("guarda nota interna de conversacion sin enviarla como mensaje", async () =
     globalThis.fetch = originalFetch;
   }
 });
+
+test("guarda nota interna con columna legacy note si falta body", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), body: options?.body, method: options?.method });
+    if (calls.length === 1) {
+      return new Response(JSON.stringify({ code: "42703", message: "column conversation_notes.body does not exist" }), { status: 400 });
+    }
+    return new Response(JSON.stringify([]), { status: 201 });
+  };
+
+  try {
+    await saveConversationNote({
+      phoneNumber: "5214771234567",
+      body: "Nota interna",
+      author: "recepcion"
+    });
+    assert.equal(calls.length, 2);
+    const fallbackBody = JSON.parse(calls[1].body);
+    assert.equal(fallbackBody.phone_number, "5214771234567");
+    assert.equal(fallbackBody.author, "recepcion");
+    assert.equal(fallbackBody.note, "Nota interna");
+    assert.equal("body" in fallbackBody, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

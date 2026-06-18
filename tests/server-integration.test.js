@@ -27,6 +27,12 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.equal(root.status, 303);
     assert.equal(root.headers.get("location"), "/inbox");
 
+    const privacy = await fetch("http://127.0.0.1:32131/privacy");
+    const privacyHtml = await privacy.text();
+    assert.equal(privacy.status, 200);
+    assert.match(privacyHtml, /Politica de privacidad/);
+    assert.ok(privacyHtml.includes("Meta/WhatsApp"));
+
     const inbox = await fetch("http://127.0.0.1:32131/inbox", { redirect: "manual" });
     assert.equal(inbox.status, 303);
     assert.equal(inbox.headers.get("location"), "/inbox/login");

@@ -90,7 +90,13 @@ export async function loadConversations() {
       `/rest/v1/conversation_notes?select=id,phone_number,body,author,created_at&phone_number=in.(${phoneNumbers
         .map(encodeURIComponent)
         .join(",")})&order=created_at.desc&limit=100`
-    )) ?? [];
+    )) ??
+    (await safeSupabaseFetch(
+      `/rest/v1/conversation_notes?select=id,phone_number,note,author,created_at&phone_number=in.(${phoneNumbers
+        .map(encodeURIComponent)
+        .join(",")})&order=created_at.desc&limit=100`
+    )) ??
+    [];
   const byPhone = new Map();
   for (const conversation of conversations) {
     byPhone.set(conversation.phone_number, {
@@ -152,7 +158,7 @@ export async function loadConversations() {
     if (!conversation) continue;
     conversation.notes.push({
       id: note.id,
-      body: note.body,
+      body: note.body ?? note.note,
       author: note.author,
       createdAt: note.created_at
     });
@@ -233,14 +239,25 @@ export async function setConversationTags(phoneNumber, tags = []) {
 export async function saveConversationNote({ phoneNumber, body, author = "consultorio" }) {
   if (!isDatabaseEnabled() || !phoneNumber || !body) return;
 
-  await supabaseFetch("/rest/v1/conversation_notes", {
-    method: "POST",
-    body: JSON.stringify({
-      phone_number: phoneNumber,
-      body: String(body).slice(0, 2000),
-      author: String(author).slice(0, 120)
-    })
-  });
+  const payload = {
+    phone_number: phoneNumber,
+    body: String(body).slice(0, 2000),
+    author: String(author).slice(0, 120)
+  };
+
+  try {
+    await supabaseFetch("/rest/v1/conversation_notes", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  } catch (error) {
+    if (!/body|42703/i.test(error?.message ?? "")) throw error;
+    const { body: note, ...legacyPayload } = payload;
+    await supabaseFetch("/rest/v1/conversation_notes", {
+      method: "POST",
+      body: JSON.stringify({ ...legacyPayload, note })
+    });
+  }
 }
 
 export async function saveKnowledgeSuggestion({ question, answer, sourcePhone, status = "pending", category, conversationPhone, action = "answer", active = true, intent, variations = [], priority = 100 }) {

@@ -193,6 +193,11 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/privacy") {
+      handlePrivacyPage(res);
+      return;
+    }
+
     if (req.method === "GET" && isWebhookPostPath(url.pathname)) {
       if (!isValidWebhookPath(url.pathname)) {
         res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" }).end("not found");
@@ -1408,6 +1413,56 @@ function handleInboxLoginPage(req, res, error = "") {
       <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
       <button type="submit">Entrar</button>
     </form>
+  </main>
+</body>
+</html>`);
+}
+
+function handlePrivacyPage(res) {
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(`<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Politica de privacidad</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #30202a; background: #fff7fb; }
+    body { margin: 0; padding: 32px 18px; }
+    main { max-width: 860px; margin: 0 auto; background: #fff; border: 1px solid #f6d5e2; border-radius: 18px; padding: clamp(22px, 5vw, 42px); box-shadow: 0 18px 50px rgba(95, 36, 68, 0.1); }
+    h1 { margin-top: 0; color: #8a244f; }
+    h2 { margin-top: 28px; color: #513043; }
+    p, li { line-height: 1.65; }
+    ul { padding-left: 22px; }
+    .muted { color: #725568; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Politica de privacidad</h1>
+    <p class="muted">Ultima actualizacion: 18 de junio de 2026</p>
+    <p>Este canal de WhatsApp se usa para atender solicitudes administrativas del consultorio, como informacion general, ubicacion, costos, disponibilidad, agenda, reagenda y cancelacion de citas.</p>
+
+    <h2>Datos que podemos tratar</h2>
+    <ul>
+      <li>Nombre, telefono y correo del paciente cuando se comparten por WhatsApp.</li>
+      <li>Mensajes necesarios para dar seguimiento a la conversacion.</li>
+      <li>Datos administrativos de cita, como fecha, hora, estado de la cita y confirmaciones.</li>
+    </ul>
+
+    <h2>Uso de la informacion</h2>
+    <p>La informacion se usa para responder mensajes, coordinar citas, guardar historial operativo del inbox y notificar al consultorio cuando una conversacion requiere atencion humana.</p>
+
+    <h2>Servicios involucrados</h2>
+    <p>Para operar este canal se pueden usar servicios de Meta/WhatsApp, Google Calendar, Supabase y Render. Estos proveedores procesan datos solo para entregar la funcionalidad tecnica del servicio.</p>
+
+    <h2>Informacion medica sensible</h2>
+    <p>Este canal no sustituye una consulta medica y no debe usarse como expediente clinico. El bot no diagnostica, no receta medicamentos y no atiende emergencias. En caso de urgencia, dolor fuerte, sangrado abundante o sintomas graves, se debe acudir a urgencias o contactar directamente al consultorio.</p>
+
+    <h2>Conservacion y seguridad</h2>
+    <p>El acceso al inbox esta protegido con autenticacion. Los datos se conservan solo para seguimiento operativo del consultorio y deben manejarse conforme al aviso de privacidad formal del consultorio.</p>
+
+    <h2>Contacto</h2>
+    <p>Para solicitar informacion sobre el manejo de datos, contacta directamente al consultorio.</p>
   </main>
 </body>
 </html>`);
