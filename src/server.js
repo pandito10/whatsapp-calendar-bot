@@ -861,10 +861,65 @@ function handleInboxScript(res) {
     }
   }
 
+  function updateRefreshStatus(text) {
+    document.querySelectorAll("[data-refresh-status]").forEach((node) => {
+      node.textContent = text;
+    });
+  }
+
+  function userIsTyping() {
+    const active = document.activeElement;
+    if (!active) return false;
+    const tag = active.tagName;
+    return tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT";
+  }
+
+  function hasDraft() {
+    const composer = document.querySelector(".composer textarea[name='message']");
+    const attachment = document.querySelector(".composer input[type='file']");
+    return Boolean((composer && composer.value.trim()) || (attachment && attachment.files && attachment.files.length > 0));
+  }
+
+  function userIsReadingOldMessages() {
+    const messages = document.querySelector(".messages");
+    if (!messages) return false;
+    const distanceFromBottom = messages.scrollHeight - messages.scrollTop - messages.clientHeight;
+    return distanceFromBottom > 180;
+  }
+
+  function bindSmartRefresh() {
+    const refreshMs = 20000;
+    let lastRefresh = Date.now();
+    updateRefreshStatus("Actualizado ahora");
+    window.setInterval(() => {
+      const elapsedSeconds = Math.max(1, Math.round((Date.now() - lastRefresh) / 1000));
+      if (document.hidden) {
+        updateRefreshStatus("Pausado");
+        return;
+      }
+      if (userIsTyping() || hasDraft()) {
+        updateRefreshStatus("Pausado mientras escribes");
+        return;
+      }
+      if (userIsReadingOldMessages()) {
+        updateRefreshStatus("Pausado mientras lees");
+        return;
+      }
+      if (elapsedSeconds < 20) {
+        updateRefreshStatus("Actualizado hace " + elapsedSeconds + "s");
+        return;
+      }
+      const url = new URL(window.location.href);
+      url.searchParams.set("refresh", String(Date.now()));
+      window.location.replace(url.toString());
+    }, 5000);
+  }
+
   function initInbox() {
     bindQuickReplies();
     bindCopyButtons();
     bindComposerEnhancements();
+    bindSmartRefresh();
     scrollMessagesToBottom();
   }
 
@@ -1498,20 +1553,40 @@ function handleInboxLoginPage(req, res, error = "") {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Entrar al inbox</title>
   <style>
-    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #2d1724; }
+    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #0d2240; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       min-height: 100vh;
-      background: url('/public/dra_carranza_banner.png') center center / cover no-repeat fixed;
+      background:
+        linear-gradient(135deg, rgba(13, 61, 114, 0.78), rgba(26, 95, 168, 0.42)),
+        url('/public/dra_carranza_banner.png') center center / cover no-repeat fixed;
       display: grid;
       place-items: center;
       padding: 24px;
     }
-    main { width: min(420px, 100%); background: rgba(255, 255, 255, 0.93); border: 1px solid #f3c9d8; border-radius: 22px; padding: 30px; box-shadow: 0 20px 52px rgba(13, 61, 114, 0.25); backdrop-filter: blur(4px); }
-    h1 { margin: 0 0 8px; font-size: 22px; }
-    p { margin: 0 0 20px; color: #8a5c6e; line-height: 1.45; }
+    main { width: min(430px, 100%); background: rgba(255, 255, 255, 0.96); border: 1px solid #bfd6f0; border-radius: 24px; padding: 30px; box-shadow: 0 24px 64px rgba(13, 61, 114, 0.32); backdrop-filter: blur(8px); }
+    .login-photo {
+      width: 118px;
+      height: 118px;
+      margin: 0 auto 18px;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 4px solid #ffffff;
+      box-shadow: 0 16px 34px rgba(13, 61, 114, 0.22);
+      background: #ddeeff;
+    }
+    .login-photo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center top;
+      display: block;
+    }
+    .login-copy { text-align: center; }
+    h1 { margin: 0 0 8px; font-size: 24px; color: #0d3d72; }
+    p { margin: 0 0 22px; color: #4a6a8a; line-height: 1.45; }
     label { display: block; font-weight: 700; font-size: 14px; margin-bottom: 8px; }
-    input { width: 100%; border: 1px solid #f1b9cf; border-radius: 14px; padding: 12px; font: inherit; }
+    input { width: 100%; border: 1px solid #9fc5ef; border-radius: 14px; padding: 12px; font: inherit; color: #0d2240; }
     input:focus { border-color: #1a5fa8; box-shadow: 0 0 0 4px rgba(26, 95, 168, 0.12); outline: none; }
     button { width: 100%; margin-top: 14px; border: 0; border-radius: 14px; padding: 12px; background: linear-gradient(135deg, #1a5fa8, #60a5fa); color: white; font: inherit; font-weight: 800; cursor: pointer; box-shadow: 0 12px 24px rgba(26, 95, 168, 0.2); }
     .error { margin-bottom: 14px; padding: 10px 12px; border-radius: 10px; color: #991b1b; background: #fee2e2; border: 1px solid #fecaca; }
@@ -1519,8 +1594,13 @@ function handleInboxLoginPage(req, res, error = "") {
 </head>
 <body>
   <main>
-    <h1>Inbox del bot</h1>
-    <p>Entra con la clave privada del consultorio.</p>
+    <div class="login-photo">
+      <img src="${config.inboxDoctorImageUrl ? escapeHtml(config.inboxDoctorImageUrl) : "/public/dra_carranza_banner.png"}" alt="Dra. Carranza">
+    </div>
+    <div class="login-copy">
+      <h1>Inbox del bot</h1>
+      <p>Consultorio virtual Dra. Carranza. Entra con la clave privada.</p>
+    </div>
     ${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}
     <form method="post" action="/inbox/login">
       <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
@@ -1541,14 +1621,14 @@ function handlePrivacyPage(res) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Politica de privacidad</title>
   <style>
-    :root { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #30202a; background: #fff7fb; }
+    :root { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #0d2240; background: #f5f9ff; }
     body { margin: 0; padding: 32px 18px; }
-    main { max-width: 860px; margin: 0 auto; background: #fff; border: 1px solid #f6d5e2; border-radius: 18px; padding: clamp(22px, 5vw, 42px); box-shadow: 0 18px 50px rgba(95, 36, 68, 0.1); }
-    h1 { margin-top: 0; color: #8a244f; }
-    h2 { margin-top: 28px; color: #513043; }
+    main { max-width: 860px; margin: 0 auto; background: #fff; border: 1px solid #bfd6f0; border-radius: 18px; padding: clamp(22px, 5vw, 42px); box-shadow: 0 18px 50px rgba(13, 61, 114, 0.1); }
+    h1 { margin-top: 0; color: #0d3d72; }
+    h2 { margin-top: 28px; color: #244a73; }
     p, li { line-height: 1.65; }
     ul { padding-left: 22px; }
-    .muted { color: #725568; }
+    .muted { color: #4a6a8a; }
   </style>
 </head>
 <body>
@@ -1710,6 +1790,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
   const rightPanel = renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, windowState, knowledgeSuggestions });
   const filterOptions = renderInboxQuickFilters(filter, url.searchParams.get("q") ?? "");
   const diagnosticsCard = renderInboxDiagnostics(diagnostics);
+  const doctorImageSrc = config.inboxDoctorImageUrl || "/public/dra_carranza_banner.png";
   const conversationLinks =
     filteredList.length === 0
       ? `<div class="empty-state">Todavia no hay conversaciones.</div>`
@@ -1769,8 +1850,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="20">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Inbox del bot</title>
   <script src="/inbox.js" defer></script>
   <style>
@@ -1793,6 +1873,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     body {
       margin: 0;
       min-height: 100vh;
+      overflow-x: hidden;
       background:
         radial-gradient(circle at top left, rgba(96, 165, 250, 0.18), transparent 32rem),
         radial-gradient(circle at 88% 12%, rgba(191, 214, 240, 0.5), transparent 24rem),
@@ -1931,23 +2012,23 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       grid-template-columns: repeat(3, 1fr);
       gap: 8px;
       padding: 14px;
-      border-bottom: 1px solid #f9d8e5;
+      border-bottom: 1px solid #dbeafe;
     }
     .stat {
       min-width: 0;
       padding: 10px;
       border-radius: 12px;
       background: var(--soft);
-      border: 1px solid #f7d3e1;
+      border: 1px solid #cfe1f7;
     }
     .stat strong { display: block; font-size: 18px; line-height: 1; }
     .stat span { display: block; color: var(--muted); font-size: 11px; margin-top: 5px; }
     .metrics-card {
       margin: 0 14px 14px;
       padding: 12px;
-      border: 1px solid #f7d3e1;
+      border: 1px solid #cfe1f7;
       border-radius: 14px;
-      background: #fff0f7;
+      background: #eef6ff;
     }
     .metrics-head { margin-bottom: 8px; }
     .metrics-head strong { font-size: 13px; }
@@ -1963,7 +2044,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       gap: 2px;
     }
     .metric-cell strong { font-size: 17px; color: #0d3d72; }
-    .metric-cell span { font-size: 10px; color: #8a5c6e; text-align: center; }
+    .metric-cell span { font-size: 10px; color: #4a6a8a; text-align: center; }
     .report-entry summary {
       cursor: pointer;
       padding: 6px 0;
@@ -1975,16 +2056,16 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       font-size: 12px;
       line-height: 1.6;
       padding: 6px 0 4px;
-      color: #5a2d4c;
-      border-top: 1px solid #f0d6e8;
+      color: #244a73;
+      border-top: 1px solid #dbeafe;
       margin-top: 4px;
     }
     .diagnostics-card {
       margin: 0 14px 14px;
       padding: 12px;
-      border: 1px solid #f7d3e1;
+      border: 1px solid #cfe1f7;
       border-radius: 14px;
-      background: #fffafd;
+      background: #f8fbff;
     }
     .diagnostics-head {
       display: flex;
@@ -2004,7 +2085,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       gap: 8px;
       align-items: center;
       font-size: 12px;
-      color: #5f3046;
+      color: #244a73;
     }
     .dot {
       width: 8px;
@@ -2021,11 +2102,11 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       padding: 14px 16px;
       color: inherit;
       text-decoration: none;
-      border-bottom: 1px solid #f9d8e5;
+      border-bottom: 1px solid #dbeafe;
       transition: background 0.15s ease, transform 0.15s ease;
     }
     .thread:hover {
-      background: #fff0f6;
+      background: #eef6ff;
     }
     .thread.active {
       background: #ddeeff;
@@ -2092,7 +2173,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       width: fit-content;
       color: #475569;
       background: #f0f6ff;
-      border: 1px solid #f7d3e1;
+      border: 1px solid #cfe1f7;
       border-radius: 999px;
       padding: 4px 8px;
       font-size: 11px;
@@ -2114,20 +2195,20 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       display: grid;
       gap: 8px;
       padding: 12px 14px;
-      border-bottom: 1px solid #f9d8e5;
+      border-bottom: 1px solid #dbeafe;
     }
     .quick-filters {
       display: flex;
       gap: 7px;
       overflow-x: auto;
       padding: 0 14px 12px;
-      border-bottom: 1px solid #f9d8e5;
+      border-bottom: 1px solid #dbeafe;
     }
     .filter-chip {
       flex: 0 0 auto;
       color: #0d3d72;
-      background: #fff7fb;
-      border: 1px solid #f7d3e1;
+      background: #f5f9ff;
+      border: 1px solid #cfe1f7;
       border-radius: 999px;
       padding: 7px 10px;
       font-size: 12px;
@@ -2141,7 +2222,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
     .tools input, .tools select, textarea {
       width: 100%;
-      border: 1px solid #f1b9cf;
+      border: 1px solid #9fc5ef;
       border-radius: 12px;
       padding: 10px 11px;
       font: inherit;
@@ -2175,9 +2256,10 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       opacity: 0.72;
       transform: none;
     }
-    .button-secondary { background: #7c2d52; }
+    .button-secondary { background: #436b93; }
     .button-danger { background: linear-gradient(135deg, #be123c, #f43f5e); }
     .mobile-back { display: none; }
+    .mobile-patient-sheet { display: none; }
     .chat {
       display: flex;
       flex-direction: column;
@@ -2196,7 +2278,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
     .panel-section {
       padding: 16px;
-      border-bottom: 1px solid #f9d8e5;
+      border-bottom: 1px solid #dbeafe;
     }
     .panel-section h2 {
       margin: 0 0 10px;
@@ -2211,9 +2293,9 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       display: grid;
       gap: 3px;
       padding: 9px 10px;
-      border: 1px solid #f7d3e1;
+      border: 1px solid #cfe1f7;
       border-radius: 12px;
-      background: #fff7fb;
+      background: #f5f9ff;
       overflow-wrap: anywhere;
     }
     .info-row span {
@@ -2234,8 +2316,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     .summary-list li {
       padding: 9px 10px;
       border-radius: 12px;
-      background: #fff7fb;
-      border: 1px solid #f7d3e1;
+      background: #f5f9ff;
+      border: 1px solid #cfe1f7;
     }
     .notes-list {
       display: grid;
@@ -2245,8 +2327,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     .note-card {
       padding: 10px;
       border-radius: 12px;
-      background: #fff7fb;
-      border: 1px solid #f7d3e1;
+      background: #f5f9ff;
+      border: 1px solid #cfe1f7;
       font-size: 13px;
       overflow-wrap: anywhere;
     }
@@ -2262,7 +2344,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       justify-content: space-between;
       gap: 16px;
       padding: 18px 22px;
-      background: rgba(255, 247, 251, 0.96);
+      background: rgba(245, 249, 255, 0.96);
       border-bottom: 1px solid var(--line);
     }
     .chat-title strong { display: block; font-size: 16px; }
@@ -2271,7 +2353,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       flex: 0 0 auto;
       color: var(--brand-dark);
       background: #ddeeff;
-      border: 1px solid #f9a8d4;
+      border: 1px solid #9fc5ef;
       padding: 7px 10px;
       border-radius: 999px;
       font-size: 12px;
@@ -2288,8 +2370,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       padding: 14px 16px;
       border-radius: 14px;
       background: #f0f6ff;
-      border: 1px solid #f9a8d4;
-      color: #831843;
+      border: 1px solid #9fc5ef;
+      color: #0d3d72;
     }
     .appointment-card strong {
       display: block;
@@ -2314,10 +2396,11 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       padding: 24px;
       overflow: auto;
       background:
-        linear-gradient(rgba(255, 247, 251, 0.88), rgba(255, 247, 251, 0.88)),
+        linear-gradient(rgba(245, 249, 255, 0.9), rgba(245, 249, 255, 0.9)),
         radial-gradient(circle, rgba(26, 95, 168, 0.08) 1px, transparent 1px);
       background-size: auto, 18px 18px;
       flex: 1;
+      min-height: 0;
     }
     .message {
       display: flex;
@@ -2335,14 +2418,14 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       overflow-wrap: anywhere;
     }
     .bot .bubble {
-      color: #831843;
+      color: #0d3d72;
       background: #ddeeff;
       border-radius: 16px 16px 4px 16px;
     }
     .human { justify-content: flex-end; }
     .human .bubble {
       color: #ffffff;
-      background: linear-gradient(135deg, #1a5fa8, #ec4899);
+      background: linear-gradient(135deg, #1a5fa8, #2563eb);
       border-radius: 16px 16px 4px 16px;
     }
     .human .meta { color: rgba(255, 255, 255, 0.78); }
@@ -2379,8 +2462,9 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
     .composer {
       border-top: 1px solid var(--line);
-      background: rgba(255, 247, 251, 0.98);
+      background: rgba(245, 249, 255, 0.98);
       padding: 14px;
+      flex: 0 0 auto;
     }
     .composer form { display: grid; gap: 10px; }
     .message-input-row {
@@ -2412,7 +2496,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       flex: 0 0 auto;
       background: #f0f6ff;
       color: #0d3d72;
-      border: 1px solid #f9a8d4;
+      border: 1px solid #9fc5ef;
       padding: 8px 10px;
       font-size: 12px;
     }
@@ -2420,15 +2504,15 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       display: grid;
       grid-template-columns: minmax(0, 1fr);
       gap: 6px;
-      color: #8a5c6e;
+      color: #4a6a8a;
       font-size: 13px;
       font-weight: 700;
     }
     .file-row input {
-      border: 1px dashed #f0a3c2;
+      border: 1px dashed #9fc5ef;
       border-radius: 10px;
       padding: 10px;
-      background: #fffafd;
+      background: #f8fbff;
       font: inherit;
     }
     .composer-actions {
@@ -2545,8 +2629,30 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       line-height: 1.5;
       margin: 0;
     }
+    .mobile-info-grid {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .mobile-info-row {
+      padding: 9px 10px;
+      border: 1px solid #cfe1f7;
+      border-radius: 12px;
+      background: #f8fbff;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+    .mobile-info-row > span {
+      display: block;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      margin-bottom: 3px;
+    }
     @media (max-width: 780px) {
       body { min-height: 100dvh; overflow: hidden; }
+      .inbox-banner { display: none; }
       header { padding: 0 14px; height: 64px; min-height: 64px; gap: 12px; }
       .brand-mark { width: 34px; height: 34px; border-radius: 10px; }
       h1 { font-size: 16px; }
@@ -2587,6 +2693,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       }
       .chat-title {
         padding: 12px 14px;
+        display: block;
         align-items: flex-start;
         gap: 10px;
       }
@@ -2595,17 +2702,40 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       .chat-actions { justify-content: flex-start; margin-top: 8px; }
       .mobile-back { display: inline-flex; }
       .conversation-tools {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 8px;
+        overflow-x: auto;
+        padding: 2px 0 4px;
+        scrollbar-width: thin;
       }
       .conversation-tools .button-link,
       .conversation-tools button {
-        width: 100%;
+        width: auto;
+        min-width: max-content;
         text-align: center;
         font-size: 12px;
         padding: 9px 8px;
       }
-      .conversation-tools form { display: flex; min-width: 0; }
+      .conversation-tools form { display: flex; flex: 0 0 auto; min-width: 0; }
+      .conversation-tools .tag-form { display: none; }
+      .mobile-patient-sheet {
+        display: block;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+        background: #f8fbff;
+      }
+      .mobile-patient-sheet summary {
+        cursor: pointer;
+        color: #0d3d72;
+        font-size: 13px;
+        font-weight: 850;
+      }
+      .mobile-patient-sheet[open] .mobile-info-grid {
+        max-height: 220px;
+        overflow: auto;
+        padding-right: 2px;
+      }
       .messages { padding: 12px; }
       .appointment-card { margin: 10px 12px 0; }
       .notice, .error-banner { margin: 10px 12px 0; }
@@ -2617,7 +2747,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       }
       .composer form { gap: 8px; }
       .message-input-row {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr) 96px;
       }
       .send-button {
         width: 100%;
@@ -2642,7 +2772,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
   </div>
   <header>
     <div class="brand">
-      <div class="brand-mark">${config.inboxDoctorImageUrl ? `<img src="${escapeHtml(config.inboxDoctorImageUrl)}" alt="Dra. Carranza">` : "Dra"}</div>
+      <div class="brand-mark"><img src="${escapeHtml(doctorImageSrc)}" alt="Dra. Carranza"></div>
       <div>
         <h1>Dra. Carranza — Consultorio Virtual</h1>
         <div class="subtitle">Conversaciones del consultorio</div>
@@ -2652,6 +2782,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       <span class="health-pill ok">${list.length} conversaciones</span>
       <span class="health-pill ok">${stats.confirmed} citas</span>
       <span class="health-pill ${stats.followup > 0 ? "warn" : "ok"}">${stats.followup} seguimiento</span>
+      <span class="health-pill" data-refresh-status>Actualizado ahora</span>
       ${operationalStatus}
       <a class="health-pill" href="/inbox/logout">salir</a>
     </div>
@@ -2668,7 +2799,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     <aside>
       <div class="sidebar-head">
         <strong>Pacientes</strong>
-        <span>Ultimos mensajes recibidos</span>
+        <span>Ultimos mensajes recibidos · <span data-refresh-status>Actualizado ahora</span></span>
       </div>
       <div class="stats">
         <div class="stat"><strong>${stats.total}</strong><span>Total</span></div>
@@ -2753,6 +2884,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
             : ""
         }
       </div>
+      ${renderMobilePatientSheet(selected, { selectedStatus, windowState })}
       ${inboxError ? `<div class="error-banner">${escapeHtml(inboxError)}</div>` : ""}
       ${selected?.botPaused ? `<div class="notice">Modo humano activo: el bot guarda mensajes entrantes, pero no responde automaticamente a este paciente.</div>` : ""}
       ${needsTemplateNotice ? `<div class="notice">La ultima interaccion del paciente fue hace mas de 24 horas. Puede requerir plantilla aprobada de WhatsApp para responder fuera de la ventana de atencion.</div>` : ""}
@@ -3118,7 +3250,38 @@ function renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, win
     </div>
 
     ${renderKnowledgePanel(knowledgeSuggestions, csrf, selectedPhone)}
-  </aside>`;
+	  </aside>`;
+}
+
+function renderMobilePatientSheet(selected, { selectedStatus, windowState }) {
+  if (!selected) return "";
+
+  const summary = buildLocalConversationSummary(selected);
+  const offeredSlots = getOfferedSlots(selected);
+  const appointment = selected.appointment;
+  const slotLabels = offeredSlots
+    .slice(0, 3)
+    .map((slot, index) => `${index + 1}. ${slot.label ?? slot.start ?? "Horario"}`);
+  const extraSlots = offeredSlots.length > 3 ? ` +${offeredSlots.length - 3} mas` : "";
+
+  return `<details class="mobile-patient-sheet">
+    <summary>Ficha del paciente</summary>
+    <div class="mobile-info-grid">
+      <div class="mobile-info-row">
+        <span>Prioridad</span>
+        <div class="thread-tags">
+          <span class="tag ${selectedStatus.className}">${escapeHtml(selectedStatus.label)}</span>
+          <span class="tag ${windowState.className}">${escapeHtml(windowState.label)}</span>
+          ${selected.botPaused ? `<span class="tag human">Modo humano</span>` : ""}
+        </div>
+      </div>
+      <div class="mobile-info-row"><span>Nombre</span>${escapeHtml(summary.name)}</div>
+      <div class="mobile-info-row"><span>Telefono</span>${escapeHtml(formatPhoneForInbox(selected.phoneNumber))}</div>
+      <div class="mobile-info-row"><span>Flujo</span>${escapeHtml(formatSessionStep(selected.session?.step))}</div>
+      <div class="mobile-info-row"><span>Cita</span>${appointment?.slotStart ? escapeHtml(formatAppointmentFull(appointment.slotStart)) : "Sin cita confirmada"}</div>
+      <div class="mobile-info-row"><span>Horarios ofrecidos</span>${slotLabels.length ? escapeHtml(`${slotLabels.join(" · ")}${extraSlots}`) : "Sin horarios activos"}</div>
+    </div>
+  </details>`;
 }
 
 function formatSessionStep(step) {
@@ -5893,6 +6056,18 @@ function getIntentResponse(intent) {
     schedule_appointment: "😊 Claro, te ayudo a agendar tu cita.\n\n¿Me compartes tu nombre completo?",
     check_availability: "🕒 Claro. ¿Para que dia te gustaria revisar disponibilidad?\n\nPuedes decirme, por ejemplo: hoy, manana, viernes o una fecha especifica.",
     closing: "😊 Con gusto. Si necesitas algo mas, aqui estoy para ayudarte.",
+    appointment_preparation: [
+      "⏱️ Cada cita dura aproximadamente 40 minutos.",
+      "",
+      "Para presentarte a tu cita o paquete, te recomendamos:",
+      "",
+      "• No estar en el periodo menstrual (regla).",
+      "• No haber tenido relaciones sexuales en las 48 horas previas.",
+      "• No haberse realizado duchas vaginales durante las 48 horas previas.",
+      "• No haberse aplicado tratamiento medico vaginal (ovulos o cremas) durante las ultimas 48 horas.",
+      "",
+      "Si tienes dolor fuerte, sangrado abundante o una urgencia, acude a urgencias o contacta directamente al consultorio."
+    ].join("\n"),
     appointment_duration: "⏱️ Las citas tienen una duracion aproximada de 40 minutos.",
     new_patient: "Claro 😊 Podemos ayudarte a agendar tu primera consulta.\n\n¿Me compartes tu nombre completo para iniciar el registro?",
     medical_services:
@@ -5912,7 +6087,7 @@ function getIntentResponse(intent) {
     direct_contact:
       "Claro 😊 Ya dejo esta conversacion para que una persona del consultorio pueda revisarla.\n\nPuedes escribir tu duda por aqui. Si es una urgencia medica, acude a urgencias o llama a los servicios de emergencia de tu localidad.",
     appointment_requirements:
-      "Para tu cita, te recomendamos llevar identificacion y, si tienes, estudios o recetas anteriores relacionados con tu consulta.\n\nSi es tu primera vez, tambien puedo ayudarte a iniciar el registro por aqui.",
+      "Para tu cita, te recomendamos llevar identificacion y, si tienes, estudios o recetas anteriores relacionados con tu consulta.\n\nSi tu cita incluye Papanicolaou o paquete de promocion, tambien se recomienda no estar en periodo menstrual, no tener relaciones sexuales, no realizar duchas vaginales y no aplicar ovulos o cremas vaginales durante las 48 horas previas.",
     late_arrival:
       "Gracias por avisar 😊\n\nPor favor contacta directamente al consultorio para confirmar si aun es posible atenderte en tu horario o si es necesario reagendar.",
     invoice: "Para temas de factura, por favor consulta directamente con el consultorio para confirmar disponibilidad y requisitos.",
@@ -6110,7 +6285,7 @@ function setSecurityHeaders(res) {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; style-src 'unsafe-inline' 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    "default-src 'self'; style-src 'unsafe-inline' 'self'; img-src 'self' data: https:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
   );
 }
 

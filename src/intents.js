@@ -52,6 +52,7 @@ export function detectIntent(value) {
     ["location", () => isLocationQuestion(text)],
     ["morning_hours", () => isMorningQuestion(text)],
     ["saturday", () => isWeekendQuestion(text)],
+    ["appointment_preparation", () => isAppointmentPreparationQuestion(text)],
     ["appointment_duration", () => hasAny(text, [
       "duracion", "cuanto dura", "cuanto tiempo dura", "cuanto tiempo es",
       "cuanto tardan", "tardan", "40 minutos"
@@ -75,7 +76,9 @@ export function detectIntent(value) {
     ["appointment_requirements", () => hasAny(text, [
       "que necesito llevar", "tengo que llevar", "documentos", "identificacion",
       "estudios anteriores", "receta", "requisitos", "que debo llevar",
-      "que llevo", "puedo ir acompanada", "puedo ir acompanado", "acompanada"
+      "que llevo", "puedo ir acompanada", "puedo ir acompanado", "acompanada",
+      "condiciones", "presentarse", "como presentarme", "preparacion",
+      "indicaciones", "antes de la cita", "antes del estudio", "antes del papanicolaou"
     ])],
     ["invoice", () => hasAny(text, ["factura", "facturan", "facturar", "recibo", "comprobante"])],
     ["contact_info", () => isContactInfoQuestion(text)],
@@ -153,6 +156,10 @@ function normalizeWhatsAppWord(word) {
     urje: "urge",
     urgen: "urge",
     sangradoo: "sangrado",
+    condisiones: "condiciones",
+    condicion: "condiciones",
+    presentarce: "presentarse",
+    recomendasion: "recomendacion",
     prmocion: "promocion",
     promoicon: "promocion",
     promoion: "promocion",
@@ -210,6 +217,22 @@ function isMorningQuestion(text) {
 
 function isWeekendQuestion(text) {
   return /\b(?:sabado|sabados|fin de semana|domingo|domingos)\b/.test(text);
+}
+
+function isAppointmentPreparationQuestion(text) {
+  return (
+    hasAny(text, [
+      "condiciones", "presentarse", "como presentarme", "prepararme",
+      "preparacion", "indicaciones", "recomendacion", "recomendaciones",
+      "antes de la cita", "antes del estudio", "antes del papanicolaou",
+      "antes del pap", "que tengo que hacer antes",
+      "como debo ir", "como me presento", "en que condiciones"
+    ]) ||
+    (
+      hasAny(text, ["cuanto tardan", "cuanto se tardan", "cuanto dura", "duracion", "40 minutos"]) &&
+      hasAny(text, ["requisitos", "condiciones", "presentarse", "preparacion", "indicaciones"])
+    )
+  );
 }
 
 function isPriceQuestion(text) {

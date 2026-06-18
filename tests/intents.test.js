@@ -38,6 +38,11 @@ test("detecta servicios ginecologicos administrativos sin IA", () => {
   assert.equal(detectIntent("atienden embarazadas").intent, "medical_services");
 });
 
+test("detecta duracion y condiciones para presentarse", () => {
+  assert.equal(detectIntent("Cuanto se tardan en cada cita y en que condiciones hay que presentarse????").intent, "appointment_preparation");
+  assert.equal(detectIntent("condisiones para presentarce a mi cita").intent, "appointment_preparation");
+});
+
 test("detecta solicitud de resultados sin confundir servicios", () => {
   assert.equal(detectIntent("me mandas mis resultados").intent, "patient_results");
   assert.equal(detectIntent("ya estan mis estudios?").intent, "patient_results");
