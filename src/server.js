@@ -81,6 +81,7 @@ const phoneCurrentlyProcessing = new Set();
 const conversations = new Map();
 const maxMessagesPerConversation = 100;
 const rateLimitBuckets = new Map();
+const warnedWebhookBusinessAccountIds = new Set();
 let appSecretWarningShown = false;
 let isShuttingDown = false;
 const dailyReportsLog = [];
@@ -527,8 +528,17 @@ function validateWhatsAppPayload(body) {
 
   let hasProcessableChange = false;
   for (const entry of body.entry) {
-    if (config.whatsappBusinessAccountId && entry?.id !== config.whatsappBusinessAccountId) {
-      return { ok: false, reason: "unexpected business account id", status: 403, publicMessage: "forbidden" };
+    const businessAccountId = String(entry?.id ?? "");
+    const businessAccountMismatch = Boolean(
+      config.whatsappBusinessAccountId &&
+      businessAccountId &&
+      businessAccountId !== config.whatsappBusinessAccountId
+    );
+    if (businessAccountMismatch && !warnedWebhookBusinessAccountIds.has(businessAccountId)) {
+      warnedWebhookBusinessAccountIds.add(businessAccountId);
+      console.warn(
+        `WhatsApp webhook business account id differs from configured value; accepting only if phone_number_id matches. entry_id=${businessAccountId}`
+      );
     }
 
     if (!Array.isArray(entry?.changes)) {

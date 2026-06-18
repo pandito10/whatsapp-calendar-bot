@@ -7,6 +7,7 @@ BASE_URL="https://whatsapp-calendar-bot-gw3e.onrender.com"
 WEBHOOK_SECRET_PATH="TU_WEBHOOK_PATH_SECRET"
 APP_SECRET="TU_WHATSAPP_APP_SECRET"
 PHONE_NUMBER_ID="TU_WHATSAPP_PHONE_NUMBER_ID"
+DISPLAY_PHONE_NUMBER="TU_NUMERO_WHATSAPP_SIN_SIGNOS"
 INBOX_PASSWORD="TU_PASSWORD"
 ```
 
@@ -22,7 +23,7 @@ WEBHOOK_PATH_SECRET="$WEBHOOK_SECRET_PATH" \
 WHATSAPP_APP_SECRET="$APP_SECRET" \
 WHATSAPP_PHONE_NUMBER_ID="$PHONE_NUMBER_ID" \
 WHATSAPP_BUSINESS_ACCOUNT_ID="WABA_ID_DE_PRUEBA" \
-WHATSAPP_DISPLAY_PHONE_NUMBER="4778137806" \
+WHATSAPP_DISPLAY_PHONE_NUMBER="$DISPLAY_PHONE_NUMBER" \
 npm run smoke:pilot
 ```
 
@@ -38,7 +39,7 @@ Este smoke no envia mensajes reales a pacientes; solo verifica que el deploy y l
 
 ## Payload de mensaje
 
-Guarda esto como `/tmp/wa-message.json` y cambia `PHONE_NUMBER_ID`.
+Guarda esto como `/tmp/wa-message.json` y cambia `PHONE_NUMBER_ID` y `DISPLAY_PHONE_NUMBER`.
 
 ```json
 {
@@ -51,7 +52,7 @@ Guarda esto como `/tmp/wa-message.json` y cambia `PHONE_NUMBER_ID`.
           "field": "messages",
           "value": {
             "metadata": {
-              "display_phone_number": "4778137806",
+              "display_phone_number": "TU_NUMERO_WHATSAPP_SIN_SIGNOS",
               "phone_number_id": "TU_WHATSAPP_PHONE_NUMBER_ID"
             },
             "messages": [
@@ -85,7 +86,7 @@ Guarda esto como `/tmp/wa-status.json`.
           "field": "messages",
           "value": {
             "metadata": {
-              "display_phone_number": "4778137806",
+              "display_phone_number": "TU_NUMERO_WHATSAPP_SIN_SIGNOS",
               "phone_number_id": "TU_WHATSAPP_PHONE_NUMBER_ID"
             },
             "statuses": [

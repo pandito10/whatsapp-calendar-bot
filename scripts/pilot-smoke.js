@@ -5,7 +5,7 @@ const webhookSecret = process.env.WEBHOOK_PATH_SECRET;
 const appSecret = process.env.WHATSAPP_APP_SECRET;
 const phoneNumberId = requireValue("WHATSAPP_PHONE_NUMBER_ID", process.env.WHATSAPP_PHONE_NUMBER_ID);
 const wabaId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || "WABA_ID_DE_PRUEBA";
-const displayPhone = process.env.WHATSAPP_DISPLAY_PHONE_NUMBER || "4778137806";
+const displayPhone = requireValue("WHATSAPP_DISPLAY_PHONE_NUMBER", process.env.WHATSAPP_DISPLAY_PHONE_NUMBER);
 
 const checks = [];
 
