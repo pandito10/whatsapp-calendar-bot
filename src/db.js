@@ -592,11 +592,30 @@ function isDuplicateKeyError(error) {
   return message.includes("409") || message.includes("23505") || message.includes("duplicate key") || message.includes("unique constraint");
 }
 
+function maskDbPhone(phoneNumber) {
+  const raw = String(phoneNumber ?? "");
+  if (raw.length <= 6) return raw ? "***" : "";
+  return `${raw.slice(0, 4)}****${raw.slice(-3)}`;
+}
+
 export async function releaseAppointmentLock(lockToken) {
   if (!isDatabaseEnabled() || !lockToken) return;
   await safeSupabaseFetch(`/rest/v1/appointment_locks?lock_token=eq.${encodeURIComponent(lockToken)}`, {
     method: "DELETE"
   });
+}
+
+export async function releaseAppointmentLocksForPhone(phoneNumber) {
+  if (!isDatabaseEnabled() || !phoneNumber) return { ok: false, status: "disabled" };
+  try {
+    await supabaseFetch(`/rest/v1/appointment_locks?phone_number=eq.${encodeURIComponent(phoneNumber)}`, {
+      method: "DELETE"
+    });
+    return { ok: true };
+  } catch (error) {
+    console.warn(`Could not release appointment locks for ${maskDbPhone(phoneNumber)}: ${error.message}`);
+    return { ok: false, status: "error", error };
+  }
 }
 
 export async function markCitaFailedByGoogleEvent(googleEventId, errorMessage) {

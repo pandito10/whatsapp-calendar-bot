@@ -56,6 +56,7 @@ import {
   markCitaFailedByGoogleEvent,
   markConversationHumanReply,
   releaseAppointmentLock,
+  releaseAppointmentLocksForPhone,
   rememberProcessedWhatsAppMessage,
   loadKnowledgeSuggestions,
   deleteKnowledgeSuggestion,
@@ -350,6 +351,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/inbox/reset-session") {
       await handleInboxResetSession(req, url, res);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/inbox/repair-bot") {
+      await handleInboxRepairBot(req, url, res);
       return;
     }
 
@@ -874,10 +880,34 @@ function handleInboxScript(res) {
     return tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT";
   }
 
+  function bindDirtyForms() {
+    document.querySelectorAll("form").forEach((form) => {
+      form.addEventListener("input", () => {
+        form.dataset.dirty = "true";
+      });
+      form.addEventListener("change", () => {
+        form.dataset.dirty = "true";
+      });
+      form.addEventListener("submit", () => {
+        form.dataset.submitting = "true";
+        form.dataset.dirty = "false";
+      });
+    });
+  }
+
+  function hasDirtyForm() {
+    return Boolean(document.querySelector("form[data-dirty='true']:not([data-submitting='true'])"));
+  }
+
+  function hasOpenWorkPanel() {
+    return Boolean(document.querySelector("details[open]"));
+  }
+
   function hasDraft() {
     const composer = document.querySelector(".composer textarea[name='message']");
     const attachment = document.querySelector(".composer input[type='file']");
-    return Boolean((composer && composer.value.trim()) || (attachment && attachment.files && attachment.files.length > 0));
+    const anyFile = Array.from(document.querySelectorAll("input[type='file']")).some((input) => input.files && input.files.length > 0);
+    return Boolean((composer && composer.value.trim()) || (attachment && attachment.files && attachment.files.length > 0) || anyFile);
   }
 
   function userIsReadingOldMessages() {
@@ -890,22 +920,43 @@ function handleInboxScript(res) {
   function bindSmartRefresh() {
     const refreshMs = 20000;
     let lastRefresh = Date.now();
-    updateRefreshStatus("Actualizado ahora");
+    let autoRefreshEnabled = localStorage.getItem("inboxAutoRefresh") !== "off";
+    const refreshButtons = document.querySelectorAll("[data-refresh-toggle]");
+    const updateToggleLabel = () => {
+      refreshButtons.forEach((button) => {
+        button.textContent = autoRefreshEnabled ? "Auto refresh activo" : "Auto refresh apagado";
+        button.classList.toggle("warn", !autoRefreshEnabled);
+      });
+    };
+    refreshButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        autoRefreshEnabled = !autoRefreshEnabled;
+        localStorage.setItem("inboxAutoRefresh", autoRefreshEnabled ? "on" : "off");
+        updateToggleLabel();
+        updateRefreshStatus(autoRefreshEnabled ? "Actualizado ahora" : "Auto refresh apagado");
+      });
+    });
+    updateToggleLabel();
+    updateRefreshStatus(autoRefreshEnabled ? "Actualizado ahora" : "Auto refresh apagado");
     window.setInterval(() => {
       const elapsedSeconds = Math.max(1, Math.round((Date.now() - lastRefresh) / 1000));
+      if (!autoRefreshEnabled) {
+        updateRefreshStatus("Auto refresh apagado");
+        return;
+      }
       if (document.hidden) {
         updateRefreshStatus("Pausado");
         return;
       }
-      if (userIsTyping() || hasDraft()) {
-        updateRefreshStatus("Pausado mientras escribes");
+      if (userIsTyping() || hasDraft() || hasDirtyForm() || hasOpenWorkPanel()) {
+        updateRefreshStatus("Pausado: cambios sin guardar");
         return;
       }
       if (userIsReadingOldMessages()) {
         updateRefreshStatus("Pausado mientras lees");
         return;
       }
-      if (elapsedSeconds < 20) {
+      if (elapsedSeconds < Math.ceil(refreshMs / 1000)) {
         updateRefreshStatus("Actualizado hace " + elapsedSeconds + "s");
         return;
       }
@@ -919,6 +970,7 @@ function handleInboxScript(res) {
     bindQuickReplies();
     bindCopyButtons();
     bindComposerEnhancements();
+    bindDirtyForms();
     bindSmartRefresh();
     scrollMessagesToBottom();
   }
@@ -1320,6 +1372,66 @@ async function handleInboxResetSession(req, url, res) {
     logSafeError("Could not save reset session note", error);
   }
   await redirectInbox(res, phone);
+}
+
+async function handleInboxRepairBot(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) return;
+  if (!checkRateLimit(req, url, "inbox-action")) {
+    res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8" }).end("too many requests");
+    return;
+  }
+
+  const form = await readForm(req, { maxBytes: config.maxRequestBytes });
+  if (!isValidCsrf(req, form.get("csrf"))) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const phone = normalizePhone(form.get("phone") ?? "");
+  if (!isValidWhatsAppPhone(phone)) {
+    await redirectInbox(res, "", "Telefono invalido.");
+    return;
+  }
+
+  const actions = [];
+  await deletePatientSession(phone);
+  actions.push("flujo reiniciado");
+
+  try {
+    await setConversationHumanMode(phone, false);
+    setMemoryHumanMode(phone, false);
+    actions.push("bot reactivado");
+  } catch (error) {
+    logSafeError(`Could not release human mode while repairing ${maskPhone(phone)}`, error);
+  }
+
+  try {
+    await cleanupExpiredAppointmentLocks();
+    const releaseResult = await releaseAppointmentLocksForPhone(phone);
+    actions.push(releaseResult?.ok ? "apartados temporales liberados" : "apartados temporales revisados");
+  } catch (error) {
+    logSafeError(`Could not release appointment locks while repairing ${maskPhone(phone)}`, error);
+  }
+
+  try {
+    await saveConversationNote({
+      phoneNumber: phone,
+      author: "admin",
+      body: `Bot reparado desde inbox: ${actions.join(", ")}.`
+    });
+  } catch (error) {
+    logSafeError("Could not save repair note", error);
+  }
+
+  try {
+    await sendMainMenuToPatient(phone);
+  } catch (error) {
+    logSafeError(`Could not send repair menu to ${maskPhone(phone)}`, error);
+    await redirectInbox(res, phone, "Repare el flujo, pero no pude enviar el menu por WhatsApp.");
+    return;
+  }
+
+  await redirectInbox(res, phone, "Bot reparado: flujo reiniciado, bot activo y menu enviado.");
 }
 
 async function handleInboxTags(req, url, res) {
@@ -1958,7 +2070,10 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       background: #ffffff;
       color: #0d3d72;
       box-shadow: 0 6px 14px rgba(13, 61, 114, 0.06);
+      font: inherit;
+      text-decoration: none;
     }
+    button.health-pill { cursor: pointer; }
     .health-pill.ok { color: #166534; background: #dcfce7; border-color: #bbf7d0; }
     .health-pill.warn { color: #92400e; background: #fef3c7; border-color: #fde68a; }
     .health-pill.err { color: #991b1b; background: #fee2e2; border-color: #fecaca; }
@@ -2783,6 +2898,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       <span class="health-pill ok">${stats.confirmed} citas</span>
       <span class="health-pill ${stats.followup > 0 ? "warn" : "ok"}">${stats.followup} seguimiento</span>
       <span class="health-pill" data-refresh-status>Actualizado ahora</span>
+      <button class="health-pill refresh-toggle" type="button" data-refresh-toggle>Auto refresh activo</button>
       ${operationalStatus}
       <a class="health-pill" href="/inbox/logout">salir</a>
     </div>
@@ -2866,7 +2982,12 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
                   <form method="post" action="/inbox/reset-session">
                     <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
                     <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
-                    <button class="button-danger" type="submit">Reiniciar flujo</button>
+                    <button class="button-danger" type="submit" onclick="return confirm('¿Reiniciar el flujo del bot para este paciente?')">Reiniciar flujo</button>
+                  </form>
+                  <form method="post" action="/inbox/repair-bot">
+                    <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                    <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                    <button class="button-danger" type="submit" onclick="return confirm('¿Arreglar el bot para esta conversacion? Esto reinicia el flujo, libera apartados temporales y manda el menu inicial.')">Arreglar bot</button>
                   </form>
                   <form class="tag-form" method="post" action="/inbox/tags">
                     <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">

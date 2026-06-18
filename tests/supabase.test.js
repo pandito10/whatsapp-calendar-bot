@@ -15,6 +15,7 @@ const {
   loadActiveAppointmentLocks,
   loadConfirmedCitasBetween,
   rememberProcessedWhatsAppMessage,
+  releaseAppointmentLocksForPhone,
   saveCita,
   saveConversationNote,
   saveKnowledgeSuggestion,
@@ -352,6 +353,25 @@ test("diagnostico carga appointment_locks activos", async () => {
     const locks = await loadActiveAppointmentLocks(10);
     assert.equal(locks.length, 1);
     assert.equal(locks[0].expiresAt, "2030-06-17T22:50:00.000Z");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("libera appointment_locks por telefono para reparar flujo", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), method: options.method });
+    return new Response("[]", { status: 200 });
+  };
+
+  try {
+    const result = await releaseAppointmentLocksForPhone("5214771234567");
+    assert.equal(result.ok, true);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "DELETE");
+    assert.match(calls[0].url, /appointment_locks\?phone_number=eq\.5214771234567/);
   } finally {
     globalThis.fetch = originalFetch;
   }
