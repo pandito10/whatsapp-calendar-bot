@@ -172,6 +172,40 @@ test("webhook acepta WABA distinto si el phone_number_id oficial coincide", asyn
   }
 });
 
+test("webhook acepta display_phone_number distinto si el phone_number_id oficial coincide", async () => {
+  const appSecret = "app-secret-test";
+  const app = await startServer(32134, {
+    ...baseEnv,
+    NODE_ENV: "production",
+    WHATSAPP_APP_SECRET: appSecret,
+    WHATSAPP_DISPLAY_PHONE_NUMBER: "5219999999999",
+    REQUIRE_WEBHOOK_SIGNATURE: "true",
+    ALLOW_UNSIGNED_WEBHOOKS: "false",
+    SUPABASE_URL: "https://example.supabase.co",
+    SUPABASE_SERVICE_ROLE_KEY: "sb-service-role-test",
+    GOOGLE_CLIENT_ID: "google-client",
+    GOOGLE_CLIENT_SECRET: "google-secret",
+    GOOGLE_REFRESH_TOKEN: "google-refresh",
+    GOOGLE_CALENDAR_ID: "ginecologiaintegralgto@gmail.com"
+  });
+
+  try {
+    const payload = buildStatusPayload();
+    const response = await fetch("http://127.0.0.1:32134/webhook/123456789012345678901234567890", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Hub-Signature-256": signPayload(appSecret, payload)
+      },
+      body: payload
+    });
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), "ok");
+  } finally {
+    await app.stop();
+  }
+});
+
 function buildStatusPayload() {
   return JSON.stringify({
     object: "whatsapp_business_account",

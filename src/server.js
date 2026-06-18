@@ -82,6 +82,7 @@ const conversations = new Map();
 const maxMessagesPerConversation = 100;
 const rateLimitBuckets = new Map();
 const warnedWebhookBusinessAccountIds = new Set();
+const warnedWebhookDisplayPhones = new Set();
 let appSecretWarningShown = false;
 let isShuttingDown = false;
 const dailyReportsLog = [];
@@ -558,7 +559,13 @@ function validateWhatsAppPayload(body) {
         config.whatsappDisplayPhoneNumber &&
         normalizePhone(metadata?.display_phone_number) !== normalizePhone(config.whatsappDisplayPhoneNumber)
       ) {
-        return { ok: false, reason: "unexpected display_phone_number", status: 403, publicMessage: "forbidden" };
+        const displayPhone = String(metadata?.display_phone_number ?? "");
+        if (displayPhone && !warnedWebhookDisplayPhones.has(displayPhone)) {
+          warnedWebhookDisplayPhones.add(displayPhone);
+          console.warn(
+            `WhatsApp webhook display_phone_number differs from configured value; accepting because phone_number_id matches. display_phone_number=${maskPhone(displayPhone)}`
+          );
+        }
       }
     }
   }
