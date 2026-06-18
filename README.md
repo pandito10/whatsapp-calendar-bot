@@ -104,6 +104,8 @@ El link viejo con `?token=...` solo debe usarse para entrar una vez; despues red
 - Configura `INBOX_PASSWORD` con una clave larga y diferente al verify token de Meta. En produccion es mejor usar `INBOX_PASSWORD_HASH=sha256:...`.
 - Configura `COOKIE_SECRET` con al menos 32 caracteres.
 - Configura `WHATSAPP_APP_SECRET` desde Meta Developers y usa `REQUIRE_WEBHOOK_SIGNATURE=true`.
+- Configura el token permanente en `WHATSAPP_TOKEN`. `WHATSAPP_ACCESS_TOKEN` queda como fallback legacy. Si ambas variables existen y son distintas, el bot usa `WHATSAPP_TOKEN` y `/health/ready` avisa `tokenConflict`.
+- Si los mensajes entran pero el bot no responde, revisa `/health/ready` o `/debug/config`: ahi se muestra `whatsapp.tokenSource`, `webhook.lastRejectedReason`, `webhook.lastMessageAt` y `whatsapp.lastSend` sin enseñar secretos.
 - Modo temporal sin App Secret: usa `ALLOW_UNSIGNED_WEBHOOKS=true`, `WEBHOOK_PATH_SECRET` obligatorio y `UNSIGNED_WEBHOOK_EXPIRES_AT` con fecha corta.
 - Modo final seguro:
 

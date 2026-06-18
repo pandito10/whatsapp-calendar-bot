@@ -2,7 +2,7 @@ import { config } from "./config.js";
 import { assessProductionReadiness } from "./readiness.js";
 import { getLastReconciliationResult } from "./calendar.js";
 
-export function buildOperationalHealth({ db, conversationCount = 0, memorySessionCount = 0, processedMessageCount = 0 } = {}) {
+export function buildOperationalHealth({ db, conversationCount = 0, memorySessionCount = 0, processedMessageCount = 0, webhookDiagnostics = null, whatsappSendDiagnostic = null } = {}) {
   const databaseOk = Boolean(db?.ok);
   const whatsappConfigured = Boolean(config.whatsappAccessToken && config.whatsappPhoneNumberId);
   const googleConfigured = Boolean(config.googleClientId && config.googleClientSecret && config.googleRefreshToken && config.googleCalendarId);
@@ -42,6 +42,18 @@ export function buildOperationalHealth({ db, conversationCount = 0, memorySessio
       sessionsInMemory: memorySessionCount,
       processedMessagesInMemory: processedMessageCount
     },
+    whatsapp: {
+      configured: whatsappConfigured,
+      phoneNumberId: maskIdentifier(config.whatsappPhoneNumberId),
+      businessAccountId: maskIdentifier(config.whatsappBusinessAccountId),
+      displayPhoneNumber: maskPhone(config.whatsappDisplayPhoneNumber),
+      tokenSource: config.whatsappTokenSource,
+      tokenVarsConfigured: config.whatsappTokenVarsConfigured,
+      tokenConflict: config.whatsappTokenConflict,
+      dryRun: config.whatsappSendDryRun,
+      lastSend: whatsappSendDiagnostic
+    },
+    webhook: webhookDiagnostics,
     calendar: {
       label: config.googleCalendarLabel,
       id: config.googleCalendarId,
@@ -61,6 +73,20 @@ export function buildOperationalHealth({ db, conversationCount = 0, memorySessio
     readiness,
     problems
   };
+}
+
+function maskPhone(value) {
+  const phone = String(value ?? "").replace(/\D/g, "");
+  if (!phone) return "";
+  if (phone.length <= 6) return "***";
+  return `${phone.slice(0, 5)}****${phone.slice(-3)}`;
+}
+
+function maskIdentifier(value) {
+  const id = String(value ?? "").trim();
+  if (!id) return "";
+  if (id.length <= 8) return "***";
+  return `${id.slice(0, 4)}...${id.slice(-4)}`;
 }
 
 export function isOperationallyUnhealthy(health) {

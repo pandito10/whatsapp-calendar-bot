@@ -20,6 +20,12 @@ export function assessProductionReadiness({ dbOk = false } = {}) {
   if (config.enableReminderWorker && !config.enablePatientReminderTemplates) {
     warnings.push("Reminder worker is enabled, but patient templates are disabled");
   }
+  if (config.whatsappTokenConflict) {
+    warnings.push("WHATSAPP_TOKEN and WHATSAPP_ACCESS_TOKEN are both configured; WHATSAPP_TOKEN is being used");
+  }
+  if (config.whatsappSendDryRun) {
+    warnings.push("WhatsApp send dry-run is enabled; outbound messages are not sent");
+  }
   if (config.aiProvider !== "local") {
     warnings.push("AI provider is not local; this pilot is intended to run without external AI");
   }

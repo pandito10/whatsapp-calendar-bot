@@ -18,6 +18,7 @@ const defaultGoogleBusyCalendarIds = [defaultGoogleCalendarId];
 const rawGoogleCalendarId = String(process.env.GOOGLE_CALENDAR_ID ?? "").trim();
 const googleCalendarId = normalizeGoogleCalendarId(rawGoogleCalendarId);
 const googleCalendarIdConfigured = Boolean(rawGoogleCalendarId) && googleCalendarId === rawGoogleCalendarId;
+const whatsappToken = selectWhatsAppToken(process.env);
 
 const required = [
     "WHATSAPP_VERIFY_TOKEN",
@@ -31,7 +32,7 @@ for (const key of required) {
     }
 }
 
-if (!process.env.WHATSAPP_ACCESS_TOKEN && !process.env.WHATSAPP_TOKEN) {
+if (!whatsappToken.value) {
     throw new Error("Missing required env var: WHATSAPP_ACCESS_TOKEN or WHATSAPP_TOKEN");
 }
 
@@ -40,7 +41,11 @@ export const config = {
     port: Number(process.env.PORT ?? 3000),
     publicBaseUrl: process.env.PUBLIC_BASE_URL,
     whatsappVerifyToken: process.env.WHATSAPP_VERIFY_TOKEN,
-    whatsappAccessToken: process.env.WHATSAPP_ACCESS_TOKEN ?? process.env.WHATSAPP_TOKEN,
+    whatsappAccessToken: whatsappToken.value,
+    whatsappTokenSource: whatsappToken.source,
+    whatsappTokenVarsConfigured: whatsappToken.varsConfigured,
+    whatsappTokenConflict: whatsappToken.conflict,
+    whatsappSendDryRun: process.env.WHATSAPP_SEND_DRY_RUN === "true",
     whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
     whatsappBusinessAccountId: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID,
     whatsappDisplayPhoneNumber: process.env.WHATSAPP_DISPLAY_PHONE_NUMBER,
@@ -158,6 +163,9 @@ function parseBlockedDateRanges(value) {
 
 function validateStartupConfig() {
     if (config.nodeEnv === "production") {
+          if (config.whatsappSendDryRun) {
+                throw new Error("WHATSAPP_SEND_DRY_RUN=true is not allowed in production");
+          }
           if (config.requireWebhookSignature && !config.whatsappAppSecret && !config.allowUnsignedWebhooks) {
                 throw new Error("WHATSAPP_APP_SECRET is required in production when REQUIRE_WEBHOOK_SIGNATURE=true");
           }
@@ -224,6 +232,35 @@ function validateStartupConfig() {
     if (config.nodeEnv === "production" && config.forwardConversationCopies && config.forwardConversationBodies) {
           throw new Error("FORWARD_CONVERSATION_BODIES=true is not allowed in production because it can leak patient data");
     }
+
+    if (config.whatsappTokenConflict) {
+          console.warn("WARNING: WHATSAPP_TOKEN and WHATSAPP_ACCESS_TOKEN are both configured with different values. Using WHATSAPP_TOKEN and ignoring WHATSAPP_ACCESS_TOKEN.");
+    }
+}
+
+function selectWhatsAppToken(env) {
+    const token = String(env.WHATSAPP_TOKEN ?? "").trim();
+    const accessToken = String(env.WHATSAPP_ACCESS_TOKEN ?? "").trim();
+    const varsConfigured = {
+          WHATSAPP_TOKEN: Boolean(token),
+          WHATSAPP_ACCESS_TOKEN: Boolean(accessToken)
+    };
+
+    if (token) {
+          return {
+                value: token,
+                source: "WHATSAPP_TOKEN",
+                varsConfigured,
+                conflict: Boolean(accessToken && accessToken !== token)
+          };
+    }
+
+    return {
+          value: accessToken,
+          source: accessToken ? "WHATSAPP_ACCESS_TOKEN" : "none",
+          varsConfigured,
+          conflict: false
+    };
 }
 
 function validatePositiveInteger(value, key, min, max) {

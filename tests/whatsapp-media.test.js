@@ -204,3 +204,37 @@ test("sendMessageWithOptions cae a texto si Meta rechaza el interactivo", async 
     globalThis.fetch = originalFetch;
   }
 });
+
+test("diagnostica rechazo de Meta por token invalido sin filtrar secretos", async () => {
+  const originalFetch = globalThis.fetch;
+  process.env.WHATSAPP_VERIFY_TOKEN = "verify-token-test";
+  process.env.WHATSAPP_PHONE_NUMBER_ID = "123456789";
+  process.env.WHATSAPP_ACCESS_TOKEN = "whatsapp-token-test";
+  process.env.DOCTOR_WHATSAPP_NUMBER = "5210000000000";
+  process.env.AI_PROVIDER = "local";
+
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          message: "Error validating access token",
+          type: "OAuthException",
+          code: 190
+        }
+      }),
+      { status: 401 }
+    );
+
+  try {
+    const { getLastWhatsAppSendDiagnostic, sendWhatsAppText } = await import(`../src/whatsapp.js?tokenError=${Date.now()}`);
+    await assert.rejects(() => sendWhatsAppText("5214770000000", "Hola"), /WhatsApp send/);
+    const diagnostic = getLastWhatsAppSendDiagnostic();
+    assert.equal(diagnostic.status, 401);
+    assert.equal(diagnostic.code, 190);
+    assert.equal(diagnostic.category, "token_invalid_or_expired");
+    assert.equal(diagnostic.to, "52147****000");
+    assert.equal(JSON.stringify(diagnostic).includes("whatsapp-token-test"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

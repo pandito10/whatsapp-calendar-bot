@@ -132,6 +132,34 @@ test("AI_PROVIDER vacio o apagado usa parser local", () => {
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
+test("si existen WHATSAPP_TOKEN y WHATSAPP_ACCESS_TOKEN usa WHATSAPP_TOKEN y avisa conflicto", () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      "const { config } = await import('./src/config.js'); if (config.whatsappAccessToken !== 'nuevo-token') throw new Error('wrong token'); if (config.whatsappTokenSource !== 'WHATSAPP_TOKEN') throw new Error(config.whatsappTokenSource); if (!config.whatsappTokenConflict) throw new Error('missing conflict');"
+    ],
+    {
+      cwd: fileURLToPath(new URL("..", import.meta.url)),
+      env: {
+        ...baseEnv,
+        WHATSAPP_TOKEN: "nuevo-token",
+        WHATSAPP_ACCESS_TOKEN: "token-viejo",
+        WHATSAPP_APP_SECRET: "app-secret",
+        SUPABASE_URL: "https://example.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "sb_secret_test"
+      },
+      encoding: "utf8"
+    }
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stderr, /WHATSAPP_TOKEN and WHATSAPP_ACCESS_TOKEN/);
+  assert.equal(result.stderr.includes("nuevo-token"), false);
+  assert.equal(result.stderr.includes("token-viejo"), false);
+});
+
 function importConfigWith(env) {
   return spawnSync(process.execPath, ["--input-type=module", "-e", "await import('./src/config.js')"], {
     cwd: fileURLToPath(new URL("..", import.meta.url)),

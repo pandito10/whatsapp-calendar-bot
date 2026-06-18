@@ -7,6 +7,7 @@ import { cancelAppointment, createAppointment, findAvailableSlots, isBlockedDate
 import { config } from "./config.js";
 import { buildDateOptionRows, dateOptionReplyText } from "./date-options.js";
 import { readForm, readRawBody } from "./form.js";
+import { isHumanPauseExpiredState } from "./human-mode.js";
 import { redactSecrets } from "./http.js";
 import { buildSlotOptionRows, slotOptionReplyText } from "./slot-options.js";
 import {
@@ -70,7 +71,7 @@ import {
   setSession,
   updateKnowledgeSuggestion
 } from "./db.js";
-import { downloadWhatsAppAudio, sendMessageWithOptions, sendWhatsAppButtons, sendWhatsAppList, sendWhatsAppMedia, sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.js";
+import { downloadWhatsAppAudio, getLastWhatsAppSendDiagnostic, sendMessageWithOptions, sendWhatsAppButtons, sendWhatsAppList, sendWhatsAppMedia, sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.js";
 import { appendLeadToSheet, appendAppointmentToSheet, appendUnknownQuestionToSheet, isSheetsEnabled } from "./sheets.js";
 import { isEmailEnabled, sendAppointmentConfirmationEmail, sendCancellationEmail } from "./email.js";
 
@@ -83,6 +84,20 @@ const maxMessagesPerConversation = 100;
 const rateLimitBuckets = new Map();
 const warnedWebhookBusinessAccountIds = new Set();
 const warnedWebhookDisplayPhones = new Set();
+const webhookRuntimeDiagnostics = {
+  lastReceivedAt: null,
+  lastAcceptedAt: null,
+  lastRejectedAt: null,
+  lastRejectedReason: null,
+  lastRejectedStatus: null,
+  lastMessageAt: null,
+  lastStatusOnlyAt: null,
+  lastBotPausedAt: null,
+  lastPhoneNumberId: null,
+  lastDisplayPhoneNumber: null,
+  lastMessageCount: 0,
+  lastStatusCount: 0
+};
 let appSecretWarningShown = false;
 let isShuttingDown = false;
 const dailyReportsLog = [];
@@ -226,7 +241,10 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const rawBody = await readRawBody(req, config.maxRequestBytes);
+      recordWebhookReceived();
       if (!isValidWebhookSignature(req, rawBody)) {
+        recordWebhookRejection("invalid_or_missing_signature", 403);
+        console.warn(`Rejected WhatsApp webhook: invalid/missing signature or expired unsigned mode. mode=${getWebhookSignatureMode()}`);
         res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
         return;
       }
@@ -240,10 +258,12 @@ const server = http.createServer(async (req, res) => {
       }
       const validation = validateWhatsAppPayload(body);
       if (!validation.ok) {
+        recordWebhookRejection(validation.reason, validation.status ?? 400);
         console.warn(`Rejected WhatsApp webhook payload: ${validation.reason}`);
         res.writeHead(validation.status ?? 400, { "Content-Type": "text/plain; charset=utf-8" }).end(validation.publicMessage ?? "invalid payload");
         return;
       }
+      recordWebhookAccepted(body);
       res.writeHead(200).end("ok");
       await handleWhatsAppWebhook(body);
       return;
@@ -538,7 +558,7 @@ function validateWhatsAppPayload(body) {
     if (businessAccountMismatch && !warnedWebhookBusinessAccountIds.has(businessAccountId)) {
       warnedWebhookBusinessAccountIds.add(businessAccountId);
       console.warn(
-        `WhatsApp webhook business account id differs from configured value; accepting only if phone_number_id matches. entry_id=${businessAccountId}`
+        `WhatsApp webhook business account id differs from configured value; accepting only if phone_number_id matches. entry_id=${maskIdentifier(businessAccountId)}`
       );
     }
 
@@ -552,7 +572,12 @@ function validateWhatsAppPayload(body) {
 
       const metadata = change.value?.metadata;
       if (metadata?.phone_number_id !== config.whatsappPhoneNumberId) {
-        return { ok: false, reason: "unexpected phone_number_id", status: 403, publicMessage: "forbidden" };
+        return {
+          ok: false,
+          reason: `unexpected phone_number_id actual=${maskIdentifier(metadata?.phone_number_id)} expected=${maskIdentifier(config.whatsappPhoneNumberId)}`,
+          status: 403,
+          publicMessage: "forbidden"
+        };
       }
 
       if (
@@ -574,13 +599,78 @@ function validateWhatsAppPayload(body) {
   return { ok: true };
 }
 
+function recordWebhookReceived() {
+  webhookRuntimeDiagnostics.lastReceivedAt = new Date().toISOString();
+}
+
+function recordWebhookRejection(reason, status) {
+  webhookRuntimeDiagnostics.lastRejectedAt = new Date().toISOString();
+  webhookRuntimeDiagnostics.lastRejectedReason = String(reason ?? "unknown").slice(0, 240);
+  webhookRuntimeDiagnostics.lastRejectedStatus = status ?? null;
+}
+
+function recordWebhookAccepted(body) {
+  const summary = summarizeWhatsAppWebhook(body);
+  webhookRuntimeDiagnostics.lastAcceptedAt = new Date().toISOString();
+  webhookRuntimeDiagnostics.lastPhoneNumberId = summary.phoneNumberId;
+  webhookRuntimeDiagnostics.lastDisplayPhoneNumber = summary.displayPhoneNumber;
+  webhookRuntimeDiagnostics.lastMessageCount = summary.messageCount;
+  webhookRuntimeDiagnostics.lastStatusCount = summary.statusCount;
+  if (summary.messageCount > 0) {
+    webhookRuntimeDiagnostics.lastMessageAt = webhookRuntimeDiagnostics.lastAcceptedAt;
+  } else if (summary.statusCount > 0) {
+    webhookRuntimeDiagnostics.lastStatusOnlyAt = webhookRuntimeDiagnostics.lastAcceptedAt;
+  }
+}
+
+function summarizeWhatsAppWebhook(body) {
+  let messageCount = 0;
+  let statusCount = 0;
+  let phoneNumberId = "";
+  let displayPhoneNumber = "";
+
+  for (const entry of body?.entry ?? []) {
+    for (const change of entry?.changes ?? []) {
+      if (change?.field !== "messages") continue;
+      const value = change.value ?? {};
+      if (value.metadata?.phone_number_id) phoneNumberId = maskIdentifier(value.metadata.phone_number_id);
+      if (value.metadata?.display_phone_number) displayPhoneNumber = maskPhone(value.metadata.display_phone_number);
+      messageCount += Array.isArray(value.messages) ? value.messages.length : 0;
+      statusCount += Array.isArray(value.statuses) ? value.statuses.length : 0;
+    }
+  }
+
+  return { messageCount, statusCount, phoneNumberId, displayPhoneNumber };
+}
+
+function getWebhookDiagnostics() {
+  return {
+    ...webhookRuntimeDiagnostics,
+    signatureMode: getWebhookSignatureMode(),
+    pathSecretEnabled: Boolean(config.webhookPathSecret),
+    unsignedWebhooksAllowed: config.allowUnsignedWebhooks,
+    unsignedWebhookExpiresAt: config.unsignedWebhookExpiresAt ?? null,
+    unsignedWebhookExpired: isUnsignedWebhookExpired()
+  };
+}
+
+function getWebhookSignatureMode() {
+  if (config.whatsappAppSecret && config.requireWebhookSignature) {
+    return config.allowUnsignedWebhooks ? "signed-required-unsigned-flag-present" : "signed-required";
+  }
+  if (config.allowUnsignedWebhooks) return isUnsignedWebhookExpired() ? "unsigned-expired" : "unsigned-temporary";
+  return "blocked-missing-app-secret";
+}
+
 async function handleHealth(req, res, options = {}) {
   const db = await checkDatabaseHealth();
   const health = buildOperationalHealth({
     db,
     conversationCount: conversations.size,
     memorySessionCount: sessions.size,
-    processedMessageCount: processedMessages.size
+    processedMessageCount: processedMessages.size,
+    webhookDiagnostics: getWebhookDiagnostics(),
+    whatsappSendDiagnostic: getLastWhatsAppSendDiagnostic()
   });
 
   res
@@ -621,10 +711,16 @@ async function handleDebugConfig(req, url, res) {
         maxOfferedSlots: config.maxOfferedSlots,
         workStart: config.workStart,
         workEnd: config.workEnd,
-        whatsappPhoneNumberId: config.whatsappPhoneNumberId,
-        whatsappBusinessAccountId: config.whatsappBusinessAccountId,
+        whatsappPhoneNumberId: maskIdentifier(config.whatsappPhoneNumberId),
+        whatsappBusinessAccountId: maskIdentifier(config.whatsappBusinessAccountId),
+        whatsappDisplayPhoneNumber: maskPhone(config.whatsappDisplayPhoneNumber),
+        whatsappTokenSource: config.whatsappTokenSource,
+        whatsappTokenVarsConfigured: config.whatsappTokenVarsConfigured,
+        whatsappTokenConflict: config.whatsappTokenConflict,
+        whatsappLastSend: getLastWhatsAppSendDiagnostic(),
         webhookSignatureMode: config.whatsappAppSecret && config.requireWebhookSignature ? "signed" : config.allowUnsignedWebhooks ? "unsigned-temporary" : "blocked",
         webhookPathSecretEnabled: Boolean(config.webhookPathSecret),
+        webhookDiagnostics: getWebhookDiagnostics(),
         doctorWhatsappNumber: maskPhone(config.doctorWhatsappNumber),
         databaseEnabled: isDatabaseEnabled(),
         activeAppointmentLocks: activeLocks
@@ -661,8 +757,10 @@ async function buildInboxDiagnostics() {
   const items = [
     {
       label: "WhatsApp",
-      ok: Boolean(config.whatsappAccessToken && config.whatsappPhoneNumberId),
-      detail: config.whatsappAccessToken && config.whatsappPhoneNumberId ? "Configurado" : "Faltan token o phone number id"
+      ok: Boolean(config.whatsappAccessToken && config.whatsappPhoneNumberId && !config.whatsappTokenConflict),
+      detail: config.whatsappAccessToken && config.whatsappPhoneNumberId
+        ? `Configurado · token: ${config.whatsappTokenSource}${config.whatsappTokenConflict ? " · revisar token viejo" : ""}`
+        : "Faltan token o phone number id"
     },
     {
       label: "Firma Meta",
@@ -3373,6 +3471,7 @@ async function handleIncomingText(from, text, options = {}) {
       console.log(`Bot pause expired for ${maskPhone(from)}; auto-released conversation.`);
     } else {
       console.log(`Bot paused for ${maskPhone(from)}; message stored without auto-reply.`);
+      webhookRuntimeDiagnostics.lastBotPausedAt = new Date().toISOString();
       return;
     }
   }
@@ -5113,9 +5212,7 @@ function suggestTagsFromText(text, intent) {
 }
 
 function isHumanPauseExpired(conversationState) {
-  if (!config.botPauseTimeoutMinutes || config.botPauseTimeoutMinutes <= 0) return false;
-  if (!conversationState.botPausedAt) return false;
-  return Date.now() - new Date(conversationState.botPausedAt).getTime() > config.botPauseTimeoutMinutes * 60_000;
+  return isHumanPauseExpiredState(conversationState, config.botPauseTimeoutMinutes);
 }
 
 async function getPatientSession(phoneNumber) {
@@ -6163,6 +6260,13 @@ function maskPhone(value) {
   const phone = normalizePhone(value);
   if (phone.length <= 6) return phone ? "***" : "";
   return `${phone.slice(0, 5)}****${phone.slice(-3)}`;
+}
+
+function maskIdentifier(value) {
+  const id = String(value ?? "").trim();
+  if (!id) return "";
+  if (id.length <= 8) return "***";
+  return `${id.slice(0, 4)}...${id.slice(-4)}`;
 }
 
 function getClientIp(req) {

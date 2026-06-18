@@ -91,6 +91,14 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.deepEqual(debugJson.activeAppointmentLocks, []);
     assert.equal(debugJson.databaseEnabled, false);
     assert.ok(Array.isArray(debugJson.activeAppointmentLocks));
+    assert.equal(debugJson.whatsappTokenSource, "WHATSAPP_ACCESS_TOKEN");
+    assert.deepEqual(debugJson.whatsappTokenVarsConfigured, {
+      WHATSAPP_TOKEN: false,
+      WHATSAPP_ACCESS_TOKEN: true
+    });
+    assert.equal(debugJson.whatsappTokenConflict, false);
+    assert.equal(debugJson.whatsappPhoneNumberId, "1234...6789");
+    assert.equal(debugJson.webhookDiagnostics.pathSecretEnabled, true);
     assert.equal(JSON.stringify(debugJson).includes("whatsapp-token-test"), false);
     assert.equal(JSON.stringify(debugJson).includes(baseEnv.INBOX_PASSWORD), false);
   } finally {
@@ -123,6 +131,16 @@ test("webhook en produccion rechaza POST sin firma y acepta status firmado", asy
     });
     assert.equal(unsigned.status, 403);
 
+    const invalid = await fetch("http://127.0.0.1:32132/webhook/123456789012345678901234567890", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Hub-Signature-256": `sha256=${"0".repeat(64)}`
+      },
+      body: payload
+    });
+    assert.equal(invalid.status, 403);
+
     const signed = await fetch("http://127.0.0.1:32132/webhook/123456789012345678901234567890", {
       method: "POST",
       headers: {
@@ -133,6 +151,82 @@ test("webhook en produccion rechaza POST sin firma y acepta status firmado", asy
     });
     assert.equal(signed.status, 200);
     assert.equal(await signed.text(), "ok");
+  } finally {
+    await app.stop();
+  }
+});
+
+test("webhook temporal sin firma rechaza cuando UNSIGNED_WEBHOOK_EXPIRES_AT vencio", async () => {
+  const app = await startServer(32135, {
+    ...baseEnv,
+    NODE_ENV: "production",
+    WHATSAPP_APP_SECRET: "",
+    REQUIRE_WEBHOOK_SIGNATURE: "true",
+    ALLOW_UNSIGNED_WEBHOOKS: "true",
+    UNSIGNED_WEBHOOK_EXPIRES_AT: "2000-01-01T00:00:00.000Z",
+    SUPABASE_URL: "https://example.supabase.co",
+    SUPABASE_SERVICE_ROLE_KEY: "sb-service-role-test",
+    GOOGLE_CLIENT_ID: "google-client",
+    GOOGLE_CLIENT_SECRET: "google-secret",
+    GOOGLE_REFRESH_TOKEN: "google-refresh",
+    GOOGLE_CALENDAR_ID: "ginecologiaintegralgto@gmail.com"
+  });
+
+  try {
+    const response = await fetch("http://127.0.0.1:32135/webhook/123456789012345678901234567890", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: buildStatusPayload()
+    });
+    assert.equal(response.status, 403);
+
+    const health = await (await fetch("http://127.0.0.1:32135/health/ready")).json();
+    assert.equal(health.webhook.unsignedWebhookExpired, true);
+    assert.equal(health.webhook.signatureMode, "unsigned-expired");
+  } finally {
+    await app.stop();
+  }
+});
+
+test("saludo del numero nuevo entra por webhook valido y dispara menu inicial", async () => {
+  const appSecret = "app-secret-test";
+  const newPhoneNumberId = "9999999999999999";
+  const app = await startServer(32136, {
+    ...baseEnv,
+    NODE_ENV: "test",
+    WHATSAPP_APP_SECRET: appSecret,
+    REQUIRE_WEBHOOK_SIGNATURE: "true",
+    ALLOW_UNSIGNED_WEBHOOKS: "false",
+    WHATSAPP_SEND_DRY_RUN: "true",
+    WHATSAPP_PHONE_NUMBER_ID: newPhoneNumberId,
+    WHATSAPP_DISPLAY_PHONE_NUMBER: "5210000000000"
+  });
+
+  try {
+    const payload = buildTextPayload({
+      phoneNumberId: newPhoneNumberId,
+      displayPhoneNumber: "+52 1 000 000 0000",
+      from: "5214778811965",
+      id: "wamid.saludo-numero-nuevo",
+      text: "Hola"
+    });
+    const response = await fetch("http://127.0.0.1:32136/webhook/123456789012345678901234567890", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Hub-Signature-256": signPayload(appSecret, payload)
+      },
+      body: payload
+    });
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), "ok");
+    await waitForOutput(app, /Incoming WhatsApp from 52147\*\*\*\*965/);
+    await waitForOutput(app, /WhatsApp dry-run send to 52147\*\*\*\*965/);
+
+    const health = await (await fetch("http://127.0.0.1:32136/health/ready")).json();
+    assert.equal(health.webhook.lastMessageCount, 1);
+    assert.equal(health.webhook.lastPhoneNumberId, "9999...9999");
+    assert.equal(health.whatsapp.tokenSource, "WHATSAPP_ACCESS_TOKEN");
   } finally {
     await app.stop();
   }
@@ -225,6 +319,32 @@ function buildStatusPayload() {
   });
 }
 
+function buildTextPayload({ phoneNumberId = "123456789", displayPhoneNumber = "+1 555 000 0000", from = "5214778811965", id = "wamid.test", text = "Hola" } = {}) {
+  return JSON.stringify({
+    object: "whatsapp_business_account",
+    entry: [{
+      id: "waba-test",
+      changes: [{
+        field: "messages",
+        value: {
+          metadata: {
+            phone_number_id: phoneNumberId,
+            display_phone_number: displayPhoneNumber
+          },
+          contacts: [{ wa_id: from, profile: { name: "Paciente Test" } }],
+          messages: [{
+            from,
+            id,
+            timestamp: "1900000000",
+            type: "text",
+            text: { body: text }
+          }]
+        }
+      }]
+    }]
+  });
+}
+
 function signPayload(appSecret, payload) {
   const signature = crypto.createHmac("sha256", appSecret).update(Buffer.from(payload)).digest("hex");
   return `sha256=${signature}`;
@@ -253,8 +373,18 @@ async function startServer(port, env) {
   }
 
   return {
-    stop: () => stopServer(child)
+    stop: () => stopServer(child),
+    output: () => output
   };
+}
+
+async function waitForOutput(app, regex) {
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    if (regex.test(app.output())) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`expected output ${regex}, got:\n${app.output()}`);
 }
 
 async function waitForLive(port, child, getOutput) {

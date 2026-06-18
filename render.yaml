@@ -22,6 +22,8 @@ services:
         sync: false
       - key: WHATSAPP_DISPLAY_PHONE_NUMBER
         sync: false
+      - key: WHATSAPP_SEND_DRY_RUN
+        value: "false"
       - key: WHATSAPP_APP_SECRET
         sync: false
       - key: REQUIRE_WEBHOOK_SIGNATURE

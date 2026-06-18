@@ -1,6 +1,12 @@
 import { config } from "./config.js";
 import { resilientFetch, readResponseTextSafe, buildHttpError } from "./http.js";
 
+let lastWhatsAppSendDiagnostic = null;
+
+export function getLastWhatsAppSendDiagnostic() {
+  return lastWhatsAppSendDiagnostic;
+}
+
 export async function sendWhatsAppText(to, body) {
   return sendWhatsAppMessage(to, {
     messaging_product: "whatsapp",
@@ -209,6 +215,20 @@ export async function uploadWhatsAppMedia(file) {
 }
 
 async function sendWhatsAppMessage(to, payload) {
+  if (config.whatsappSendDryRun) {
+    console.log(`WhatsApp dry-run send to ${maskPhone(to)} using ${config.whatsappTokenSource}`);
+    lastWhatsAppSendDiagnostic = {
+      at: new Date().toISOString(),
+      ok: true,
+      dryRun: true,
+      to: maskPhone(to),
+      phoneNumberId: maskIdentifier(config.whatsappPhoneNumberId),
+      tokenSource: config.whatsappTokenSource,
+      messageType: payload?.type ?? "unknown"
+    };
+    return;
+  }
+
   const url = `https://graph.facebook.com/v25.0/${config.whatsappPhoneNumberId}/messages`;
   const response = await resilientFetch(url, {
     method: "POST",
@@ -224,10 +244,68 @@ async function sendWhatsAppMessage(to, payload) {
   });
 
   if (!response.ok) {
-    throw buildHttpError(`WhatsApp send to ${maskPhone(to)}`, response, await readResponseTextSafe(response));
+    const responseText = await readResponseTextSafe(response);
+    const diagnostic = buildWhatsAppSendDiagnostic({
+      to,
+      status: response.status,
+      responseText,
+      messageType: payload?.type
+    });
+    lastWhatsAppSendDiagnostic = diagnostic;
+    console.warn(
+      `WhatsApp send rejected. to=${diagnostic.to} status=${diagnostic.status} code=${diagnostic.code ?? "unknown"} subcode=${diagnostic.subcode ?? "none"} phone_number_id=${diagnostic.phoneNumberId} token_source=${diagnostic.tokenSource}`
+    );
+    const error = buildHttpError(`WhatsApp send to ${maskPhone(to)}`, response, responseText);
+    error.whatsappDiagnostic = diagnostic;
+    throw error;
   }
 
+  lastWhatsAppSendDiagnostic = {
+    at: new Date().toISOString(),
+    ok: true,
+    to: maskPhone(to),
+    phoneNumberId: maskIdentifier(config.whatsappPhoneNumberId),
+    tokenSource: config.whatsappTokenSource,
+    messageType: payload?.type ?? "unknown"
+  };
   console.log(`WhatsApp sent to ${maskPhone(to)}`);
+}
+
+function buildWhatsAppSendDiagnostic({ to, status, responseText, messageType }) {
+  const parsed = parseJsonSafe(responseText);
+  const error = parsed?.error ?? {};
+  const code = error.code ?? parsed?.code;
+  const subcode = error.error_subcode ?? error.subcode ?? parsed?.error_subcode;
+  return {
+    at: new Date().toISOString(),
+    ok: false,
+    to: maskPhone(to),
+    status,
+    code,
+    subcode,
+    type: error.type,
+    phoneNumberId: maskIdentifier(config.whatsappPhoneNumberId),
+    tokenSource: config.whatsappTokenSource,
+    messageType: messageType ?? "unknown",
+    category: classifyWhatsAppSendError(status, code, subcode)
+  };
+}
+
+function classifyWhatsAppSendError(status, code, subcode) {
+  if (status === 401 || code === 190) return "token_invalid_or_expired";
+  if (status === 403) return "permission_or_phone_number_access";
+  if (code === 131030 || code === 131031 || subcode === 131030 || subcode === 131031) {
+    return "phone_number_or_recipient_not_allowed";
+  }
+  return "whatsapp_send_failed";
+}
+
+function parseJsonSafe(text) {
+  try {
+    return text ? JSON.parse(text) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function getMediaMessageType(file) {
@@ -257,4 +335,11 @@ function maskPhone(value) {
   const phone = String(value ?? "").replace(/\D/g, "");
   if (phone.length <= 6) return phone ? "***" : "";
   return `${phone.slice(0, 5)}****${phone.slice(-3)}`;
+}
+
+function maskIdentifier(value) {
+  const id = String(value ?? "").trim();
+  if (!id) return "";
+  if (id.length <= 8) return "***";
+  return `${id.slice(0, 4)}...${id.slice(-4)}`;
 }
