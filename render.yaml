@@ -164,5 +164,7 @@ services:
         value: "false"
       - key: RESEND_API_KEY
         sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
       - key: WHATSAPP_CANCELLATION_TEMPLATE
         sync: false
