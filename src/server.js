@@ -900,7 +900,7 @@ function handleInboxScript(res) {
   }
 
   function hasOpenWorkPanel() {
-    return Boolean(document.querySelector("details[open]"));
+    return Boolean(document.querySelector("details[open]:not(.appointment-card)"));
   }
 
   function hasDraft() {
