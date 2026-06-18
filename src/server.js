@@ -2488,10 +2488,26 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       border: 1px solid #9fc5ef;
       color: #0d3d72;
     }
-    .appointment-card strong {
+    .appointment-card summary {
       display: block;
       margin-bottom: 8px;
       font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      list-style: none;
+    }
+    .appointment-card summary::-webkit-details-marker { display: none; }
+    .appointment-card summary::after {
+      content: " (toca para cerrar)";
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--muted);
+    }
+    .appointment-card:not([open]) summary::after {
+      content: " (toca para abrir)";
+    }
+    .appointment-card:not([open]) {
+      padding-bottom: 0;
     }
     .appointment-grid {
       display: grid;
@@ -3583,8 +3599,8 @@ function extractNameFromMessages(messages) {
 }
 
 function renderAppointmentCard(appointment) {
-  return `<div class="appointment-card">
-    <strong>✅ Cita registrada</strong>
+  return `<details class="appointment-card" open>
+    <summary>✅ Cita registrada</summary>
     <div class="appointment-grid">
       <div><span>Paciente</span>${escapeHtml(appointment.patientName ?? "Sin nombre")}</div>
       <div><span>Fecha</span>${escapeHtml(formatAppointmentFull(appointment.slotStart))}</div>
@@ -3593,7 +3609,7 @@ function renderAppointmentCard(appointment) {
       <div><span>Primera vez</span>${escapeHtml(appointment.firstVisit ?? "No capturado")}</div>
       <div><span>Estado</span>${escapeHtml(appointment.status ?? "confirmed")}</div>
     </div>
-  </div>`;
+  </details>`;
 }
 
 function renderInboxMessageMedia(media) {
