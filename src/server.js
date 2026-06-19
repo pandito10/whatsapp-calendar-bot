@@ -1157,8 +1157,8 @@ async function handleInboxResultsEmail(req, url, res) {
     res,
     phone,
     auditSaved
-      ? "Estudios enviados al correo confirmado."
-      : "Estudios enviados al correo confirmado, pero no pude guardar la nota interna. Revisa Supabase.",
+      ? "Archivo enviado exitosamente al correo confirmado de la paciente."
+      : "Archivo enviado exitosamente al correo confirmado, pero no pude guardar la nota interna. Revisa Supabase.",
     "success"
   );
 }
@@ -3184,7 +3184,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
               ? `<div class="conversation-tools">
                   <a class="mobile-back button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">← Pacientes</a>
                   <a class="button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">Cerrar conversacion</a>
-                  <a class="button-link" href="#send-file-email">Mandar archivo al correo</a>
+                  <a class="button-link" href="#send-file-email">Enviar archivo al correo de la paciente</a>
                   <a class="button-link button-secondary" href="https://wa.me/${encodeURIComponent(selectedPhone)}" target="_blank" rel="noreferrer">Abrir WhatsApp</a>
                   <button type="button" class="button-secondary" data-copy-phone="${escapeHtml(selectedPhone)}">Copiar telefono</button>
                   ${
@@ -3630,8 +3630,8 @@ function renderResultsEmailSection(conversation, selectedPhone, csrf) {
                     <input name="confirmed" value="yes" type="checkbox" required>
                     <span>Confirmo que este archivo corresponde a esta paciente y que el correo fue confirmado.</span>
                   </label>
-                  <button type="submit">Enviar al correo confirmado</button>
-                  <small>El archivo se envia por Resend al correo confirmado. No se guarda en Supabase y no se adjunta por WhatsApp.</small>
+                  <button type="submit">Enviar archivo al correo de la paciente</button>
+                  <small>Este archivo se envia al correo confirmado de la paciente. No se manda por WhatsApp, no se guarda en Supabase.</small>
                 </form>
               </details>`
       }
@@ -3653,14 +3653,14 @@ function renderInlineResultsEmailAction(conversation, selectedPhone, csrf) {
       ? "Primero pide y confirma el correo de la paciente para poder mandar archivos desde aqui."
       : "El correo guardado no parece valido. Corrigelo antes de enviar archivos.";
     return `<div id="send-file-email" class="results-email-inline is-disabled">
-      <strong>📤 Mandar archivo al correo</strong>
+      <strong>📤 Enviar archivo al correo de la paciente</strong>
       <span>${escapeHtml(message)}</span>
     </div>`;
   }
 
   return `<details id="send-file-email" class="results-email-inline">
     <summary>
-      <strong>📤 Mandar archivo al correo</strong>
+      <strong>📤 Enviar archivo al correo de la paciente</strong>
       <span>${escapeHtml(emailSourceLabel)}: ${escapeHtml(emailMasked)} · PDF, JPG, PNG o WEBP</span>
     </summary>
     <form class="knowledge-form" method="post" action="/inbox/results-email" enctype="multipart/form-data">
@@ -3675,8 +3675,8 @@ function renderInlineResultsEmailAction(conversation, selectedPhone, csrf) {
         <input name="confirmed" value="yes" type="checkbox" required>
         <span>Confirmo que este archivo corresponde a esta paciente y que el correo fue confirmado.</span>
       </label>
-      <button type="submit">Enviar archivo al correo confirmado</button>
-      <small>El archivo no se envia por WhatsApp y no se guarda en Supabase.</small>
+      <button type="submit">Enviar archivo al correo de la paciente</button>
+      <small>Este archivo se envia al correo confirmado. No se manda por WhatsApp.</small>
     </form>
   </details>`;
 }

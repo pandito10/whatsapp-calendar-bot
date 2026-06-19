@@ -272,7 +272,7 @@ test("inbox/send bloquea cualquier adjunto por WhatsApp", async () => {
 
     const inboxCookie = await loginInbox(32137, baseEnv.INBOX_PASSWORD);
     const loginHtml = await (await fetch(`http://127.0.0.1:32137/inbox?phone=${patientPhone}`, { headers: { Cookie: inboxCookie } })).text();
-    assert.match(loginHtml, /Mandar archivo al correo/);
+    assert.match(loginHtml, /Enviar archivo al correo de la paciente/);
     assert.match(loginHtml, /Enviar archivo al correo/);
     assert.match(loginHtml, /sin correo confirmado/);
     assert.match(loginHtml, /Esta paciente todavia no tiene correo confirmado/);
