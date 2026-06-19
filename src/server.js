@@ -4184,7 +4184,11 @@ async function handleIncomingText(from, text, options = {}) {
   }
 
   if (detectedIntent.intent === "late_arrival") {
-    await replyToPatient(from, getIntentResponse("late_arrival"));
+    await replyToPatientWithButtons(from, getIntentResponse("late_arrival"), [
+      { id: "reschedule", title: "Reagendar" },
+      { id: "talk_human", title: "Persona" },
+      { id: "main_availability", title: "Ver horarios" }
+    ]);
     return;
   }
 
@@ -4281,7 +4285,7 @@ async function handleIncomingText(from, text, options = {}) {
       ]);
       return;
     }
-    await replyToPatient(from, faqAnswer);
+    await sendFaqResponseWithButtons(from, detectedIntent.intent, faqAnswer);
     return;
   }
 
@@ -4964,7 +4968,7 @@ async function handleMenuOption(from, text, intent = detectIntent(text).intent) 
   }
 
   if (option === 3 || intent === "location") {
-    await sendContactInfoResponse(from);
+    await sendLocationResponse(from);
     return true;
   }
 
@@ -5040,6 +5044,59 @@ async function handleMenuOption(from, text, intent = detectIntent(text).intent) 
   return false;
 }
 
+async function sendFaqResponseWithButtons(from, intent, answer) {
+  if (intent === "location") {
+    await sendLocationResponse(from);
+    return;
+  }
+
+  if (intent === "appointment_preparation" || intent === "appointment_requirements" || intent === "appointment_duration") {
+    await replyToPatientWithButtons(from, answer, [
+      { id: "promo_schedule", title: "Agendar" },
+      { id: "promo_info", title: "Ver promo" },
+      { id: "talk_human", title: "Persona" }
+    ]);
+    return;
+  }
+
+  if (intent === "payment_methods") {
+    await replyToPatientWithButtons(from, answer, [
+      { id: "promo_schedule", title: "Agendar" },
+      { id: "promo_info", title: "Ver promo" },
+      { id: "talk_human", title: "Persona" }
+    ]);
+    return;
+  }
+
+  if (intent === "invoice") {
+    await replyToPatientWithButtons(from, answer, [
+      { id: "talk_human", title: "Persona" },
+      { id: "promo_schedule", title: "Agendar" },
+      { id: "main_payments", title: "Pagos" }
+    ]);
+    return;
+  }
+
+  if (intent === "medical_services") {
+    await replyToPatientWithButtons(from, answer, [
+      { id: "promo_schedule", title: "Agendar" },
+      { id: "promo_includes", title: "Que incluye" },
+      { id: "talk_human", title: "Persona" }
+    ]);
+    return;
+  }
+
+  await replyToPatient(from, answer);
+}
+
+async function sendLocationResponse(to) {
+  await replyToPatientWithButtons(to, getIntentResponse("location"), [
+    { id: "promo_schedule", title: "Agendar" },
+    { id: "main_costs", title: "Costos" },
+    { id: "talk_human", title: "Persona" }
+  ]);
+}
+
 async function handlePromoOfferReply(from, text, intent) {
   if (
     text === "agendar promo" ||
@@ -5062,7 +5119,7 @@ async function handlePromoOfferReply(from, text, intent) {
   }
 
   if (intent === "location" || text === "ubicacion") {
-    await sendContactInfoResponse(from);
+    await sendLocationResponse(from);
     return;
   }
 

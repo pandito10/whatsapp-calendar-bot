@@ -18,6 +18,8 @@ test("detecta agenda, disponibilidad y horarios", () => {
   assert.equal(detectIntent("kiero cita").intent, "schedule_appointment");
   assert.equal(detectIntent("q horarios tienen").intent, "check_availability");
   assert.equal(detectIntent("tienen citas mañana?").intent, "check_availability");
+  assert.equal(detectIntent("tienen cupos para hoy").intent, "check_availability");
+  assert.equal(detectIntent("hay espacios mañana").intent, "check_availability");
 });
 
 test("pide reservar por el flujo normal sin link externo", () => {
@@ -28,7 +30,11 @@ test("pide reservar por el flujo normal sin link externo", () => {
 test("detecta costo, ubicacion y formas de pago", () => {
   assert.equal(detectIntent("kuanto cuesta").intent, "cost");
   assert.equal(detectIntent("donde estan").intent, "location");
+  assert.equal(detectIntent("me mandas google maps").intent, "location");
+  assert.equal(detectIntent("hay estacionamiento o referencias?").intent, "location");
   assert.equal(detectIntent("puedo pagar con tarjeta").intent, "payment_methods");
+  assert.equal(detectIntent("aceptan transferencia o deposito").intent, "payment_methods");
+  assert.equal(detectIntent("tienen terminal").intent, "payment_methods");
 });
 
 test("detecta servicios ginecologicos administrativos sin IA", () => {
@@ -36,11 +42,15 @@ test("detecta servicios ginecologicos administrativos sin IA", () => {
   assert.equal(detectIntent("hacen papanicolao").intent, "medical_services");
   assert.equal(detectIntent("colposkopia").intent, "medical_services");
   assert.equal(detectIntent("atienden embarazadas").intent, "medical_services");
+  assert.equal(detectIntent("hacen revision de mamas").intent, "medical_services");
+  assert.equal(detectIntent("atienden adolescentes").intent, "medical_services");
 });
 
 test("detecta duracion y condiciones para presentarse", () => {
   assert.equal(detectIntent("Cuanto se tardan en cada cita y en que condiciones hay que presentarse????").intent, "appointment_preparation");
   assert.equal(detectIntent("condisiones para presentarce a mi cita").intent, "appointment_preparation");
+  assert.equal(detectIntent("puedo ir con regla").intent, "appointment_preparation");
+  assert.equal(detectIntent("puedo llevar acompañante").intent, "appointment_preparation");
 });
 
 test("detecta solicitud de resultados sin confundir servicios", () => {
@@ -53,7 +63,14 @@ test("detecta solicitud de resultados sin confundir servicios", () => {
 test("detecta cancelar, reagendar y humano", () => {
   assert.equal(detectIntent("kiero cancelar").intent, "cancel_appointment");
   assert.equal(detectIntent("kiero cambiar mi cita").intent, "reschedule_appointment");
+  assert.equal(detectIntent("necesito otra hora para mi cita").intent, "reschedule_appointment");
   assert.equal(detectIntent("ocupo hablar con alguien").intent, "direct_contact");
+  assert.equal(detectIntent("me pasas con una asesora").intent, "direct_contact");
+});
+
+test("detecta paciente nueva con variaciones reales", () => {
+  assert.equal(detectIntent("soy nueva").intent, "new_patient");
+  assert.equal(detectIntent("voy por primera vez").intent, "new_patient");
 });
 
 test("prioriza urgencia medica", () => {

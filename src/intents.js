@@ -27,7 +27,8 @@ export function detectIntent(value) {
     ["reschedule_appointment", () => hasAny(text, [
       "reagendar", "cambiar cita", "mover cita", "cambiar horario", "otro horario",
       "otro dia", "no puedo ese dia", "cambiar mi cita", "cambiar consulta",
-      "mover mi cita", "quiero cambiar"
+      "mover mi cita", "quiero cambiar", "cambiar fecha", "cambiar la fecha",
+      "otra hora", "otra fecha", "no puedo asistir", "no alcanzare"
     ])],
     ["late_arrival", () => hasAny(text, [
       "voy tarde", "llegare tarde", "llego tarde", "se me hizo tarde", "retraso",
@@ -41,7 +42,9 @@ export function detectIntent(value) {
     ["schedule_appointment", () => hasAny(text, [
       "agendar", "hacer cita", "sacar cita", "reservar", "quiero una cita",
       "necesito una cita", "necesito cita", "quiero cita", "agendar consulta",
-      "necesito consulta", "quiero consultar", "apartar cita", "me urge una cita"
+      "necesito consulta", "quiero consultar", "apartar cita", "me urge una cita",
+      "ocupo cita", "ocupo consulta", "me puedes agendar", "quiero apartar",
+      "quiero reservar", "agenda para", "cita para"
     ])],
     ["check_availability", () => isAvailabilityIntent(text)],
     ["patient_results", () => isPatientResultsRequest(text)],
@@ -59,7 +62,8 @@ export function detectIntent(value) {
     ])],
     ["new_patient", () => hasAny(text, [
       "primera vez", "paciente nueva", "primera consulta", "nunca he ido",
-      "nuevo paciente", "nueva paciente", "es mi primera vez"
+      "nuevo paciente", "nueva paciente", "es mi primera vez", "soy nueva",
+      "soy nuevo", "nunca fui", "voy por primera vez", "es primera vez"
     ])],
     ["medication_question", () => hasAny(text, [
       "medicamento", "que medicamento tomo", "me puedo tomar algo",
@@ -71,14 +75,19 @@ export function detectIntent(value) {
       "ultrasonido", "papanicolaou", "papanicolau", "papanicolao",
       "colposcopia", "estudio", "estudios", "servicios", "que incluye",
       "control prenatal", "embarazadas", "atienden embarazadas", "adolescentes",
-      "atienden adolescentes"
+      "atienden adolescentes", "revision de mamas", "chequeo de mamas",
+      "mamas", "embarazo", "control de embarazo", "consulta ginecologica",
+      "chequeo ginecologico", "paquete ginecologico"
     ])],
     ["appointment_requirements", () => hasAny(text, [
       "que necesito llevar", "tengo que llevar", "documentos", "identificacion",
       "estudios anteriores", "receta", "requisitos", "que debo llevar",
       "que llevo", "puedo ir acompanada", "puedo ir acompanado", "acompanada",
       "condiciones", "presentarse", "como presentarme", "preparacion",
-      "indicaciones", "antes de la cita", "antes del estudio", "antes del papanicolaou"
+      "indicaciones", "antes de la cita", "antes del estudio", "antes del papanicolaou",
+      "puedo ir con regla", "estoy en mis dias", "menstruacion", "menstruando",
+      "periodo menstrual", "regla", "puedo llevar acompanante", "puedo llevar a mi esposo",
+      "puedo llevar a mi mama", "puedo ir con alguien"
     ])],
     ["invoice", () => hasAny(text, ["factura", "facturan", "facturar", "recibo", "comprobante"])],
     ["contact_info", () => isContactInfoQuestion(text)],
@@ -86,7 +95,9 @@ export function detectIntent(value) {
       "hablar con alguien", "hablar con la doctora", "recepcion",
       "llamar", "me llamen", "me pueden llamar",
       "necesito hablar con alguien", "pasame con alguien", "humano",
-      "pasa a una persona", "quiero hablar con una persona", "hablar con persona"
+      "pasa a una persona", "quiero hablar con una persona", "hablar con persona",
+      "asesora", "secretaria", "no me entiendes", "me atiende alguien",
+      "persona real", "atencion personalizada"
     ])],
     ["greeting", () => isGreetingQuestion(text) || isGeneralMenuQuestion(text)],
     ["closing", () => isConversationClosing(text)]
@@ -141,11 +152,18 @@ function normalizeWhatsAppWord(word) {
     ubicacionn: "ubicacion",
     tarjerta: "tarjeta",
     trasferencia: "transferencia",
+    trasnferencia: "transferencia",
+    tranferencia: "transferencia",
+    depositar: "transferencia",
     ultrasonidoo: "ultrasonido",
+    ultrasonidoos: "ultrasonido",
     papanicolao: "papanicolaou",
     papanicolau: "papanicolaou",
+    pap: "papanicolaou",
+    papanicolauo: "papanicolaou",
     colposkopia: "colposcopia",
     kolposkopia: "colposcopia",
+    colpo: "colposcopia",
     kanselar: "cancelar",
     canselar: "cancelar",
     cancelarrr: "cancelar",
@@ -164,8 +182,15 @@ function normalizeWhatsAppWord(word) {
     promoicon: "promocion",
     promoion: "promocion",
     promcion: "promocion",
+    promosion: "promocion",
     paqutte: "paquete",
     pquete: "paquete",
+    pakete: "paquete",
+    paqete: "paquete",
+    docotra: "doctora",
+    dctora: "doctora",
+    secrtaria: "secretaria",
+    asesora: "asesora",
     oie: "oye"
   };
   return dictionary[word] ?? word;
@@ -176,7 +201,9 @@ function isAvailabilityIntent(text) {
     hasAny(text, [
       "horarios", "disponibilidad", "disponible", "citas disponibles", "que dias",
       "que horarios", "hay cita", "tienes lugar", "hay espacio", "tienen citas",
-      "citas hoy", "citas manana", "que citas tienes"
+      "citas hoy", "citas manana", "que citas tienes", "cupos", "espacios",
+      "lugar hoy", "lugar manana", "hay para hoy", "hay para manana",
+      "fechas disponibles", "dias disponibles"
     ]) ||
     /\b(?:hay|tienes|tienen)\s+(?:lugar|espacio|cita|horario|disponible)\b/.test(text) ||
     looksLikeDateRequest(text)
@@ -186,7 +213,8 @@ function isAvailabilityIntent(text) {
 function isLocationQuestion(text) {
   return (
     /\b(?:ubicacion|ubicados|direccion|donde estan|donde se ubican|como llego|como llegar|plaza de la paz|consultorio)\b/.test(text) ||
-    /\b(?:mandame|manda|pasame|pasa|me pasas)\s+(?:la\s+)?(?:ubicacion|direccion)\b/.test(text)
+    /\b(?:maps|google maps|mapa|referencia|referencias|estacionamiento|plaza mayor)\b/.test(text) ||
+    /\b(?:mandame|manda|pasame|pasa|me pasas)\s+(?:la\s+)?(?:ubicacion|direccion|mapa)\b/.test(text)
   );
 }
 
@@ -226,7 +254,10 @@ function isAppointmentPreparationQuestion(text) {
       "preparacion", "indicaciones", "recomendacion", "recomendaciones",
       "antes de la cita", "antes del estudio", "antes del papanicolaou",
       "antes del pap", "que tengo que hacer antes",
-      "como debo ir", "como me presento", "en que condiciones"
+      "como debo ir", "como me presento", "en que condiciones",
+      "puedo ir con regla", "estoy en mis dias", "ando en mis dias",
+      "estoy menstruando", "menstruacion", "periodo menstrual",
+      "puedo llevar acompanante", "puedo ir acompanada", "puedo ir con alguien"
     ]) ||
     (
       hasAny(text, ["cuanto tardan", "cuanto se tardan", "cuanto dura", "duracion", "40 minutos"]) &&
@@ -236,7 +267,7 @@ function isAppointmentPreparationQuestion(text) {
 }
 
 function isPriceQuestion(text) {
-  return /\b(?:cuanto cuesta|costo|precio|costos|precios|cuanto cobran|cuanto sale|cuanto vale|en cuanto esta|cuanto es)\b/.test(text);
+  return /\b(?:cuanto cuesta|costo|precio|costos|precios|cuanto cobran|cuanto sale|cuanto vale|en cuanto esta|cuanto es|cuanto seria|cuanto cobra|cuanto vale la consulta|valor|tarifa)\b/.test(text);
 }
 
 function isPromotionQuestion(text) {
@@ -247,7 +278,7 @@ function isPromotionQuestion(text) {
 }
 
 function isPaymentQuestion(text) {
-  return /\b(?:tarjeta|credito|debito|transferencia|efectivo|pago|formas de pago|forma de pago|metodos de pago|pagar con tarjeta|pagar con transferencia|pagar efectivo)\b/.test(text);
+  return /\b(?:tarjeta|credito|debito|transferencia|efectivo|pago|formas de pago|forma de pago|metodos de pago|pagar con tarjeta|pagar con transferencia|pagar efectivo|deposito|depositar|terminal|clip|mercado pago|cuenta bancaria)\b/.test(text);
 }
 
 function isPatientResultsRequest(text) {
