@@ -899,12 +899,21 @@ function handleInboxScript(res) {
       event.preventDefault();
       const panel = document.getElementById("send-file-email");
       if (!panel) return;
-      if (panel.tagName === "DETAILS") panel.open = true;
-      panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      panel.classList.add("is-open");
+      panel.setAttribute("aria-hidden", "false");
+      document.body.classList.add("results-email-open");
       window.setTimeout(() => {
         const target = panel.querySelector("input[type='file'], summary, button");
         if (target && typeof target.focus === "function") target.focus();
       }, 180);
+    };
+    const closePanel = (event) => {
+      if (event) event.preventDefault();
+      const panel = document.getElementById("send-file-email");
+      if (!panel) return;
+      panel.classList.remove("is-open");
+      panel.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("results-email-open");
     };
 
     document.querySelectorAll("[data-open-results-email]").forEach((button) => {
@@ -912,6 +921,23 @@ function handleInboxScript(res) {
     });
     document.querySelectorAll("a[href='#send-file-email']").forEach((link) => {
       link.addEventListener("click", openPanel);
+    });
+    document.querySelectorAll("[data-close-results-email]").forEach((button) => {
+      button.addEventListener("click", closePanel);
+    });
+    document.querySelectorAll(".results-email-backdrop").forEach((backdrop) => {
+      backdrop.addEventListener("click", closePanel);
+    });
+    document.querySelectorAll("form[action='/inbox/results-email']").forEach((form) => {
+      form.addEventListener("submit", () => {
+        const button = form.querySelector("button[type='submit']");
+        if (!button) return;
+        button.disabled = true;
+        button.textContent = "Enviando al correo...";
+      });
+    });
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closePanel(event);
     });
   }
 
@@ -948,7 +974,7 @@ function handleInboxScript(res) {
   }
 
   function hasOpenWorkPanel() {
-    return Boolean(document.querySelector("details[open]:not(.appointment-card)"));
+    return Boolean(document.querySelector("details[open]:not(.appointment-card), .results-email-modal.is-open"));
   }
 
   function hasDraft() {
@@ -2589,48 +2615,79 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       color: var(--muted);
       line-height: 1.4;
     }
-    .results-email-inline {
-      margin: 12px 24px;
-      border-radius: 18px;
-      border: 1px solid #9fc5ef;
-      background: linear-gradient(135deg, #eef6ff, #fff7fb);
-      box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
-      overflow: hidden;
-      scroll-margin-top: 90px;
+    body.results-email-open { overflow: hidden; }
+    .results-email-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      padding: 18px;
     }
-    .results-email-inline summary {
-      list-style: none;
-      cursor: pointer;
-      padding: 16px 18px;
+    .results-email-modal.is-open {
       display: grid;
-      gap: 5px;
-      color: #0d3d72;
-      font-weight: 950;
+      place-items: center;
     }
-    .results-email-inline summary::-webkit-details-marker { display: none; }
-    .results-email-inline summary strong {
+    .results-email-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.42);
+      backdrop-filter: blur(3px);
+    }
+    .results-email-dialog {
+      position: relative;
+      z-index: 1;
+      width: min(560px, 100%);
+      max-height: min(86dvh, 720px);
+      overflow: auto;
+      border-radius: 22px;
+      border: 1px solid #9fc5ef;
+      background: #ffffff;
+      box-shadow: 0 24px 70px rgba(15, 23, 42, 0.26);
+      padding: 18px;
+      display: grid;
+      gap: 12px;
+    }
+    .results-email-header {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 12px;
+      color: #0d3d72;
+    }
+    .results-email-header strong {
       font-size: 16px;
       display: flex;
       align-items: center;
       gap: 8px;
     }
-    .results-email-inline summary span {
+    .results-email-header span {
+      display: block;
       color: var(--muted);
       font-size: 12px;
       font-weight: 700;
       overflow-wrap: anywhere;
+      margin-top: 4px;
     }
-    .results-email-inline form {
-      padding: 0 18px 16px;
-    }
-    .results-email-inline.is-disabled {
-      padding: 16px 18px;
+    .results-email-close {
+      border: 0;
+      border-radius: 999px;
+      background: #eaf3ff;
       color: #0d3d72;
+      box-shadow: none;
+      padding: 8px 11px;
+      min-width: auto;
     }
-    .results-email-inline.is-disabled strong {
-      display: block;
-      font-size: 16px;
-      margin-bottom: 5px;
+    .results-email-dialog form {
+      display: grid;
+      gap: 10px;
+    }
+    .results-email-dialog button[type='submit'] {
+      min-height: 48px;
+      font-size: 14px;
+    }
+    .results-email-dialog small {
+      color: var(--muted);
+      line-height: 1.4;
     }
     .checkbox-row {
       display: grid;
@@ -3095,15 +3152,15 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       }
       .conversation-tools form { display: flex; flex: 0 0 auto; min-width: 0; }
       .conversation-tools .tag-form { display: none; }
-      .results-email-inline {
-        margin: 6px 10px 0;
-        scroll-margin-top: 90px;
+      .results-email-modal {
+        padding: 10px;
+        align-items: end;
       }
-      .results-email-inline summary {
-        padding: 10px 12px;
-      }
-      .results-email-inline form {
-        padding: 0 12px 12px;
+      .results-email-dialog {
+        width: 100%;
+        max-height: 84dvh;
+        border-radius: 20px 20px 0 0;
+        padding: 16px;
       }
       .mobile-patient-sheet {
         display: block;
@@ -3253,7 +3310,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
               ? `<div class="conversation-tools">
                   <a class="mobile-back button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">← Pacientes</a>
                   <a class="button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">Cerrar conversacion</a>
-                  <a class="button-link" href="#send-file-email">Enviar archivo al correo de la paciente</a>
+                  <a class="button-link" href="#send-file-email">📤 Archivo al correo</a>
                   <a class="button-link button-secondary" href="https://wa.me/${encodeURIComponent(selectedPhone)}" target="_blank" rel="noreferrer">Abrir WhatsApp</a>
                   <button type="button" class="button-secondary" data-copy-phone="${escapeHtml(selectedPhone)}">Copiar telefono</button>
                   ${
@@ -3303,10 +3360,6 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       ${
         selected
           ? `<div class="composer">
-              <div class="composer-email-action">
-                <span>Archivos y resultados: solo por correo confirmado. WhatsApp queda solo texto.</span>
-                <button type="button" data-open-results-email>📤 Enviar archivo al correo</button>
-              </div>
               <form method="post" action="/inbox/send">
                 <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
                 <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
@@ -3725,33 +3778,48 @@ function renderInlineResultsEmailAction(conversation, selectedPhone, csrf) {
     const message = !hasEmail
       ? "Primero pide y confirma el correo de la paciente para poder mandar archivos desde aqui."
       : "El correo guardado no parece valido. Corrigelo antes de enviar archivos.";
-    return `<div id="send-file-email" class="results-email-inline is-disabled">
-      <strong>📤 Enviar archivo al correo de la paciente</strong>
-      <span>${escapeHtml(message)}</span>
+    return `<div id="send-file-email" class="results-email-modal" aria-hidden="true">
+      <div class="results-email-backdrop" data-close-results-email></div>
+      <div class="results-email-dialog">
+        <div class="results-email-header">
+          <div>
+            <strong>📤 Enviar archivo al correo de la paciente</strong>
+            <span>${escapeHtml(message)}</span>
+          </div>
+          <button class="results-email-close" type="button" data-close-results-email aria-label="Cerrar">×</button>
+        </div>
+        <div class="empty-state">No puedo enviar el archivo hasta tener un correo valido confirmado.</div>
+      </div>
     </div>`;
   }
 
-  return `<details id="send-file-email" class="results-email-inline">
-    <summary>
-      <strong>📤 Enviar archivo al correo de la paciente</strong>
-      <span>${escapeHtml(emailSourceLabel)}: ${escapeHtml(emailMasked)} · PDF, JPG, PNG o WEBP</span>
-    </summary>
-    <form class="knowledge-form" method="post" action="/inbox/results-email" enctype="multipart/form-data">
-      <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
-      <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
-      <label class="file-row">
-        <span>Archivo para enviar al correo confirmado</span>
-        <input name="resultFile" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp" required>
-      </label>
-      <textarea name="note" rows="2" maxlength="600" placeholder="Nota corta para la paciente (opcional). No diagnosticar ni indicar tratamiento."></textarea>
-      <label class="checkbox-row">
-        <input name="confirmed" value="yes" type="checkbox" required>
-        <span>Confirmo que este archivo corresponde a esta paciente y que el correo fue confirmado.</span>
-      </label>
-      <button type="submit">Enviar archivo al correo de la paciente</button>
-      <small>Este archivo se envia al correo confirmado. No se manda por WhatsApp.</small>
-    </form>
-  </details>`;
+  return `<div id="send-file-email" class="results-email-modal" aria-hidden="true">
+    <div class="results-email-backdrop" data-close-results-email></div>
+    <div class="results-email-dialog" role="dialog" aria-modal="true" aria-label="Enviar archivo al correo de la paciente">
+      <div class="results-email-header">
+        <div>
+          <strong>📤 Enviar archivo al correo de la paciente</strong>
+          <span>${escapeHtml(emailSourceLabel)}: ${escapeHtml(emailMasked)} · PDF, JPG, PNG o WEBP</span>
+        </div>
+        <button class="results-email-close" type="button" data-close-results-email aria-label="Cerrar">×</button>
+      </div>
+      <form class="knowledge-form" method="post" action="/inbox/results-email" enctype="multipart/form-data">
+        <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+        <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+        <label class="file-row">
+          <span>Archivo para enviar al correo confirmado</span>
+          <input name="resultFile" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp" required>
+        </label>
+        <textarea name="note" rows="3" maxlength="600" placeholder="Nota corta para la paciente (opcional). No diagnosticar ni indicar tratamiento."></textarea>
+        <label class="checkbox-row">
+          <input name="confirmed" value="yes" type="checkbox" required>
+          <span>Confirmo que este archivo corresponde a esta paciente y que el correo fue confirmado.</span>
+        </label>
+        <button type="submit">Enviar archivo al correo de la paciente</button>
+        <small>Al tocar enviar, veras un mensaje de exito o error en el inbox. El archivo NO se manda por WhatsApp.</small>
+      </form>
+    </div>
+  </div>`;
 }
 
 function renderMobilePatientSheet(selected, { selectedStatus, windowState }) {
