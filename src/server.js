@@ -894,6 +894,27 @@ function handleInboxScript(res) {
     }
   }
 
+  function bindResultsEmailActions() {
+    const openPanel = (event) => {
+      event.preventDefault();
+      const panel = document.getElementById("send-file-email");
+      if (!panel) return;
+      if (panel.tagName === "DETAILS") panel.open = true;
+      panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      window.setTimeout(() => {
+        const target = panel.querySelector("input[type='file'], summary, button");
+        if (target && typeof target.focus === "function") target.focus();
+      }, 180);
+    };
+
+    document.querySelectorAll("[data-open-results-email]").forEach((button) => {
+      button.addEventListener("click", openPanel);
+    });
+    document.querySelectorAll("a[href='#send-file-email']").forEach((link) => {
+      link.addEventListener("click", openPanel);
+    });
+  }
+
   function updateRefreshStatus(text) {
     document.querySelectorAll("[data-refresh-status]").forEach((node) => {
       node.textContent = text;
@@ -997,6 +1018,7 @@ function handleInboxScript(res) {
     bindQuickReplies();
     bindCopyButtons();
     bindComposerEnhancements();
+    bindResultsEmailActions();
     bindDirtyForms();
     bindSmartRefresh();
     scrollMessagesToBottom();
@@ -2180,7 +2202,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     .metric-pill {
       flex: 0 0 auto;
       min-width: 92px;
-      padding: 10px 12px;
+      padding: 8px 10px;
       border-radius: 14px;
       background: rgba(255, 255, 255, 0.82);
       border: 1px solid #bfd6f0;
@@ -2806,7 +2828,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       font-weight: 700;
       line-height: 1.35;
     }
-    .composer-email-action .button-link {
+    .composer-email-action .button-link,
+    .composer-email-action button {
       flex: 0 0 auto;
       padding: 9px 12px;
       font-size: 12px;
@@ -3006,17 +3029,17 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     @media (max-width: 780px) {
       body { min-height: 100dvh; overflow: hidden; }
       .inbox-banner { display: none; }
-      header { padding: 0 14px; height: 64px; min-height: 64px; gap: 12px; }
+      header { padding: 0 14px; height: 58px; min-height: 58px; gap: 12px; }
       .brand-mark { width: 34px; height: 34px; border-radius: 10px; }
       h1 { font-size: 16px; }
       .status { display: none; }
       .metric-strip { display: none; }
-      main { display: block; height: calc(100dvh - 64px); min-height: 0; padding: 0; }
+      main { display: block; height: calc(100dvh - 58px); min-height: 0; padding: 0; }
       body.has-selection aside { display: none; }
       body.no-selection .chat { display: none; }
       .patient-panel { display: none; }
       aside {
-        height: calc(100dvh - 64px);
+        height: calc(100dvh - 58px);
         max-height: none;
         border: 0;
         border-radius: 0;
@@ -3038,7 +3061,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       .thread { padding: 13px 14px; }
       .thread.active { padding-left: 10px; }
       .chat {
-        height: calc(100dvh - 64px);
+        height: calc(100dvh - 58px);
         min-height: 0;
         border: 0;
         border-radius: 0;
@@ -3073,18 +3096,18 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       .conversation-tools form { display: flex; flex: 0 0 auto; min-width: 0; }
       .conversation-tools .tag-form { display: none; }
       .results-email-inline {
-        margin: 10px 12px 0;
-        scroll-margin-top: 150px;
+        margin: 6px 10px 0;
+        scroll-margin-top: 90px;
       }
       .results-email-inline summary {
-        padding: 13px 14px;
+        padding: 10px 12px;
       }
       .results-email-inline form {
-        padding: 0 14px 14px;
+        padding: 0 12px 12px;
       }
       .mobile-patient-sheet {
         display: block;
-        padding: 10px 12px;
+        padding: 7px 10px;
         border-bottom: 1px solid var(--line);
         background: #f8fbff;
       }
@@ -3095,12 +3118,12 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
         font-weight: 850;
       }
       .mobile-patient-sheet[open] .mobile-info-grid {
-        max-height: 220px;
+        max-height: 160px;
         overflow: auto;
         padding-right: 2px;
       }
-      .messages { padding: 12px; }
-      .appointment-card { margin: 10px 12px 0; }
+      .messages { padding: 10px; }
+      .appointment-card { margin: 6px 10px 0; }
       .appointment-card[open] .appointment-grid {
         max-height: 150px;
         overflow: auto;
@@ -3116,9 +3139,11 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       .composer-email-action {
         align-items: stretch;
         display: grid;
-        gap: 8px;
+        gap: 6px;
       }
-      .composer-email-action .button-link {
+      .composer-email-action span { font-size: 11px; }
+      .composer-email-action .button-link,
+      .composer-email-action button {
         justify-content: center;
         width: 100%;
       }
@@ -3272,19 +3297,19 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       ${inboxSuccess ? `<div class="success-banner">${escapeHtml(inboxSuccess)}</div>` : ""}
       ${selected?.botPaused ? `<div class="notice">Modo humano activo: el bot guarda mensajes entrantes, pero no responde automaticamente a este paciente.</div>` : ""}
       ${needsTemplateNotice ? `<div class="notice">La ultima interaccion del paciente fue hace mas de 24 horas. Puede requerir plantilla aprobada de WhatsApp para responder fuera de la ventana de atencion.</div>` : ""}
-      ${selected ? renderInlineResultsEmailAction(selected, selectedPhone, csrf) : ""}
       ${appointmentCard}
       <div class="messages">${messages}</div>
+      ${selected ? renderInlineResultsEmailAction(selected, selectedPhone, csrf) : ""}
       ${
         selected
           ? `<div class="composer">
+              <div class="composer-email-action">
+                <span>Archivos y resultados: solo por correo confirmado. WhatsApp queda solo texto.</span>
+                <button type="button" data-open-results-email>📤 Enviar archivo al correo</button>
+              </div>
               <form method="post" action="/inbox/send">
                 <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
                 <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
-                <div class="composer-email-action">
-                  <span>Para resultados, fotos o PDF usa correo. No se manda archivo por WhatsApp.</span>
-                  <a class="button-link" href="#send-file-email">📤 Enviar archivo al correo</a>
-                </div>
                 ${quickReplies}
                 <div class="message-input-row">
                   <textarea name="message" rows="3" maxlength="2000" placeholder="Escribe una respuesta como humano..."></textarea>
