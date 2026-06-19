@@ -22,6 +22,43 @@ export function maskEmail(value) {
   return `${local[0]}***@${domain}`;
 }
 
+export function extractLatestPatientEmailFromMessages(messages = []) {
+  const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+  const list = Array.isArray(messages) ? messages : [];
+
+  for (const message of [...list].reverse()) {
+    const body = String(message?.body ?? message?.text ?? "");
+    const matches = body.match(emailRegex) ?? [];
+    const validEmail = matches.map((match) => match.trim().toLowerCase()).find(isValidPatientEmail);
+    if (validEmail) return validEmail;
+  }
+
+  return "";
+}
+
+export function resolveResultsEmailRecipient({ appointment, conversation } = {}) {
+  const appointmentEmail = String(appointment?.patientEmail ?? conversation?.appointment?.patientEmail ?? "")
+    .trim()
+    .toLowerCase();
+  if (appointmentEmail) {
+    return { email: appointmentEmail, source: "appointment" };
+  }
+
+  const sessionEmail = String(conversation?.session?.email ?? conversation?.patientEmail ?? "")
+    .trim()
+    .toLowerCase();
+  if (sessionEmail) {
+    return { email: sessionEmail, source: "conversation" };
+  }
+
+  const messageEmail = extractLatestPatientEmailFromMessages(conversation?.messages ?? []);
+  if (messageEmail) {
+    return { email: messageEmail, source: "conversation" };
+  }
+
+  return { email: "", source: "missing" };
+}
+
 export function sanitizeResultNote(value, maxLength = 600) {
   return String(value ?? "")
     .replace(/[\u0000-\u001f\u007f]/g, " ")

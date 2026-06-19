@@ -81,6 +81,7 @@ import {
   buildResultsEmailMessageMetadata,
   isValidPatientEmail,
   maskEmail,
+  resolveResultsEmailRecipient,
   sanitizeResultNote,
   validateResultsEmailRequest
 } from "./results-email.js";
@@ -1089,7 +1090,8 @@ async function handleInboxResultsEmail(req, url, res) {
 
   const conversation = await loadConversationForInboxSend(phone);
   const appointment = conversation?.appointment;
-  const patientEmail = String(appointment?.patientEmail ?? "").trim();
+  const emailRecipient = resolveResultsEmailRecipient({ appointment, conversation });
+  const patientEmail = emailRecipient.email;
   const resultFile = form.getFile?.("resultFile");
   const validFile = resultFile && resultFile.size > 0 ? resultFile : undefined;
   const confirmed = form.get("confirmed") === "yes";
@@ -1117,7 +1119,7 @@ async function handleInboxResultsEmail(req, url, res) {
   try {
     await sendMedicalResultEmail({
       to: patientEmail,
-      name: appointment?.patientName,
+      name: appointment?.patientName ?? (conversation ? getConversationDisplayName(conversation) : undefined),
       clinicName: config.clinicName,
       file: validFile,
       note
@@ -3228,7 +3230,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       ${needsTemplateNotice ? `<div class="notice">La ultima interaccion del paciente fue hace mas de 24 horas. Puede requerir plantilla aprobada de WhatsApp para responder fuera de la ventana de atencion.</div>` : ""}
       ${appointmentCard}
       <div class="messages">${messages}</div>
-      ${selected ? renderInlineResultsEmailAction(selected.appointment, selectedPhone, csrf) : ""}
+      ${selected ? renderInlineResultsEmailAction(selected, selectedPhone, csrf) : ""}
       ${
         selected
           ? `<div class="composer">
@@ -3530,7 +3532,7 @@ function renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, win
       }
     </div>
 
-    ${renderResultsEmailSection(appointment, selectedPhone, csrf)}
+    ${renderResultsEmailSection(selected, selectedPhone, csrf)}
 
     ${(() => {
       const leadTags = (selected.tags ?? []);
@@ -3590,20 +3592,28 @@ function renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, win
 	  </aside>`;
 }
 
-function renderResultsEmailSection(appointment, selectedPhone, csrf) {
-  const patientEmail = String(appointment?.patientEmail ?? "").trim();
+function renderResultsEmailSection(conversation, selectedPhone, csrf) {
+  const appointment = conversation?.appointment;
+  const emailRecipient = resolveResultsEmailRecipient({ appointment, conversation });
+  const patientEmail = emailRecipient.email;
   const hasEmail = Boolean(patientEmail);
   const emailIsValid = isValidPatientEmail(patientEmail);
-
+  const emailSourceLabel =
+    emailRecipient.source === "appointment"
+      ? "Correo de cita registrada"
+      : emailRecipient.source === "conversation"
+        ? "Correo detectado en la conversacion"
+        : "Sin correo confirmado";
   const emailMasked = emailIsValid ? maskEmail(patientEmail) : hasEmail ? "correo no valido" : "sin correo confirmado";
 
   return `<div class="panel-section results-email-section">
     <h2>Enviar archivo al correo</h2>
     <div class="results-email-card">
       <p><strong>Correo confirmado de paciente:</strong><br>${escapeHtml(emailMasked)}</p>
+      <small>${escapeHtml(emailSourceLabel)}${emailRecipient.source === "conversation" ? ". Confirma con la paciente antes de enviar." : ""}</small>
       ${
         !hasEmail
-          ? `<div class="empty-state">Esta paciente todavia no tiene correo confirmado. Primero confirma su correo en la cita o por recepcion antes de enviar archivos.</div>`
+          ? `<div class="empty-state">Esta paciente todavia no tiene correo confirmado. Pidele su correo y confirmalo antes de enviar archivos.</div>`
           : !emailIsValid
             ? `<div class="empty-state">El correo guardado no parece valido. Corrigelo antes de enviar archivos.</div>`
             : `<details open>
@@ -3629,15 +3639,18 @@ function renderResultsEmailSection(appointment, selectedPhone, csrf) {
   </div>`;
 }
 
-function renderInlineResultsEmailAction(appointment, selectedPhone, csrf) {
-  const patientEmail = String(appointment?.patientEmail ?? "").trim();
+function renderInlineResultsEmailAction(conversation, selectedPhone, csrf) {
+  const appointment = conversation?.appointment;
+  const emailRecipient = resolveResultsEmailRecipient({ appointment, conversation });
+  const patientEmail = emailRecipient.email;
   const hasEmail = Boolean(patientEmail);
   const emailIsValid = isValidPatientEmail(patientEmail);
   const emailMasked = emailIsValid ? maskEmail(patientEmail) : hasEmail ? "correo no valido" : "sin correo confirmado";
+  const emailSourceLabel = emailRecipient.source === "appointment" ? "correo de cita" : "correo detectado";
 
   if (!hasEmail || !emailIsValid) {
     const message = !hasEmail
-      ? "Primero confirma el correo de la paciente para poder mandar archivos desde aqui."
+      ? "Primero pide y confirma el correo de la paciente para poder mandar archivos desde aqui."
       : "El correo guardado no parece valido. Corrigelo antes de enviar archivos.";
     return `<div id="send-file-email" class="results-email-inline is-disabled">
       <strong>📤 Mandar archivo al correo</strong>
@@ -3648,7 +3661,7 @@ function renderInlineResultsEmailAction(appointment, selectedPhone, csrf) {
   return `<details id="send-file-email" class="results-email-inline">
     <summary>
       <strong>📤 Mandar archivo al correo</strong>
-      <span>Correo confirmado: ${escapeHtml(emailMasked)} · PDF, JPG, PNG o WEBP</span>
+      <span>${escapeHtml(emailSourceLabel)}: ${escapeHtml(emailMasked)} · PDF, JPG, PNG o WEBP</span>
     </summary>
     <form class="knowledge-form" method="post" action="/inbox/results-email" enctype="multipart/form-data">
       <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">

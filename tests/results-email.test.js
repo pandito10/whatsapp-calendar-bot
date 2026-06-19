@@ -5,7 +5,9 @@ import {
   buildResultSentWhatsAppNotice,
   buildResultsEmailAuditText,
   buildResultsEmailMessageMetadata,
+  extractLatestPatientEmailFromMessages,
   maskEmail,
+  resolveResultsEmailRecipient,
   validateResultsEmailRequest
 } from "../src/results-email.js";
 
@@ -28,6 +30,34 @@ test("rechaza envio de resultados sin correo confirmado", () => {
   });
 
   assert.equal(error, "Esta paciente no tiene correo confirmado.");
+});
+
+test("detecta el ultimo correo valido escrito por la paciente", () => {
+  const email = extractLatestPatientEmailFromMessages([
+    { sender: "patient", body: "hola" },
+    { sender: "patient", body: "mi correo es correo-viejo@example.com" },
+    { sender: "patient", body: "perdon, es paciente.nueva@gmail.com" }
+  ]);
+
+  assert.equal(email, "paciente.nueva@gmail.com");
+});
+
+test("prefiere correo de cita y usa conversacion como respaldo", () => {
+  const fromAppointment = resolveResultsEmailRecipient({
+    appointment: { patientEmail: "cita@example.com" },
+    conversation: {
+      messages: [{ sender: "patient", body: "mi correo es chat@example.com" }]
+    }
+  });
+  const fromConversation = resolveResultsEmailRecipient({
+    appointment: {},
+    conversation: {
+      messages: [{ sender: "patient", body: "mi correo es chat@example.com" }]
+    }
+  });
+
+  assert.deepEqual(fromAppointment, { email: "cita@example.com", source: "appointment" });
+  assert.deepEqual(fromConversation, { email: "chat@example.com", source: "conversation" });
 });
 
 test("rechaza correo confirmado invalido", () => {
