@@ -3032,6 +3032,9 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       border: 1px solid #86efac;
       font-size: 13px;
     }
+    .mobile-toast {
+      display: none;
+    }
     .empty-state {
       color: var(--muted);
       margin: 18px;
@@ -3185,7 +3188,31 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
         max-height: 150px;
         overflow: auto;
       }
-      .notice, .error-banner { margin: 10px 12px 0; }
+      .notice, .error-banner, .success-banner { margin: 10px 12px 0; }
+      .mobile-toast {
+        display: block;
+        position: fixed;
+        left: 10px;
+        right: 10px;
+        top: 66px;
+        z-index: 75;
+        padding: 12px 14px;
+        border-radius: 16px;
+        box-shadow: 0 16px 34px rgba(15, 23, 42, 0.22);
+        font-size: 13px;
+        font-weight: 850;
+        line-height: 1.35;
+      }
+      .mobile-toast.success {
+        color: #166534;
+        background: #dcfce7;
+        border: 1px solid #86efac;
+      }
+      .mobile-toast.error {
+        color: #991b1b;
+        background: #fee2e2;
+        border: 1px solid #fecaca;
+      }
       .appointment-grid { grid-template-columns: 1fr; }
       .bubble { max-width: 92%; }
       .composer {
@@ -3309,8 +3336,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
             selected
               ? `<div class="conversation-tools">
                   <a class="mobile-back button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">← Pacientes</a>
-                  <a class="button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">Cerrar conversacion</a>
                   <a class="button-link" href="#send-file-email">📤 Archivo al correo</a>
+                  <a class="button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">Cerrar conversacion</a>
                   <a class="button-link button-secondary" href="https://wa.me/${encodeURIComponent(selectedPhone)}" target="_blank" rel="noreferrer">Abrir WhatsApp</a>
                   <button type="button" class="button-secondary" data-copy-phone="${escapeHtml(selectedPhone)}">Copiar telefono</button>
                   ${
@@ -3352,6 +3379,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       ${renderMobilePatientSheet(selected, { selectedStatus, windowState })}
       ${inboxError ? `<div class="error-banner">${escapeHtml(inboxError)}</div>` : ""}
       ${inboxSuccess ? `<div class="success-banner">${escapeHtml(inboxSuccess)}</div>` : ""}
+      ${inboxError ? `<div class="mobile-toast error" role="alert">${escapeHtml(inboxError)}</div>` : ""}
+      ${inboxSuccess ? `<div class="mobile-toast success" role="status">${escapeHtml(inboxSuccess)}</div>` : ""}
       ${selected?.botPaused ? `<div class="notice">Modo humano activo: el bot guarda mensajes entrantes, pero no responde automaticamente a este paciente.</div>` : ""}
       ${needsTemplateNotice ? `<div class="notice">La ultima interaccion del paciente fue hace mas de 24 horas. Puede requerir plantilla aprobada de WhatsApp para responder fuera de la ventana de atencion.</div>` : ""}
       ${appointmentCard}
