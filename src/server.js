@@ -2790,6 +2790,27 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       flex: 0 0 auto;
     }
     .composer form { display: grid; gap: 10px; }
+    .composer-email-action {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid #9fc5ef;
+      border-radius: 16px;
+      background: #eef6ff;
+    }
+    .composer-email-action span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.35;
+    }
+    .composer-email-action .button-link {
+      flex: 0 0 auto;
+      padding: 9px 12px;
+      font-size: 12px;
+    }
     .message-input-row {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
@@ -3051,6 +3072,16 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       }
       .conversation-tools form { display: flex; flex: 0 0 auto; min-width: 0; }
       .conversation-tools .tag-form { display: none; }
+      .results-email-inline {
+        margin: 10px 12px 0;
+        scroll-margin-top: 150px;
+      }
+      .results-email-inline summary {
+        padding: 13px 14px;
+      }
+      .results-email-inline form {
+        padding: 0 14px 14px;
+      }
       .mobile-patient-sheet {
         display: block;
         padding: 10px 12px;
@@ -3070,6 +3101,10 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       }
       .messages { padding: 12px; }
       .appointment-card { margin: 10px 12px 0; }
+      .appointment-card[open] .appointment-grid {
+        max-height: 150px;
+        overflow: auto;
+      }
       .notice, .error-banner { margin: 10px 12px 0; }
       .appointment-grid { grid-template-columns: 1fr; }
       .bubble { max-width: 92%; }
@@ -3078,6 +3113,15 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
         padding-bottom: max(10px, env(safe-area-inset-bottom));
       }
       .composer form { gap: 8px; }
+      .composer-email-action {
+        align-items: stretch;
+        display: grid;
+        gap: 8px;
+      }
+      .composer-email-action .button-link {
+        justify-content: center;
+        width: 100%;
+      }
       .message-input-row {
         grid-template-columns: minmax(0, 1fr) 96px;
       }
@@ -3228,15 +3272,19 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       ${inboxSuccess ? `<div class="success-banner">${escapeHtml(inboxSuccess)}</div>` : ""}
       ${selected?.botPaused ? `<div class="notice">Modo humano activo: el bot guarda mensajes entrantes, pero no responde automaticamente a este paciente.</div>` : ""}
       ${needsTemplateNotice ? `<div class="notice">La ultima interaccion del paciente fue hace mas de 24 horas. Puede requerir plantilla aprobada de WhatsApp para responder fuera de la ventana de atencion.</div>` : ""}
+      ${selected ? renderInlineResultsEmailAction(selected, selectedPhone, csrf) : ""}
       ${appointmentCard}
       <div class="messages">${messages}</div>
-      ${selected ? renderInlineResultsEmailAction(selected, selectedPhone, csrf) : ""}
       ${
         selected
           ? `<div class="composer">
               <form method="post" action="/inbox/send">
                 <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
                 <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                <div class="composer-email-action">
+                  <span>Para resultados, fotos o PDF usa correo. No se manda archivo por WhatsApp.</span>
+                  <a class="button-link" href="#send-file-email">📤 Enviar archivo al correo</a>
+                </div>
                 ${quickReplies}
                 <div class="message-input-row">
                   <textarea name="message" rows="3" maxlength="2000" placeholder="Escribe una respuesta como humano..."></textarea>
