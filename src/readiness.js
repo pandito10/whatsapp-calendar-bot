@@ -32,6 +32,13 @@ export function assessProductionReadiness({ dbOk = false } = {}) {
   if (!config.googleCalendarIdConfigured) {
     warnings.push(`GOOGLE_CALENDAR_ID is not configured; using ${config.googleCalendarLabel}`);
   }
+  if (!config.resendApiKey || !config.resendFromEmail) {
+    const missingEmailVars = [
+      !config.resendApiKey ? "RESEND_API_KEY" : undefined,
+      !config.resendFromEmail ? "RESEND_FROM_EMAIL" : undefined
+    ].filter(Boolean).join(" / ");
+    warnings.push(`Results email is not configured; set ${missingEmailVars} to send studies by email`);
+  }
 
   return {
     ready: blocking.length === 0,

@@ -8,12 +8,14 @@ export function buildOperationalHealth({ db, conversationCount = 0, memorySessio
   const googleConfigured = Boolean(config.googleClientId && config.googleClientSecret && config.googleRefreshToken && config.googleCalendarId);
   const inboxProtected = Boolean((config.inboxPassword || config.inboxPasswordHash) && config.cookieSecret);
   const webhookSigned = Boolean(config.whatsappAppSecret && config.requireWebhookSignature && !config.allowUnsignedWebhooks);
+  const emailConfigured = Boolean(config.resendApiKey && config.resendFromEmail);
   const production = config.nodeEnv === "production";
 
   const checks = {
     database: db?.status ?? "unknown",
     whatsapp: whatsappConfigured ? "configured" : "missing-config",
     google: googleConfigured ? "configured" : "missing-config",
+    email: emailConfigured ? "configured" : "missing-config",
     inbox: inboxProtected ? "protected" : "missing-auth-config",
     webhookSignature: webhookSigned ? "required" : config.allowUnsignedWebhooks ? "unsigned-temporary" : "blocked-missing-secret"
   };
@@ -60,6 +62,11 @@ export function buildOperationalHealth({ db, conversationCount = 0, memorySessio
       busyCalendarIds: config.googleBusyCalendarIds,
       source: config.googleCalendarIdConfigured ? "env" : "default-agenda-dra-carranza",
       usingConfiguredCalendar: config.googleCalendarIdConfigured
+    },
+    email: {
+      configured: emailConfigured,
+      resendApiKeyConfigured: Boolean(config.resendApiKey),
+      resendFromEmailConfigured: Boolean(config.resendFromEmail)
     },
     reconciliation: reconciliation.result
       ? {

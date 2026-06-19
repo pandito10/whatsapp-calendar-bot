@@ -756,6 +756,11 @@ async function handleDebugConfig(req, url, res) {
         medicalMessagingPolicyWarnings: buildMedicalPolicyWarnings(config),
         doctorWhatsappNumber: maskPhone(config.doctorWhatsappNumber),
         databaseEnabled: isDatabaseEnabled(),
+        email: {
+          configured: isEmailEnabled(),
+          resendApiKeyConfigured: Boolean(config.resendApiKey),
+          resendFromEmailConfigured: Boolean(config.resendFromEmail)
+        },
         activeAppointmentLocks: activeLocks
       })
     );
@@ -809,6 +814,11 @@ async function buildInboxDiagnostics() {
       label: "Google",
       ok: Boolean(config.googleClientId && config.googleClientSecret && config.googleRefreshToken),
       detail: config.googleClientId && config.googleClientSecret && config.googleRefreshToken ? "OAuth configurado" : "Faltan credenciales"
+    },
+    {
+      label: "Correo",
+      ok: isEmailEnabled(),
+      detail: isEmailEnabled() ? "Resend configurado" : buildEmailConfigErrorMessage().replace(/^No se pudo enviar el correo: /, "")
     },
     {
       label: "Inbox",
@@ -1156,7 +1166,7 @@ async function handleInboxResultsEmail(req, url, res) {
   }
 
   if (!isEmailEnabled()) {
-    await redirectInbox(res, phone, "No se pudo enviar el correo. Revisa RESEND_API_KEY / RESEND_FROM_EMAIL.");
+    await redirectInbox(res, phone, buildEmailConfigErrorMessage());
     return;
   }
 
@@ -1174,7 +1184,7 @@ async function handleInboxResultsEmail(req, url, res) {
     });
   } catch (error) {
     logSafeError(`Could not send medical result email to ${emailMasked}`, error);
-    await redirectInbox(res, phone, "No se pudo enviar el correo. Revisa RESEND_API_KEY / RESEND_FROM_EMAIL.");
+    await redirectInbox(res, phone, "No se pudo enviar el correo. Resend rechazo el envio; revisa que RESEND_FROM_EMAIL sea un remitente verificado y que RESEND_API_KEY este activa.");
     return;
   }
 
@@ -1209,6 +1219,13 @@ async function handleInboxResultsEmail(req, url, res) {
       : "Archivo enviado exitosamente al correo confirmado, pero no pude guardar la nota interna. Revisa Supabase.",
     "success"
   );
+}
+
+function buildEmailConfigErrorMessage() {
+  const missing = [];
+  if (!config.resendApiKey) missing.push("RESEND_API_KEY");
+  if (!config.resendFromEmail) missing.push("RESEND_FROM_EMAIL");
+  return `No se pudo enviar el correo: falta configurar ${missing.join(" y ")} en Render.`;
 }
 
 async function maybeSendResultsEmailWhatsAppNotice(phone, conversation, emailMasked) {
