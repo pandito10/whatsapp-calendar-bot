@@ -92,7 +92,23 @@ export function getConversationStatus(conversation, nowMs = Date.now()) {
   return { key: "open", label: "En atencion", className: "open", priority: 9 };
 }
 
-export function sortInboxConversations(list, nowMs = Date.now()) {
+export function sortInboxConversations(list, nowMs = Date.now(), options = {}) {
+  if (options.newestPatientFirst) {
+    return [...list].sort((a, b) => {
+      const aLast = a?.messages?.at(-1);
+      const bLast = b?.messages?.at(-1);
+      const aIsPatient = aLast?.sender === "patient" ? 1 : 0;
+      const bIsPatient = bLast?.sender === "patient" ? 1 : 0;
+      if (aIsPatient !== bIsPatient) return bIsPatient - aIsPatient;
+
+      const aPatientTime = getLastPatientMessageTime(a);
+      const bPatientTime = getLastPatientMessageTime(b);
+      if (aPatientTime !== bPatientTime) return bPatientTime - aPatientTime;
+
+      return new Date(b.updatedAt ?? 0).getTime() - new Date(a.updatedAt ?? 0).getTime();
+    });
+  }
+
   return [...list].sort((a, b) => {
     const priorityDiff = getConversationStatus(a, nowMs).priority - getConversationStatus(b, nowMs).priority;
     if (priorityDiff !== 0) return priorityDiff;
@@ -215,6 +231,12 @@ function hasRecentFallback(conversation) {
 
 function getLastPatientMessage(conversation) {
   return [...(conversation?.messages ?? [])].reverse().find((message) => message.sender === "patient");
+}
+
+function getLastPatientMessageTime(conversation) {
+  const timestamp = getLastPatientMessage(conversation)?.timestamp;
+  const value = timestamp ? new Date(timestamp).getTime() : 0;
+  return Number.isFinite(value) ? value : 0;
 }
 
 function extractDateMention(text) {

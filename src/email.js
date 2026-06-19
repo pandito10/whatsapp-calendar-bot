@@ -1,4 +1,5 @@
 import { config } from "./config.js";
+import { isValidPatientEmail, sanitizeResultNote } from "./results-email.js";
 
 export function isEmailEnabled() {
   return Boolean(config.resendApiKey && config.resendFromEmail);
@@ -22,14 +23,41 @@ export async function sendCancellationEmail({ to, name, slotLabel, clinicName })
   });
 }
 
-async function sendResendEmail({ to, subject, html }) {
+export async function sendMedicalResultEmail({ to, name, clinicName, file, note }) {
+  if (!isEmailEnabled()) {
+    throw new Error("Resend email is not configured");
+  }
+  if (!isValidPatientEmail(to)) {
+    throw new Error("Invalid patient email");
+  }
+  if (!file?.buffer?.length || !file.filename) {
+    throw new Error("Missing result attachment");
+  }
+
+  await sendResendEmail({
+    to,
+    subject: `Resultados disponibles — ${clinicName}`,
+    html: buildMedicalResultHtml({ name, clinicName, note }),
+    attachments: [
+      {
+        filename: file.filename,
+        content: file.buffer.toString("base64")
+      }
+    ]
+  });
+}
+
+async function sendResendEmail({ to, subject, html, attachments }) {
+  const payload = { from: config.resendFromEmail, to: [to], subject, html };
+  if (attachments?.length) payload.attachments = attachments;
+
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${config.resendApiKey}`
     },
-    body: JSON.stringify({ from: config.resendFromEmail, to: [to], subject, html }),
+    body: JSON.stringify(payload),
     signal: AbortSignal.timeout(10_000)
   });
 
@@ -37,6 +65,26 @@ async function sendResendEmail({ to, subject, html }) {
     const text = await res.text().catch(() => "");
     throw new Error(`Resend API error ${res.status}: ${text.slice(0, 200)}`);
   }
+}
+
+function buildMedicalResultHtml({ name, clinicName, note }) {
+  const safeNote = sanitizeResultNote(note);
+  return `<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"><title>Resultados disponibles</title></head>
+<body style="font-family:sans-serif;background:#f9f9f9;padding:24px;">
+  <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:8px;padding:32px;box-shadow:0 2px 8px rgba(0,0,0,.08);">
+    <h2 style="color:#1a5fa8;margin-top:0;">Resultados disponibles</h2>
+    <p>Hola <strong>${esc(name || "paciente")}</strong>,</p>
+    <p>Te compartimos el archivo de resultados enviado por <strong>${esc(clinicName)}</strong>.</p>
+    ${safeNote ? `<div style="background:#f0f7ff;border-left:4px solid #1a5fa8;padding:12px 16px;border-radius:4px;margin:16px 0;"><strong>Nota del consultorio:</strong><br>${esc(safeNote)}</div>` : ""}
+    <p style="color:#555;font-size:14px;">Este correo solo entrega el archivo. Cualquier diagnostico, interpretacion o tratamiento debe revisarse directamente con la doctora.</p>
+    <p style="color:#555;font-size:14px;">Si tienes dolor fuerte, sangrado abundante o una urgencia, acude a urgencias o contacta directamente al consultorio.</p>
+    <hr style="border:none;border-top:1px solid #eee;margin:24px 0;">
+    <p style="color:#999;font-size:12px;text-align:center;">${esc(clinicName)}</p>
+  </div>
+</body>
+</html>`;
 }
 
 function buildConfirmationHtml({ name, slotLabel, clinicName, clinicAddress }) {

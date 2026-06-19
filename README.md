@@ -168,7 +168,8 @@ El inbox permite:
 - Buscar por nombre o telefono.
 - Filtrar por pendientes, resultados, cita agendada, sin cita, primera vez, recurrentes o modo humano.
 - Responder desde `/inbox` como humano.
-- Enviar un adjunto por respuesta: foto, video, PDF, Word, Excel, PowerPoint, TXT o CSV.
+- Enviar mensajes de texto por WhatsApp.
+- Enviar fotos, PDF o archivos medicos por correo confirmado desde una accion separada y segura.
 - Cerrar la conversacion seleccionada para volver a la vista neutral de pacientes.
 - Tomar una conversacion para pausar el bot.
 - Devolver la conversacion al bot.
@@ -176,7 +177,7 @@ El inbox permite:
 - Revisar respuestas humanas como sugerencias de aprendizaje supervisado.
 
 Las acciones del inbox requieren sesion y CSRF. Los mensajes humanos se envian por WhatsApp desde backend y se guardan solo despues de respuesta exitosa de la API.
-Los adjuntos se suben primero a la Media API de WhatsApp y despues se envian como `image`, `video` o `document`. Supabase solo guarda metadata del envio (nombre, tipo, tamano e id de Meta), no el archivo completo. Esto reduce el riesgo de almacenar resultados medicos en la base del bot.
+El inbox ya no permite adjuntar fotos, videos, documentos ni PDFs por WhatsApp. Para cualquier archivo usa la accion **Enviar archivo por correo confirmado** en la ficha del paciente; envia PDF/JPG/PNG/WEBP al correo confirmado de la cita usando Resend. Supabase guarda solo una nota y metadata del envio, no el archivo completo.
 Si una conversacion queda en modo humano mas de `BOT_PAUSE_TIMEOUT_MINUTES`, el bot la libera automaticamente al recibir un nuevo mensaje.
 
 ### Solicitud de resultados o estudios
@@ -185,11 +186,13 @@ El menu de WhatsApp incluye la opcion **Resultados**. Cuando una paciente la eli
 
 - Marca la conversacion con etiquetas `Resultados` y `Humano requerido`.
 - Pausa el bot para que no mande documentos automaticamente.
-- Guarda una nota interna para verificar identidad y revisar que el archivo este aprobado.
-- Responde a la paciente que el consultorio revisara la solicitud por seguridad.
+- Guarda una nota interna para verificar identidad, correo confirmado y archivo aprobado.
+- Responde a la paciente: "Por privacidad, los resultados o estudios se entregan unicamente por el correo confirmado de la paciente o de forma presencial. Por WhatsApp solo podemos registrar tu solicitud y pasarla a revision humana."
 - Avisa al numero administrador sin incluir datos medicos en la alerta.
 
-Regla de operacion: no enviar resultados, diagnosticos ni estudios solo por nombre. Antes de compartir un archivo por WhatsApp, el personal debe verificar identidad y confirmar que el documento fue aprobado por el consultorio. Si la ultima interaccion de la paciente ya paso de 24 horas, no se debe iniciar el envio con texto libre; usa una plantilla aprobada de Meta o espera a que la paciente escriba de nuevo.
+Regla de operacion: no enviar resultados, diagnosticos ni estudios solo por nombre. Antes de enviar un archivo, el personal debe verificar identidad, confirmar que el correo guardado pertenece a la paciente y confirmar que el documento fue aprobado por el consultorio. El archivo se manda por correo confirmado, no por WhatsApp. Si la ventana de 24 horas esta abierta, el sistema puede enviar por WhatsApp solo un aviso sin archivo; si la ventana cerro, deja solamente la nota interna.
+
+Las FAQs aprobadas desde el inbox no pueden responder automaticamente temas medicos sensibles como diagnostico, receta, medicamentos, tratamiento, infeccion, embarazo, sangrado, dolor fuerte, resultados, estudios, relaciones sexuales, papanicolaou, colposcopia o ultrasonido. Esas preguntas deben configurarse como `human_handoff`.
 
 ## Aprendizaje supervisado
 
@@ -494,7 +497,9 @@ Terceros involucrados:
 
 Recomendacion: antes de usarlo con pacientes reales, prepara un aviso de privacidad del consultorio. Evita pedir sintomas, diagnosticos o informacion intima por WhatsApp. No uses este bot como expediente medico. Por default, el motivo que escriba el paciente no se manda a Google Calendar ni al aviso de admin; se recomienda revisar detalles sensibles solo en el inbox con personal autorizado.
 
-Si el personal envia resultados, fotos o archivos desde el inbox, recuerda que viajan por WhatsApp/Meta y quedan sujetos a las politicas y retencion de esa plataforma. El bot no guarda el archivo completo en Supabase; solo guarda metadata del envio para auditoria basica. No uses envio automatico de resultados: deben pasar por verificacion humana y, fuera de la ventana de 24 horas, por plantilla aprobada de WhatsApp.
+Los resultados medicos deben enviarse por correo confirmado desde el flujo seguro del inbox. El bot no guarda el archivo completo en Supabase; solo guarda nota interna y metadata de auditoria basica como correo enmascarado y nombre de archivo. No uses envio automatico de resultados: deben pasar por verificacion humana. WhatsApp solo debe usarse para avisar sin adjunto cuando la ventana de 24 horas siga abierta.
+
+El bot es asistente administrativo: no diagnostica, no receta, no interpreta resultados y no sustituye una consulta. Para dudas medicas responde de forma segura y deriva a persona del consultorio; para urgencias indica acudir a urgencias.
 
 ## Hardening técnico agregado
 
@@ -524,6 +529,7 @@ EXTERNAL_REQUEST_TIMEOUT_MS=8000
 EXTERNAL_REQUEST_RETRIES=2
 INBOX_ALLOW_LEGACY_TOKEN_ACCESS=false
 INBOX_MEDIA_MAX_BYTES=16000000
+RESULTS_EMAIL_MAX_BYTES=10000000
 APPOINTMENT_BUFFER_MINUTES=0
 MIN_APPOINTMENT_ADVANCE_HOURS=0
 FORWARD_CONVERSATION_BODIES=false
@@ -536,6 +542,7 @@ WHATSAPP_TEMPLATE_LANGUAGE=es_MX
 ```
 
 Mantén `INBOX_ALLOW_LEGACY_TOKEN_ACCESS=false`, `FORWARD_CONVERSATION_BODIES=false`, `MASK_PATIENT_PHONE_IN_CALENDAR=true` e `INCLUDE_PATIENT_CONTACT_IN_CALENDAR=false` en producción. El acceso seguro al inbox debe ser por login y cookie `HttpOnly`.
+En produccion tambien deben quedar `REQUIRE_WEBHOOK_SIGNATURE=true`, `ALLOW_UNSIGNED_WEBHOOKS=false`, `INCLUDE_SENSITIVE_APPOINTMENT_NOTES=false` y `COLD_LEAD_FOLLOWUP_ENABLED=false` salvo que exista una razon operativa revisada. `/debug/config` muestra warnings de politica medica sin exponer secretos.
 
 ### Pruebas
 

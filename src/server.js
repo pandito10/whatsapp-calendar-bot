@@ -72,9 +72,29 @@ import {
   setSession,
   updateKnowledgeSuggestion
 } from "./db.js";
-import { downloadWhatsAppAudio, getLastWhatsAppSendDiagnostic, sendMessageWithOptions, sendWhatsAppButtons, sendWhatsAppList, sendWhatsAppMedia, sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.js";
+import { downloadWhatsAppAudio, getLastWhatsAppSendDiagnostic, sendMessageWithOptions, sendWhatsAppButtons, sendWhatsAppList, sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.js";
 import { appendLeadToSheet, appendAppointmentToSheet, appendUnknownQuestionToSheet, isSheetsEnabled } from "./sheets.js";
-import { isEmailEnabled, sendAppointmentConfirmationEmail, sendCancellationEmail } from "./email.js";
+import { isEmailEnabled, sendAppointmentConfirmationEmail, sendCancellationEmail, sendMedicalResultEmail } from "./email.js";
+import {
+  buildResultSentWhatsAppNotice,
+  buildResultsEmailAuditText,
+  buildResultsEmailMessageMetadata,
+  isValidPatientEmail,
+  maskEmail,
+  sanitizeResultNote,
+  validateResultsEmailRequest
+} from "./results-email.js";
+import {
+  INBOX_ATTACHMENT_EMAIL_ONLY_ERROR,
+  MEDICAL_CHAT_SAFE_TEXT,
+  MEDICAL_FAQ_BLOCK_ERROR,
+  MEDICAL_URGENCY_TEXT,
+  PRIVACY_CONSENT_TEXT,
+  RESULTS_PRIVACY_TEXT,
+  buildMedicalPolicyWarnings,
+  buildPatientResultsHumanNote,
+  isMedicalFaqAutoReplyBlocked
+} from "./medical-policy.js";
 
 const sessions = new Map();
 const processedMessages = new Map();
@@ -331,6 +351,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/inbox/send") {
       await handleInboxSend(req, url, res);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/inbox/results-email") {
+      await handleInboxResultsEmail(req, url, res);
       return;
     }
 
@@ -727,6 +752,7 @@ async function handleDebugConfig(req, url, res) {
         webhookSignatureMode: config.whatsappAppSecret && config.requireWebhookSignature ? "signed" : config.allowUnsignedWebhooks ? "unsigned-temporary" : "blocked",
         webhookPathSecretEnabled: Boolean(config.webhookPathSecret),
         webhookDiagnostics: getWebhookDiagnostics(),
+        medicalMessagingPolicyWarnings: buildMedicalPolicyWarnings(config),
         doctorWhatsappNumber: maskPhone(config.doctorWhatsappNumber),
         databaseEnabled: isDatabaseEnabled(),
         activeAppointmentLocks: activeLocks
@@ -999,18 +1025,14 @@ async function handleInboxSend(req, url, res) {
   const message = String(form.get("message") ?? "").trim();
   const attachment = form.getFile?.("attachment");
   const validAttachment = attachment && attachment.size > 0 ? attachment : undefined;
-  const attachmentValidation = validAttachment ? validateInboxAttachment(validAttachment) : undefined;
 
-  if (!isValidWhatsAppPhone(phone) || (!message && !validAttachment) || message.length > 2000) {
+  if (validAttachment) {
+    await redirectInbox(res, phone, INBOX_ATTACHMENT_EMAIL_ONLY_ERROR);
+    return;
+  }
+
+  if (!isValidWhatsAppPhone(phone) || !message || message.length > 2000) {
     await redirectInbox(res, phone, "Mensaje invalido o telefono invalido.");
-    return;
-  }
-  if (message && validAttachment && message.length > 1024) {
-    await redirectInbox(res, phone, "El texto con archivo debe ser de maximo 1024 caracteres.");
-    return;
-  }
-  if (attachmentValidation) {
-    await redirectInbox(res, phone, attachmentValidation);
     return;
   }
 
@@ -1026,34 +1048,133 @@ async function handleInboxSend(req, url, res) {
   }
 
   try {
-    if (validAttachment) {
-      const mediaResult = await sendWhatsAppMedia(phone, validAttachment, { caption: message });
-      await recordConversationMessage(
-        phone,
-        "human",
-        buildInboxAttachmentBody(validAttachment, mediaResult.mediaType, message),
-        {
-          source: "inbox",
-          media: {
-            id: mediaResult.mediaId,
-            type: mediaResult.mediaType,
-            filename: validAttachment.filename,
-            contentType: validAttachment.contentType,
-            size: validAttachment.size
-          }
-        }
-      );
-    } else {
-      await sendWhatsAppText(phone, message);
-      await recordConversationMessage(phone, "human", message, { source: "inbox" });
-      await saveHumanKnowledgeSuggestion(phone, message);
-    }
+    await sendWhatsAppText(phone, message);
+    await recordConversationMessage(phone, "human", message, { source: "inbox" });
+    await saveHumanKnowledgeSuggestion(phone, message);
     await markConversationHumanReply(phone);
     console.log(`Inbox human reply sent to ${maskPhone(phone)}`);
     await redirectInbox(res, phone);
   } catch (error) {
     logSafeError(`Could not send inbox reply to ${maskPhone(phone)}`, error);
     await redirectInbox(res, phone, classifyWhatsAppInboxSendError(error));
+  }
+}
+
+async function handleInboxResultsEmail(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) return;
+  if (!checkRateLimit(req, url, "inbox-action")) {
+    res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8" }).end("too many requests");
+    return;
+  }
+
+  let form;
+  try {
+    form = await readForm(req, { maxBytes: config.resultsEmailMaxBytes + config.maxRequestBytes });
+  } catch (error) {
+    logSafeError("Could not read results email form", error);
+    res.writeHead(error.message?.startsWith("Request body too large") ? 413 : 400, { "Content-Type": "text/plain; charset=utf-8" }).end("payload invalid");
+    return;
+  }
+
+  if (!isValidCsrf(req, form.get("csrf"))) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const phone = normalizePhone(form.get("phone") ?? "");
+  if (!isValidWhatsAppPhone(phone)) {
+    await redirectInbox(res, "", "Telefono invalido.");
+    return;
+  }
+
+  const conversation = await loadConversationForInboxSend(phone);
+  const appointment = conversation?.appointment;
+  const patientEmail = String(appointment?.patientEmail ?? "").trim();
+  const resultFile = form.getFile?.("resultFile");
+  const validFile = resultFile && resultFile.size > 0 ? resultFile : undefined;
+  const confirmed = form.get("confirmed") === "yes";
+  const validationError = validateResultsEmailRequest({
+    patientEmail,
+    file: validFile,
+    confirmed,
+    maxBytes: config.resultsEmailMaxBytes
+  });
+
+  if (validationError) {
+    await redirectInbox(res, phone, validationError);
+    return;
+  }
+
+  if (!isEmailEnabled()) {
+    await redirectInbox(res, phone, "No se pudo enviar el correo. Revisa RESEND_API_KEY / RESEND_FROM_EMAIL.");
+    return;
+  }
+
+  const note = sanitizeResultNote(form.get("note"));
+  const emailMasked = maskEmail(patientEmail);
+  const auditText = buildResultsEmailAuditText({ email: patientEmail, filename: validFile.filename });
+
+  try {
+    await sendMedicalResultEmail({
+      to: patientEmail,
+      name: appointment?.patientName,
+      clinicName: config.clinicName,
+      file: validFile,
+      note
+    });
+  } catch (error) {
+    logSafeError(`Could not send medical result email to ${emailMasked}`, error);
+    await redirectInbox(res, phone, "No se pudo enviar el correo. Revisa RESEND_API_KEY / RESEND_FROM_EMAIL.");
+    return;
+  }
+
+  const noteRecord = {
+    body: auditText,
+    author: "consultorio",
+    createdAt: new Date().toISOString()
+  };
+  const existing = conversations.get(phone) ?? conversation ?? { phoneNumber: phone, messages: [], updatedAt: new Date().toISOString() };
+  existing.notes = [noteRecord, ...(existing.notes ?? [])].slice(0, 20);
+  conversations.set(phone, existing);
+
+  let auditSaved = true;
+  try {
+    await saveConversationNote({ phoneNumber: phone, body: auditText, author: "consultorio" });
+  } catch (error) {
+    auditSaved = false;
+    logSafeError(`Could not save results email note for ${maskPhone(phone)}`, error);
+  }
+
+  await recordConversationMessage(phone, "admin", auditText, buildResultsEmailMessageMetadata({
+    email: patientEmail,
+    filename: validFile.filename
+  }));
+
+  await maybeSendResultsEmailWhatsAppNotice(phone, conversation ?? existing, emailMasked);
+  await redirectInbox(
+    res,
+    phone,
+    auditSaved
+      ? "Estudios enviados al correo confirmado."
+      : "Estudios enviados al correo confirmado, pero no pude guardar la nota interna. Revisa Supabase.",
+    "success"
+  );
+}
+
+async function maybeSendResultsEmailWhatsAppNotice(phone, conversation, emailMasked) {
+  const windowState = getWhatsAppWindowState(conversation);
+  if (!["open", "closing"].includes(windowState.key)) return;
+
+  const notice = buildResultSentWhatsAppNotice();
+  try {
+    await sendWhatsAppText(phone, notice);
+    await recordConversationMessage(phone, "human", notice, {
+      source: "inbox_results_email_notice",
+      emailMasked
+    });
+    await markConversationHumanReply(phone);
+  } catch (error) {
+    logSafeError(`Could not send results email WhatsApp notice to ${maskPhone(phone)}`, error);
   }
 }
 
@@ -1094,46 +1215,6 @@ function classifyWhatsAppInboxSendError(error) {
     return "WhatsApp limito temporalmente los envios. Espera un momento y prueba de nuevo.";
   }
   return "No se pudo enviar el mensaje por WhatsApp. Revisa logs de Render para ver el error de Meta.";
-}
-
-function validateInboxAttachment(file) {
-  if (file.size > config.inboxMediaMaxBytes) {
-    return `El archivo supera el limite de ${formatFileSize(config.inboxMediaMaxBytes)}.`;
-  }
-
-  const contentType = String(file.contentType ?? "").toLowerCase();
-  const filename = String(file.filename ?? "").toLowerCase();
-  const extension = filename.includes(".") ? filename.slice(filename.lastIndexOf(".")) : "";
-  const allowedTypes = new Set([
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-    "video/mp4",
-    "video/3gpp",
-    "application/pdf",
-    "text/plain",
-    "text/csv",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.ms-excel",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.ms-powerpoint",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-  ]);
-  const allowedExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".mp4", ".3gp", ".pdf", ".txt", ".csv", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"]);
-
-  if (!allowedTypes.has(contentType) && !(contentType === "application/octet-stream" && allowedExtensions.has(extension))) {
-    return "Tipo de archivo no permitido. Usa foto, video, PDF, Word, Excel, PowerPoint, TXT o CSV.";
-  }
-
-  return undefined;
-}
-
-function buildInboxAttachmentBody(file, mediaType, caption) {
-  const label = mediaType === "image" ? "Imagen enviada" : mediaType === "video" ? "Video enviado" : "Archivo enviado";
-  const lines = [`${mediaType === "image" ? "🖼️" : mediaType === "video" ? "🎥" : "📎"} ${label}: ${file.filename}`];
-  if (caption) lines.push("", caption);
-  return lines.join("\n");
 }
 
 async function handleKnowledgeReview(req, url, res) {
@@ -1190,6 +1271,10 @@ async function handleKnowledgeCreate(req, url, res) {
     await redirectInbox(res, phone, "Pregunta o respuesta invalida.");
     return;
   }
+  if (isMedicalFaqAutoReplyBlocked({ question, answer, action })) {
+    await redirectInbox(res, phone, MEDICAL_FAQ_BLOCK_ERROR);
+    return;
+  }
 
   await saveKnowledgeSuggestion({
     question,
@@ -1228,6 +1313,10 @@ async function handleKnowledgeUpdate(req, url, res) {
   const active = activeValue === "true" ? true : activeValue === "false" ? false : undefined;
   if (!id || question.length < 4 || (action === "answer" && answer.length < 4) || question.length > 1000 || answer.length > 2000) {
     await redirectInbox(res, phone, "FAQ invalida.");
+    return;
+  }
+  if (isMedicalFaqAutoReplyBlocked({ question, answer, action })) {
+    await redirectInbox(res, phone, MEDICAL_FAQ_BLOCK_ERROR);
     return;
   }
 
@@ -1764,6 +1853,7 @@ function handlePrivacyPage(res) {
 
     <h2>Informacion medica sensible</h2>
     <p>Este canal no sustituye una consulta medica y no debe usarse como expediente clinico. El bot no diagnostica, no receta medicamentos y no atiende emergencias. En caso de urgencia, dolor fuerte, sangrado abundante o sintomas graves, se debe acudir a urgencias o contactar directamente al consultorio.</p>
+    <p>Por privacidad, los resultados o estudios se entregan unicamente por el correo confirmado de la paciente o de forma presencial. Por WhatsApp solo se registra la solicitud y se pasa a revision humana.</p>
 
     <h2>Conservacion y seguridad</h2>
     <p>El acceso al inbox esta protegido con autenticacion. Los datos se conservan solo para seguimiento operativo del consultorio y deben manejarse conforme al aviso de privacidad formal del consultorio.</p>
@@ -1884,7 +1974,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
   const csrf = createSessionCsrfToken(req);
   const q = normalizeText(url.searchParams.get("q") ?? "");
   const filter = url.searchParams.get("filter") ?? "all";
-  const filteredList = sortInboxConversations(filterInboxConversationList(list, q, filter));
+  const newestPatientFirst = ["all", "pending", "followup"].includes(filter);
+  const filteredList = sortInboxConversations(filterInboxConversationList(list, q, filter), Date.now(), { newestPatientFirst });
   if (selected && !filteredList.some((conversation) => conversation.phoneNumber === selected.phoneNumber)) {
     filteredList.unshift(selected);
   }
@@ -1894,6 +1985,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
   const selectedName = selected ? getConversationDisplayName(selected) : "";
   const appointmentCard = selected?.appointment ? renderAppointmentCard(selected.appointment) : "";
   const inboxError = url.searchParams.get("error");
+  const inboxSuccess = url.searchParams.get("success");
   const selectedPhone = selected?.phoneNumber ?? "";
   const windowState = selected ? getWhatsAppWindowState(selected) : undefined;
   const needsTemplateNotice = windowState?.key === "expired";
@@ -2453,6 +2545,79 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       margin-bottom: 5px;
       font-size: 11px;
     }
+    .results-email-card {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 14px;
+      background: #eef6ff;
+      border: 1px solid #9fc5ef;
+      font-size: 13px;
+    }
+    .results-email-card p { margin: 0; overflow-wrap: anywhere; }
+    .results-email-card summary {
+      cursor: pointer;
+      color: #0d3d72;
+      font-weight: 900;
+      padding: 8px 0;
+    }
+    .results-email-card small {
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .results-email-inline {
+      margin: 12px 24px;
+      border-radius: 18px;
+      border: 1px solid #9fc5ef;
+      background: linear-gradient(135deg, #eef6ff, #fff7fb);
+      box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
+      overflow: hidden;
+      scroll-margin-top: 90px;
+    }
+    .results-email-inline summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 16px 18px;
+      display: grid;
+      gap: 5px;
+      color: #0d3d72;
+      font-weight: 950;
+    }
+    .results-email-inline summary::-webkit-details-marker { display: none; }
+    .results-email-inline summary strong {
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .results-email-inline summary span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+    .results-email-inline form {
+      padding: 0 18px 16px;
+    }
+    .results-email-inline.is-disabled {
+      padding: 16px 18px;
+      color: #0d3d72;
+    }
+    .results-email-inline.is-disabled strong {
+      display: block;
+      font-size: 16px;
+      margin-bottom: 5px;
+    }
+    .checkbox-row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
+      font-size: 12px;
+      color: #334155;
+      line-height: 1.4;
+    }
+    .checkbox-row input { margin-top: 2px; }
     .chat-title {
       display: flex;
       align-items: center;
@@ -2482,37 +2647,62 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
     .appointment-card {
       margin: 18px 24px 0;
-      padding: 14px 16px;
       border-radius: 14px;
       background: #f0f6ff;
       border: 1px solid #9fc5ef;
       color: #0d3d72;
+      overflow: hidden;
     }
     .appointment-card summary {
-      display: block;
-      margin-bottom: 8px;
-      font-size: 14px;
-      font-weight: 700;
       cursor: pointer;
       list-style: none;
+      padding: 12px 14px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      font-size: 13px;
+      font-weight: 900;
     }
     .appointment-card summary::-webkit-details-marker { display: none; }
-    .appointment-card summary::after {
-      content: " (toca para cerrar)";
-      font-size: 11px;
-      font-weight: 400;
+    .appointment-card summary strong {
+      display: block;
+      font-size: 14px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .appointment-card summary span {
+      display: block;
+      margin-top: 2px;
       color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
-    .appointment-card:not([open]) summary::after {
-      content: " (toca para abrir)";
+    .appointment-card summary::after {
+      content: "Ver";
+      color: var(--brand-dark);
+      background: #fff;
+      border: 1px solid #9fc5ef;
+      padding: 5px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 900;
     }
-    .appointment-card:not([open]) {
-      padding-bottom: 0;
+    .appointment-card[open] summary::after {
+      content: "Ocultar";
+    }
+    .appointment-card[open] summary {
+      border-bottom: 1px solid #cfe1f7;
     }
     .appointment-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px 14px;
+      padding: 12px 14px 14px;
       font-size: 13px;
     }
     .appointment-grid span {
@@ -2728,6 +2918,15 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       color: #991b1b;
       background: #fee2e2;
       border: 1px solid #fecaca;
+      font-size: 13px;
+    }
+    .success-banner {
+      margin: 14px 24px 0;
+      padding: 12px 14px;
+      border-radius: 12px;
+      color: #166534;
+      background: #dcfce7;
+      border: 1px solid #86efac;
       font-size: 13px;
     }
     .empty-state {
@@ -2983,6 +3182,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
               ? `<div class="conversation-tools">
                   <a class="mobile-back button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">← Pacientes</a>
                   <a class="button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">Cerrar conversacion</a>
+                  <a class="button-link" href="#send-file-email">Mandar archivo al correo</a>
                   <a class="button-link button-secondary" href="https://wa.me/${encodeURIComponent(selectedPhone)}" target="_blank" rel="noreferrer">Abrir WhatsApp</a>
                   <button type="button" class="button-secondary" data-copy-phone="${escapeHtml(selectedPhone)}">Copiar telefono</button>
                   ${
@@ -3023,14 +3223,16 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       </div>
       ${renderMobilePatientSheet(selected, { selectedStatus, windowState })}
       ${inboxError ? `<div class="error-banner">${escapeHtml(inboxError)}</div>` : ""}
+      ${inboxSuccess ? `<div class="success-banner">${escapeHtml(inboxSuccess)}</div>` : ""}
       ${selected?.botPaused ? `<div class="notice">Modo humano activo: el bot guarda mensajes entrantes, pero no responde automaticamente a este paciente.</div>` : ""}
       ${needsTemplateNotice ? `<div class="notice">La ultima interaccion del paciente fue hace mas de 24 horas. Puede requerir plantilla aprobada de WhatsApp para responder fuera de la ventana de atencion.</div>` : ""}
       ${appointmentCard}
       <div class="messages">${messages}</div>
+      ${selected ? renderInlineResultsEmailAction(selected.appointment, selectedPhone, csrf) : ""}
       ${
         selected
           ? `<div class="composer">
-              <form method="post" action="/inbox/send" enctype="multipart/form-data">
+              <form method="post" action="/inbox/send">
                 <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
                 <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
                 ${quickReplies}
@@ -3038,12 +3240,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
                   <textarea name="message" rows="3" maxlength="2000" placeholder="Escribe una respuesta como humano..."></textarea>
                   <button class="send-button" type="submit">Enviar</button>
                 </div>
-                <label class="file-row">
-                  <span>Adjuntar foto, PDF, archivo o video</span>
-                  <input name="attachment" type="file" accept="image/*,video/mp4,video/3gpp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv">
-                </label>
                 <div class="composer-actions">
-                  <span class="subtitle">Se enviara por WhatsApp y se guardara como Humano. Max ${formatFileSize(config.inboxMediaMaxBytes)} por archivo.</span>
+                  <span class="subtitle">Solo texto por WhatsApp. Para fotos, PDF o archivos usa "Enviar archivo por correo confirmado" en la ficha de la paciente.</span>
                   <span class="composer-count" data-message-count>0/2000</span>
                 </div>
               </form>
@@ -3332,6 +3530,8 @@ function renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, win
       }
     </div>
 
+    ${renderResultsEmailSection(appointment, selectedPhone, csrf)}
+
     ${(() => {
       const leadTags = (selected.tags ?? []);
       const isMetaAds = leadTags.some(t => /meta ads|facebook|instagram/i.test(t));
@@ -3388,6 +3588,84 @@ function renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, win
 
     ${renderKnowledgePanel(knowledgeSuggestions, csrf, selectedPhone)}
 	  </aside>`;
+}
+
+function renderResultsEmailSection(appointment, selectedPhone, csrf) {
+  const patientEmail = String(appointment?.patientEmail ?? "").trim();
+  const hasEmail = Boolean(patientEmail);
+  const emailIsValid = isValidPatientEmail(patientEmail);
+
+  const emailMasked = emailIsValid ? maskEmail(patientEmail) : hasEmail ? "correo no valido" : "sin correo confirmado";
+
+  return `<div class="panel-section results-email-section">
+    <h2>Enviar archivo al correo</h2>
+    <div class="results-email-card">
+      <p><strong>Correo confirmado de paciente:</strong><br>${escapeHtml(emailMasked)}</p>
+      ${
+        !hasEmail
+          ? `<div class="empty-state">Esta paciente todavia no tiene correo confirmado. Primero confirma su correo en la cita o por recepcion antes de enviar archivos.</div>`
+          : !emailIsValid
+            ? `<div class="empty-state">El correo guardado no parece valido. Corrigelo antes de enviar archivos.</div>`
+            : `<details open>
+                <summary>Enviar archivo por correo confirmado</summary>
+                <form class="knowledge-form" method="post" action="/inbox/results-email" enctype="multipart/form-data">
+                  <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                  <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                  <label class="file-row">
+                    <span>Archivo para correo confirmado (PDF, JPG, PNG o WEBP)</span>
+                    <input name="resultFile" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp" required>
+                  </label>
+                  <textarea name="note" rows="3" maxlength="600" placeholder="Nota corta para la paciente (opcional). No diagnosticar ni indicar tratamiento."></textarea>
+                  <label class="checkbox-row">
+                    <input name="confirmed" value="yes" type="checkbox" required>
+                    <span>Confirmo que este archivo corresponde a esta paciente y que el correo fue confirmado.</span>
+                  </label>
+                  <button type="submit">Enviar al correo confirmado</button>
+                  <small>El archivo se envia por Resend al correo confirmado. No se guarda en Supabase y no se adjunta por WhatsApp.</small>
+                </form>
+              </details>`
+      }
+    </div>
+  </div>`;
+}
+
+function renderInlineResultsEmailAction(appointment, selectedPhone, csrf) {
+  const patientEmail = String(appointment?.patientEmail ?? "").trim();
+  const hasEmail = Boolean(patientEmail);
+  const emailIsValid = isValidPatientEmail(patientEmail);
+  const emailMasked = emailIsValid ? maskEmail(patientEmail) : hasEmail ? "correo no valido" : "sin correo confirmado";
+
+  if (!hasEmail || !emailIsValid) {
+    const message = !hasEmail
+      ? "Primero confirma el correo de la paciente para poder mandar archivos desde aqui."
+      : "El correo guardado no parece valido. Corrigelo antes de enviar archivos.";
+    return `<div id="send-file-email" class="results-email-inline is-disabled">
+      <strong>📤 Mandar archivo al correo</strong>
+      <span>${escapeHtml(message)}</span>
+    </div>`;
+  }
+
+  return `<details id="send-file-email" class="results-email-inline">
+    <summary>
+      <strong>📤 Mandar archivo al correo</strong>
+      <span>Correo confirmado: ${escapeHtml(emailMasked)} · PDF, JPG, PNG o WEBP</span>
+    </summary>
+    <form class="knowledge-form" method="post" action="/inbox/results-email" enctype="multipart/form-data">
+      <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+      <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+      <label class="file-row">
+        <span>Archivo para enviar al correo confirmado</span>
+        <input name="resultFile" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp" required>
+      </label>
+      <textarea name="note" rows="2" maxlength="600" placeholder="Nota corta para la paciente (opcional). No diagnosticar ni indicar tratamiento."></textarea>
+      <label class="checkbox-row">
+        <input name="confirmed" value="yes" type="checkbox" required>
+        <span>Confirmo que este archivo corresponde a esta paciente y que el correo fue confirmado.</span>
+      </label>
+      <button type="submit">Enviar archivo al correo confirmado</button>
+      <small>El archivo no se envia por WhatsApp y no se guarda en Supabase.</small>
+    </form>
+  </details>`;
 }
 
 function renderMobilePatientSheet(selected, { selectedStatus, windowState }) {
@@ -3536,15 +3814,24 @@ function renderQuickReplies() {
   const replies = [
     ["Info promo $1200", "Claro 😊 La promocion es el chequeo ginecologico completo por $1,200.\n\nIncluye:\n✅ Consulta ginecologica\n✅ Papanicolaou\n✅ Ultrasonido pelvico\n✅ Ultrasonido endovaginal\n✅ Revision de mamas\n✅ Apoyo para deteccion oportuna de cancer cervico uterino\n✅ Apoyo para deteccion oportuna de cancer ovarico\n\nEstamos en Plaza de la Paz #20, consultorio 14, segundo piso.\n\n¿Quieres agendar?"],
     ["Que incluye", "El chequeo ginecologico completo de $1,200 incluye: consulta ginecologica, Papanicolaou, ultrasonido pelvico, ultrasonido endovaginal, revision de mamas y apoyo para deteccion oportuna de cancer cervico uterino y ovarico.\n\nTodo con la Dra. Blanca Carranza 😊"],
+    ["Preparacion", getIntentResponse("appointment_preparation")],
     ["Agendar promo", "Perfecto 😊 Te ayudo a agendar el chequeo ginecologico completo de $1,200. ¿Me puedes decir tu nombre completo?"],
+    ["Pedir datos", "Para ayudarte a agendar, ¿me compartes por favor?\n\n1. Nombre completo\n2. Correo confirmado\n3. Si es primera vez con nosotros\n4. Si vienes particular o por red medica"],
+    ["Pedir correo", "¿Me compartes tu correo electronico confirmado? Lo usamos para confirmaciones y, si aplica, para enviar archivos de forma segura."],
+    ["Archivo por correo", "Claro 😊 Para proteger tu privacidad, los archivos se envian al correo confirmado de la paciente, no por WhatsApp.\n\n¿Me confirmas tu correo electronico?"],
+    ["No WhatsApp archivo", "Por privacidad, no enviamos resultados, estudios ni archivos medicos por WhatsApp. Podemos registrarlo y enviarlo al correo confirmado o revisarlo presencialmente."],
     ["Ubicacion", getIntentResponse("location")],
+    ["Costo", getIntentResponse("cost")],
     ["Pedir nombre", "Perfecto 😊 ¿A nombre de quien agendamos la cita?"],
     ["Pedir fecha", "Claro 😊 ¿Que dia te gustaria? Puedes decirme hoy, manana, viernes o una fecha especifica."],
     ["Formas de pago", getIntentResponse("payment_methods")],
+    ["Requisitos", getIntentResponse("appointment_requirements")],
     ["Relaciones antes del Pap", "Gracias por avisar 😊\n\nPara el Papanicolaou se recomienda evitar relaciones sexuales, duchas vaginales, ovulos, cremas o medicamentos vaginales durante las 48 horas previas.\n\nLo mejor es que confirme el consultorio si conviene realizarlo o reagendar."],
     ["Reagendar", "Claro 😊 Te ayudo a reagendar. ¿Que dia te gustaria para el nuevo horario?"],
     ["Cancelar", "Para cancelar tu cita, ¿puedes confirmarme que deseas cancelarla definitivamente?"],
+    ["Confirmar cita", "Gracias 😊 Tu cita queda confirmada. Si necesitas cambiarla o cancelar, avisanos por este medio."],
     ["Pasar a humano", "Claro 😊 Una persona del consultorio revisara tu mensaje y te apoyara por aqui."],
+    ["No diagnostico", MEDICAL_CHAT_SAFE_TEXT],
     ["Urgencia medica", "Por seguridad, si presentas dolor intenso, sangrado abundante, fiebre, desmayo o una emergencia, acude a urgencias o busca atencion medica inmediata.\n\nTambien puedo dejar tu mensaje para que una persona del consultorio lo revise."]
   ];
 
@@ -3599,11 +3886,19 @@ function extractNameFromMessages(messages) {
 }
 
 function renderAppointmentCard(appointment) {
-  return `<details class="appointment-card" open>
-    <summary>✅ Cita registrada</summary>
+  const patientName = appointment.patientName ?? "Sin nombre";
+  const dateLabel = formatAppointmentFull(appointment.slotStart);
+  const summary = `${patientName} · ${dateLabel}`;
+  return `<details class="appointment-card">
+    <summary>
+      <div>
+        <strong>✅ Cita registrada</strong>
+        <span>${escapeHtml(summary)}</span>
+      </div>
+    </summary>
     <div class="appointment-grid">
-      <div><span>Paciente</span>${escapeHtml(appointment.patientName ?? "Sin nombre")}</div>
-      <div><span>Fecha</span>${escapeHtml(formatAppointmentFull(appointment.slotStart))}</div>
+      <div><span>Paciente</span>${escapeHtml(patientName)}</div>
+      <div><span>Fecha</span>${escapeHtml(dateLabel)}</div>
       <div><span>Correo</span>${escapeHtml(appointment.patientEmail ?? "No capturado")}</div>
       <div><span>Tipo</span>${escapeHtml(appointment.paymentType ?? "No capturado")}</div>
       <div><span>Primera vez</span>${escapeHtml(appointment.firstVisit ?? "No capturado")}</div>
@@ -4817,7 +5112,7 @@ async function handlePatientResultsRequest(from) {
     await saveConversationNote({
       phoneNumber: from,
       author: "bot",
-      body: "Solicitud de resultados/estudios. Verificar identidad de la paciente y enviar solo archivos aprobados por el consultorio. No enviar diagnosticos sin revision humana."
+      body: buildPatientResultsHumanNote()
     });
   } catch (error) {
     logSafeError("Could not save results request note", error);
@@ -4849,7 +5144,15 @@ async function replyToPatient(to, body) {
 }
 
 async function sendMainMenuToPatient(to) {
-  const body = "Hola 😊 Soy el asistente virtual del consultorio.\n\nPuedo ayudarte a agendar, revisar horarios, ubicacion, costos, formas de pago, servicios, resultados o pasarte con una persona.\n\nElige una opcion:";
+  const body = [
+    "Hola 😊 Soy el asistente virtual del consultorio.",
+    "",
+    "Puedo ayudarte a agendar, revisar horarios, ubicacion, costos, formas de pago, servicios, resultados o pasarte con una persona.",
+    "",
+    PRIVACY_CONSENT_TEXT,
+    "",
+    "Elige una opcion:"
+  ].join("\n");
   try {
     await sendWhatsAppList(to, {
       body,
@@ -5307,7 +5610,7 @@ function buildReturningPatientMenuBody(profile) {
     "",
     "Ya tengo tu informacion basica guardada:",
     `Nombre: ${profile.patientName}`,
-    profile.patientEmail ? `Correo: ${profile.patientEmail}` : undefined,
+    profile.patientEmail ? `Correo: ${maskEmail(profile.patientEmail)}` : undefined,
     profile.slotStart ? `Ultima/proxima cita registrada: ${formatAppointmentShort(profile.slotStart)}` : undefined,
     "",
     "¿En que te puedo ayudar?"
@@ -5321,7 +5624,7 @@ function buildReturningAppointmentPrompt(profile) {
     "",
     "Ya tengo estos datos guardados:",
     `Nombre: ${profile.patientName}`,
-    profile.patientEmail ? `Correo: ${profile.patientEmail}` : undefined,
+    profile.patientEmail ? `Correo: ${maskEmail(profile.patientEmail)}` : undefined,
     "",
     "¿Que servicio o motivo general quieres agendar esta vez?"
   ];
@@ -5332,7 +5635,7 @@ function buildReturningPatientDataSummary(profile) {
   const lines = [
     "Ya tengo estos datos guardados:",
     `Nombre: ${profile.patientName}`,
-    profile.patientEmail ? `Correo: ${profile.patientEmail}` : undefined
+    profile.patientEmail ? `Correo: ${maskEmail(profile.patientEmail)}` : undefined
   ];
   return lines.filter(Boolean).join("\n");
 }
@@ -5384,10 +5687,10 @@ async function notifyResultsRequest(from) {
   await safeSendWhatsAppText(
     config.doctorWhatsappNumber,
     [
-      "📎 Solicitud de resultados por WhatsApp",
+      "📎 Solicitud de resultados/estudios",
       `Telefono: ${maskPhone(from)}`,
       "",
-      "Revisa el inbox, verifica identidad y envia solo archivos aprobados por el consultorio."
+      "Revisa el inbox. Verifica identidad, correo confirmado y archivo aprobado por el consultorio. No envies resultados por WhatsApp."
     ].join("\n")
   );
 }
@@ -6077,6 +6380,7 @@ async function processColdLeadFollowups() {
 
       const lastPatientMsg = [...(conversation.messages ?? [])].reverse().find((m) => m.sender === "patient");
       if (!lastPatientMsg?.timestamp) continue;
+      if (getWhatsAppWindowState(conversation).key === "expired") continue;
 
       const elapsedMs = now - new Date(lastPatientMsg.timestamp).getTime();
       if (elapsedMs < minElapsedMs || elapsedMs > maxElapsedMs) continue;
@@ -6180,6 +6484,8 @@ function getIntentResponse(intent) {
       "7. 👩‍💼 Hablar con una persona",
       "8. 📎 Resultados/estudios",
       "",
+      PRIVACY_CONSENT_TEXT,
+      "",
       "¿Que necesitas?"
     ].join("\n"),
     location: buildLocationMessage(),
@@ -6210,17 +6516,17 @@ function getIntentResponse(intent) {
     medical_services:
       "Estos temas los puede revisar el consultorio 😊\n\nPodemos orientarte sobre consulta, paquete de promocion, ultrasonido, papanicolaou, colposcopia, embarazo/control prenatal y pacientes adolescentes.\n\nPara confirmar si el servicio que necesitas aplica para tu caso, puedo ayudarte a agendar o pasarte con una persona del consultorio.",
     medical_urgent: [
-      "Por seguridad, si presentas dolor intenso, sangrado abundante, fiebre, desmayo o una emergencia, acude a urgencias o busca atencion medica inmediata.",
+      MEDICAL_URGENCY_TEXT,
       "",
-      "Tambien puedo dejar tu mensaje para que una persona del consultorio lo revise."
+      MEDICAL_CHAT_SAFE_TEXT
     ].join("\n"),
     medication_question: [
-      "Por seguridad no puedo indicar medicamentos por este medio. Si tienes dolor intenso, sangrado abundante, fiebre o una emergencia, acude a urgencias.",
+      MEDICAL_CHAT_SAFE_TEXT,
       "",
-      "Si gustas, puedo ayudarte a agendar o dejar tu mensaje para que una persona te oriente."
+      MEDICAL_URGENCY_TEXT
     ].join("\n"),
     patient_results:
-      "Claro 😊 Puedo ayudarte con tu solicitud de resultados o estudios.\n\nPor seguridad, una persona del consultorio verificara tu identidad y confirmara que el archivo este aprobado antes de compartirlo por WhatsApp.\n\nYa deje tu solicitud marcada para revision en el inbox. Si tienes una urgencia medica, por favor acude a urgencias o contacta directamente al consultorio.",
+      `${RESULTS_PRIVACY_TEXT}\n\nYa deje tu solicitud marcada para revision en el inbox.\n\n${MEDICAL_URGENCY_TEXT}`,
     direct_contact:
       "Claro 😊 Ya dejo esta conversacion para que una persona del consultorio pueda revisarla.\n\nPuedes escribir tu duda por aqui. Si es una urgencia medica, acude a urgencias o llama a los servicios de emergencia de tu localidad.",
     appointment_requirements:
@@ -6510,10 +6816,10 @@ function isUnsignedWebhookExpired() {
   return Number.isFinite(expiresAt) && Date.now() > expiresAt;
 }
 
-function redirectInbox(res, phone, error) {
+function redirectInbox(res, phone, message, kind = "error") {
   const params = new URLSearchParams();
   if (phone) params.set("phone", phone);
-  if (error) params.set("error", error);
+  if (message) params.set(kind === "success" ? "success" : "error", message);
   res.writeHead(303, { Location: `/inbox${params.toString() ? `?${params}` : ""}` }).end();
 }
 

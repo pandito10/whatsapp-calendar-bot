@@ -48,6 +48,8 @@ services:
         value: "128000"
       - key: INBOX_MEDIA_MAX_BYTES
         value: "16000000"
+      - key: RESULTS_EMAIL_MAX_BYTES
+        value: "10000000"
       - key: WEBHOOK_RATE_LIMIT_PER_MINUTE
         value: "120"
       - key: WEBHOOK_PHONE_RATE_LIMIT_PER_MINUTE

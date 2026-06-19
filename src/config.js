@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { buildMedicalPolicyWarnings } from "./medical-policy.js";
 
 loadDotEnv();
 
@@ -65,6 +66,7 @@ export const config = {
     inboxSessionHours: Number(process.env.INBOX_SESSION_HOURS ?? 8),
     maxRequestBytes: Number(process.env.MAX_REQUEST_BYTES ?? 128_000),
     inboxMediaMaxBytes: Number(process.env.INBOX_MEDIA_MAX_BYTES ?? 16_000_000),
+    resultsEmailMaxBytes: Number(process.env.RESULTS_EMAIL_MAX_BYTES ?? 10_000_000),
     webhookRateLimitPerMinute: Number(process.env.WEBHOOK_RATE_LIMIT_PER_MINUTE ?? 120),
     webhookPhoneRateLimitPerMinute: Number(process.env.WEBHOOK_PHONE_RATE_LIMIT_PER_MINUTE ?? 10),
     inboxRateLimitPerMinute: Number(process.env.INBOX_RATE_LIMIT_PER_MINUTE ?? 60),
@@ -172,6 +174,10 @@ function validateStartupConfig() {
           if (config.requireDatabaseForAppointments && (!config.supabaseUrl || !config.supabaseServiceRoleKey)) {
                 throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in production when REQUIRE_DB_FOR_APPOINTMENTS=true");
           }
+          const medicalPolicyWarnings = buildMedicalPolicyWarnings(config);
+          if (medicalPolicyWarnings.length > 0) {
+                console.warn(`WARNING: Unsafe production medical messaging config: ${medicalPolicyWarnings.join(" ")}`);
+          }
     }
 
     if (config.appointmentMinutes <= 0 || config.appointmentMinutes > 240) {
@@ -215,6 +221,7 @@ function validateStartupConfig() {
     validatePositiveInteger(config.port, "PORT", 1, 65535);
     validatePositiveInteger(config.maxRequestBytes, "MAX_REQUEST_BYTES", 10_000, 2_000_000);
     validatePositiveInteger(config.inboxMediaMaxBytes, "INBOX_MEDIA_MAX_BYTES", 100_000, 100_000_000);
+    validatePositiveInteger(config.resultsEmailMaxBytes, "RESULTS_EMAIL_MAX_BYTES", 100_000, 50_000_000);
     validatePositiveInteger(config.webhookRateLimitPerMinute, "WEBHOOK_RATE_LIMIT_PER_MINUTE", 1, 10_000);
     validatePositiveInteger(config.webhookPhoneRateLimitPerMinute, "WEBHOOK_PHONE_RATE_LIMIT_PER_MINUTE", 1, 1_000);
     validatePositiveInteger(config.inboxRateLimitPerMinute, "INBOX_RATE_LIMIT_PER_MINUTE", 1, 10_000);

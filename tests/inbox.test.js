@@ -59,6 +59,40 @@ test("prioriza conversaciones urgentes, no entendidas y por confirmar", () => {
   ]);
 });
 
+test("orden de recepcion pone arriba el ultimo mensaje entrante de paciente", () => {
+  const olderPriority = conversation({
+    phoneNumber: "5214770000010",
+    tags: ["Resultados", "Humano requerido"],
+    updatedAt: "2030-06-17T17:58:00.000Z",
+    messages: [
+      { sender: "patient", body: "quiero resultados", timestamp: "2030-06-17T17:20:00.000Z" },
+      { sender: "bot", body: "Lo revisa una persona", timestamp: "2030-06-17T17:21:00.000Z" }
+    ]
+  });
+  const newestPatient = conversation({
+    phoneNumber: "5214770000011",
+    updatedAt: "2030-06-17T17:59:00.000Z",
+    messages: [
+      { sender: "patient", body: "Hola, sigo aqui", timestamp: "2030-06-17T17:59:00.000Z" }
+    ]
+  });
+  const olderPatient = conversation({
+    phoneNumber: "5214770000012",
+    updatedAt: "2030-06-17T17:30:00.000Z",
+    messages: [
+      { sender: "patient", body: "Hola", timestamp: "2030-06-17T17:30:00.000Z" }
+    ]
+  });
+
+  const sorted = sortInboxConversations([olderPriority, olderPatient, newestPatient], now, { newestPatientFirst: true });
+
+  assert.deepEqual(sorted.map((item) => item.phoneNumber), [
+    "5214770000011",
+    "5214770000012",
+    "5214770000010"
+  ]);
+});
+
 test("filtra por estado, etiqueta, nombre y telefono", () => {
   const list = [
     conversation({ phoneNumber: "5214771111111", tags: ["Urgente"] }),

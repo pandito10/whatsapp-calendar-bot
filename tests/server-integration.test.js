@@ -241,6 +241,76 @@ test("saludo del numero nuevo entra por webhook valido y dispara menu inicial", 
   }
 });
 
+test("inbox/send bloquea cualquier adjunto por WhatsApp", async () => {
+  const appSecret = "app-secret-test";
+  const patientPhone = "5214778811965";
+  const app = await startServer(32137, {
+    ...baseEnv,
+    NODE_ENV: "test",
+    WHATSAPP_APP_SECRET: appSecret,
+    REQUIRE_WEBHOOK_SIGNATURE: "true",
+    ALLOW_UNSIGNED_WEBHOOKS: "false",
+    WHATSAPP_SEND_DRY_RUN: "true"
+  });
+
+  try {
+    const payload = buildTextPayload({
+      from: patientPhone,
+      id: "wamid.resultados-bloqueo",
+      text: "quiero mis resultados"
+    });
+    const webhook = await fetch("http://127.0.0.1:32137/webhook/123456789012345678901234567890", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Hub-Signature-256": signPayload(appSecret, payload)
+      },
+      body: payload
+    });
+    assert.equal(webhook.status, 200);
+    await waitForOutput(app, /WhatsApp dry-run send to 52100\*\*\*\*000/);
+
+    const inboxCookie = await loginInbox(32137, baseEnv.INBOX_PASSWORD);
+    const loginHtml = await (await fetch(`http://127.0.0.1:32137/inbox?phone=${patientPhone}`, { headers: { Cookie: inboxCookie } })).text();
+    assert.match(loginHtml, /Mandar archivo al correo/);
+    assert.match(loginHtml, /Enviar archivo al correo/);
+    assert.match(loginHtml, /sin correo confirmado/);
+    assert.match(loginHtml, /Esta paciente todavia no tiene correo confirmado/);
+    assert.match(loginHtml, /Archivo por correo/);
+    assert.match(loginHtml, /No WhatsApp archivo/);
+    assert.match(loginHtml, /Pedir correo/);
+    assert.match(loginHtml, /Preparacion/);
+    const csrf = loginHtml.match(/name="csrf" type="hidden" value="([^"]+)"/)?.[1];
+    assert.ok(csrf);
+
+    const boundary = "----codex-medical-block";
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="csrf"\r\n\r\n${csrf}\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="phone"\r\n\r\n${patientPhone}\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="message"\r\n\r\nte mando el archivo\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="attachment"; filename="comprobante.pdf"\r\nContent-Type: application/pdf\r\n\r\n`),
+      Buffer.from("%PDF-test"),
+      Buffer.from(`\r\n--${boundary}--\r\n`)
+    ]);
+
+    const response = await fetch("http://127.0.0.1:32137/inbox/send", {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        Cookie: inboxCookie
+      },
+      body
+    });
+    assert.equal(response.status, 303);
+    const location = decodeURIComponent(response.headers.get("location")).replace(/\+/g, " ");
+    assert.match(location, /archivos, fotos y documentos ya no se envian por WhatsApp/);
+    assert.match(location, /Enviar archivo por correo confirmado/);
+  } finally {
+    await app.stop();
+  }
+});
+
 test("webhook acepta WABA distinto si el phone_number_id oficial coincide", async () => {
   const appSecret = "app-secret-test";
   const app = await startServer(32133, {
@@ -357,6 +427,24 @@ function buildTextPayload({ phoneNumberId = "123456789", displayPhoneNumber = "+
 function signPayload(appSecret, payload) {
   const signature = crypto.createHmac("sha256", appSecret).update(Buffer.from(payload)).digest("hex");
   return `sha256=${signature}`;
+}
+
+async function loginInbox(port, password) {
+  const login = await fetch(`http://127.0.0.1:${port}/inbox/login`);
+  const html = await login.text();
+  const csrf = html.match(/name="csrf" type="hidden" value="([^"]+)"/)?.[1];
+  const loginCookie = login.headers.get("set-cookie")?.split(";")[0];
+  const response = await fetch(`http://127.0.0.1:${port}/inbox/login`, {
+    method: "POST",
+    redirect: "manual",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Cookie: loginCookie
+    },
+    body: new URLSearchParams({ csrf, password })
+  });
+  assert.equal(response.status, 303);
+  return response.headers.get("set-cookie")?.split(";")[0];
 }
 
 async function startServer(port, env) {
