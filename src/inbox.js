@@ -13,7 +13,7 @@ export function getWhatsAppWindowState(conversation, nowMs = Date.now()) {
   const elapsedMs = nowMs - new Date(lastPatientMessage.timestamp).getTime();
   const hoursLeft = Math.max(0, Math.round(((DAY_MS - elapsedMs) / 60 / 60 / 1000) * 10) / 10);
   if (elapsedMs >= DAY_MS) {
-    return { key: "expired", label: "Requiere template Meta", className: "expired", hoursLeft: 0 };
+    return { key: "expired", label: "Fuera de 24h: usa template Meta", className: "expired", hoursLeft: 0 };
   }
   if (elapsedMs >= CLOSING_WINDOW_MS) {
     return { key: "closing", label: `Ventana 24h por cerrar (${hoursLeft}h)`, className: "closing", hoursLeft };
@@ -64,7 +64,7 @@ export function getConversationStatus(conversation, nowMs = Date.now()) {
   }
 
   if (windowState.key === "expired") {
-    return { key: "expired_window", label: "Requiere template Meta", className: "expired", priority: 5 };
+    return { key: "expired_window", label: "Fuera de 24h", className: "expired", priority: 5 };
   }
 
   const flowStatus = getAppointmentFlowStatus(sessionStep, sessionData);
@@ -105,15 +105,27 @@ export function sortInboxConversations(list, nowMs = Date.now(), options = {}) {
       const bPatientTime = getLastPatientMessageTime(b);
       if (aPatientTime !== bPatientTime) return bPatientTime - aPatientTime;
 
-      return new Date(b.updatedAt ?? 0).getTime() - new Date(a.updatedAt ?? 0).getTime();
+      return getConversationActivityTime(b) - getConversationActivityTime(a);
     });
   }
 
   return [...list].sort((a, b) => {
     const priorityDiff = getConversationStatus(a, nowMs).priority - getConversationStatus(b, nowMs).priority;
     if (priorityDiff !== 0) return priorityDiff;
-    return new Date(b.updatedAt ?? 0).getTime() - new Date(a.updatedAt ?? 0).getTime();
+    return getConversationActivityTime(b) - getConversationActivityTime(a);
   });
+}
+
+export function getConversationActivityTime(conversation) {
+  const updatedAt = toTime(conversation?.updatedAt);
+  const messageTimes = (conversation?.messages ?? []).map((message) => toTime(message?.timestamp));
+  return Math.max(updatedAt, 0, ...messageTimes);
+}
+
+export function getConversationActivityISO(conversation) {
+  const value = getConversationActivityTime(conversation);
+  if (!value) return conversation?.updatedAt;
+  return new Date(value).toISOString();
 }
 
 export function filterInboxConversations(list, query = "", filter = "all", nowMs = Date.now()) {
@@ -235,8 +247,12 @@ function getLastPatientMessage(conversation) {
 
 function getLastPatientMessageTime(conversation) {
   const timestamp = getLastPatientMessage(conversation)?.timestamp;
-  const value = timestamp ? new Date(timestamp).getTime() : 0;
-  return Number.isFinite(value) ? value : 0;
+  return toTime(timestamp);
+}
+
+function toTime(value) {
+  const parsed = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function extractDateMention(text) {

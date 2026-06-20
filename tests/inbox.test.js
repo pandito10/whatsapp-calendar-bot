@@ -7,6 +7,7 @@ const {
   buildInboxStats,
   buildLocalConversationSummary,
   filterInboxConversations,
+  getConversationActivityISO,
   getConversationStatus,
   getWhatsAppWindowState,
   sortInboxConversations
@@ -93,6 +94,31 @@ test("orden de recepcion pone arriba el ultimo mensaje entrante de paciente", ()
   ]);
 });
 
+test("orden de recepcion usa actividad real de mensajes aunque updated_at este viejo", () => {
+  const staleUpdatedAt = conversation({
+    phoneNumber: "5214770000020",
+    updatedAt: "2030-06-17T16:00:00.000Z",
+    messages: [
+      { sender: "patient", body: "Acabo de escribir", timestamp: "2030-06-17T17:59:30.000Z" }
+    ]
+  });
+  const newerRowButOlderMessage = conversation({
+    phoneNumber: "5214770000021",
+    updatedAt: "2030-06-17T17:59:59.000Z",
+    messages: [
+      { sender: "patient", body: "Hace rato", timestamp: "2030-06-17T17:30:00.000Z" }
+    ]
+  });
+
+  const sorted = sortInboxConversations([newerRowButOlderMessage, staleUpdatedAt], now, { newestPatientFirst: true });
+
+  assert.equal(getConversationActivityISO(staleUpdatedAt), "2030-06-17T17:59:30.000Z");
+  assert.deepEqual(sorted.map((item) => item.phoneNumber), [
+    "5214770000020",
+    "5214770000021"
+  ]);
+});
+
 test("filtra por estado, etiqueta, nombre y telefono", () => {
   const list = [
     conversation({ phoneNumber: "5214771111111", tags: ["Urgente"] }),
@@ -137,6 +163,20 @@ test("detecta modo humano, cita agendada y ventana de 24 horas", () => {
       now
     ).key,
     "expired"
+  );
+  assert.equal(
+    getWhatsAppWindowState(
+      conversation({ messages: [{ sender: "patient", body: "Hola", timestamp: "2030-06-16T17:00:00.000Z" }] }),
+      now
+    ).label,
+    "Fuera de 24h: usa template Meta"
+  );
+  assert.equal(
+    getConversationStatus(
+      conversation({ messages: [{ sender: "patient", body: "Hola", timestamp: "2030-06-16T17:00:00.000Z" }] }),
+      now
+    ).label,
+    "Fuera de 24h"
   );
 });
 

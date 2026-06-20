@@ -25,6 +25,7 @@ import { buildOperationalHealth, isOperationallyUnhealthy } from "./health.js";
 import { detectIntent, hasAny, isAppointmentLikeQuestion, looksLikeDateRequest, meaningfulWords, normalizeText } from "./intents.js";
 import {
   buildInboxStats as buildInboxMetrics,
+  getConversationActivityISO,
   buildLocalConversationSummary,
   filterInboxConversations as filterInboxConversationList,
   getConversationStatus as getInboxConversationStatus,
@@ -2072,21 +2073,22 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
             const status = getInboxConversationStatus(conversation);
             const conversationWindow = getWhatsAppWindowState(conversation);
             const title = getConversationDisplayName(conversation);
+            const activityAt = getConversationActivityISO(conversation) ?? conversation.updatedAt;
             return `<a class="thread${active}" href="/inbox?${buildInboxQuery({ phone: conversation.phoneNumber, q: url.searchParams.get("q"), filter })}">
               <div class="avatar">${escapeHtml(conversation.phoneNumber.slice(-2))}</div>
               <div class="thread-copy">
                 <div class="thread-top">
                   <strong>${escapeHtml(title)}</strong>
-                  <span>${formatInboxDate(conversation.updatedAt)}</span>
+                  <span>${formatInboxDate(activityAt)}</span>
                 </div>
                 <div class="thread-sub">${escapeHtml(formatPhoneForInbox(conversation.phoneNumber))}</div>
                 <p>${escapeHtml(last?.body ?? "")}</p>
                 <div class="thread-tags">
                   <span class="tag ${status.className}">${status.label}</span>
                   ${conversationWindow.key === "closing" ? `<span class="tag closing">24h por cerrar</span>` : ""}
-                  ${conversationWindow.key === "expired" ? `<span class="tag expired">Template Meta</span>` : ""}
+                  ${conversationWindow.key === "expired" ? `<span class="tag expired">Fuera de 24h</span>` : ""}
                   ${conversation.botPaused ? `<span class="tag human">Modo humano</span>` : ""}
-                  ${(conversation.tags ?? []).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}
+                  ${uniqueInboxTagLabels(conversation.tags ?? []).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}
                   ${conversation.appointment?.slotStart ? `<span class="tag">${formatAppointmentShort(conversation.appointment.slotStart)}</span>` : ""}
                 </div>
               </div>
@@ -3128,10 +3130,14 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
         z-index: 2;
         background: rgba(255, 255, 255, 0.96);
       }
-      .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 10px; }
+      .stats,
+      .metrics-card,
+      .diagnostics-card {
+        display: none;
+      }
       .tools {
         position: sticky;
-        top: 63px;
+        top: 58px;
         z-index: 2;
         background: rgba(255, 255, 255, 0.96);
       }
@@ -3348,7 +3354,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       <div class="chat-title">
         <div>
           <strong>${selected ? escapeHtml(selectedName) : "Sin conversacion seleccionada"}</strong>
-          <span>${selected ? `${formatPhoneForInbox(selected.phoneNumber)} · Ultima actividad: ${formatInboxDate(selected.updatedAt)}` : "Cuando llegue un mensaje aparecera aqui."}</span>
+          <span>${selected ? `${formatPhoneForInbox(selected.phoneNumber)} · Ultima actividad: ${formatInboxDate(getConversationActivityISO(selected) ?? selected.updatedAt)}` : "Cuando llegue un mensaje aparecera aqui."}</span>
           ${
             selected
               ? `<div class="conversation-tools">
@@ -4117,6 +4123,16 @@ function renderInboxMessageMedia(media) {
     <span>${escapeHtml(media.filename ?? "archivo")}</span>
     ${detail ? `<small>${escapeHtml(detail)}</small>` : ""}
   </div>`;
+}
+
+function formatInboxTagLabel(tag) {
+  const normalized = normalizeText(tag);
+  if (normalized === "template meta" || normalized === "requiere template meta") return "Fuera de 24h";
+  return String(tag ?? "");
+}
+
+function uniqueInboxTagLabels(tags) {
+  return [...new Set(tags.map(formatInboxTagLabel).filter(Boolean))];
 }
 
 function formatPhoneForInbox(phoneNumber) {
