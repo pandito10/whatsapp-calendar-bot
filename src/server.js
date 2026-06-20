@@ -129,23 +129,29 @@ const maxDailyReports = 30;
 const mainMenuRows = [
   { id: "main_schedule", title: "Agendar cita", description: "Iniciar registro y elegir horario" },
   { id: "main_availability", title: "Ver horarios", description: "Revisar fechas disponibles" },
-  { id: "main_location", title: "Ubicacion", description: "Direccion del consultorio" },
-  { id: "main_costs", title: "Costos", description: "Consulta y promocion" },
-  { id: "main_payments", title: "Formas de pago", description: "Efectivo o transferencia" },
+  { id: "main_promo", title: "Promo $1200", description: "Que incluye el chequeo" },
   { id: "main_services", title: "Servicios", description: "Dudas generales de servicios" },
-  { id: "main_human", title: "Hablar con persona", description: "Pedir apoyo del consultorio" },
+  { id: "main_costs", title: "Costos", description: "Consulta y promocion" },
+  { id: "main_location", title: "Ubicacion", description: "Direccion del consultorio" },
+  { id: "main_preparation", title: "Preparacion", description: "Como presentarte a la cita" },
+  { id: "main_hours", title: "Horario", description: "Dias y horas de atencion" },
+  { id: "main_payments", title: "Formas de pago", description: "Efectivo o transferencia" },
   { id: "main_results", title: "Resultados", description: "Solicitar estudios aprobados" }
 ];
 
 const interactiveReplyMap = {
   main_schedule: "1",
   main_availability: "2",
-  main_location: "3",
-  main_costs: "4",
-  main_payments: "5",
-  main_services: "6",
-  main_results: "8",
-  main_human: "7",
+  main_promo: "3",
+  main_services: "4",
+  main_costs: "5",
+  main_location: "6",
+  main_preparation: "7",
+  main_hours: "8",
+  main_payments: "9",
+  main_results: "10",
+  main_human: "quiero hablar con una persona",
+  main_menu: "menu",
   returning_schedule: "quiero agendar otra cita",
   returning_next: "tengo cita",
   returning_reschedule: "quiero reagendar",
@@ -5183,13 +5189,21 @@ async function handleMenuOption(from, text, intent = detectIntent(text).intent) 
     return true;
   }
 
-  if (option === 3 || intent === "location") {
-    await sendLocationResponse(from);
+  if (option === 3 || intent === "featured_promo" || intent === "promotion") {
+    await sendFeaturedPromoResponse(from);
     return true;
   }
 
-  if (intent === "featured_promo") {
-    await sendFeaturedPromoResponse(from);
+  if (option === 4 || intent === "medical_services") {
+    await replyToPatientWithButtons(
+      from,
+      getIntentResponse("medical_services"),
+      [
+        { id: "promo_schedule", title: "Agendar cita" },
+        { id: "promo_includes", title: "Que incluye" },
+        { id: "main_preparation", title: "Preparacion" }
+      ]
+    );
     return true;
   }
 
@@ -5203,54 +5217,53 @@ async function handleMenuOption(from, text, intent = detectIntent(text).intent) 
     return true;
   }
 
-  if (option === 4 || intent === "cost") {
+  if (option === 5 || intent === "cost") {
     await replyToPatientWithButtons(
       from,
       `${getIntentResponse("cost")}\n\n${getIntentResponse("promotion")}`,
       [
         { id: "promo_schedule", title: "Agendar cita" },
         { id: "promo_includes", title: "Que incluye" },
-        { id: "talk_human", title: "Hablar con persona" }
+        { id: "main_payments", title: "Formas de pago" }
       ]
     );
     return true;
   }
 
-  if (intent === "promotion") {
-    await sendPromoIncludesResponse(from);
+  if (option === 6 || intent === "location") {
+    await sendLocationResponse(from);
     return true;
   }
 
-  if (option === 5 || intent === "payment_methods") {
+  if (option === 7 || intent === "appointment_preparation" || intent === "appointment_requirements" || intent === "appointment_duration") {
+    await sendFaqResponseWithButtons(from, "appointment_preparation", getIntentResponse("appointment_preparation"));
+    return true;
+  }
+
+  if (option === 8 || intent === "clinic_hours" || intent === "morning_hours" || intent === "saturday") {
+    await sendFaqResponseWithButtons(from, "clinic_hours", getIntentResponse("clinic_hours"));
+    return true;
+  }
+
+  if (option === 9 || intent === "payment_methods" || intent === "insurance_network") {
     await replyToPatientWithButtons(
       from,
-      getIntentResponse("payment_methods"),
+      `${getIntentResponse("payment_methods")}\n\n${getIntentResponse("insurance_network")}`,
       [
         { id: "promo_schedule", title: "Agendar cita" },
-        { id: "talk_human", title: "Hablar con persona" }
+        { id: "promo_info", title: "Ver promo" },
+        { id: "main_costs", title: "Costos" }
       ]
     );
     return true;
   }
 
-  if (option === 6 || intent === "medical_services") {
-    await replyToPatientWithButtons(
-      from,
-      getIntentResponse("medical_services"),
-      [
-        { id: "promo_schedule", title: "Agendar cita" },
-        { id: "talk_human", title: "Hablar con persona" }
-      ]
-    );
-    return true;
-  }
-
-  if (option === 8 || intent === "patient_results") {
+  if (option === 10 || intent === "patient_results") {
     await handlePatientResultsRequest(from);
     return true;
   }
 
-  if (option === 7 || intent === "direct_contact") {
+  if (intent === "direct_contact") {
     await setConversationHumanMode(from, true, "patient_request");
     setMemoryHumanMode(from, true);
     await replyToPatient(from, getIntentResponse("direct_contact"));
@@ -5266,11 +5279,20 @@ async function sendFaqResponseWithButtons(from, intent, answer) {
     return;
   }
 
+  if (intent === "clinic_hours" || intent === "morning_hours" || intent === "saturday") {
+    await replyToPatientWithButtons(from, answer, [
+      { id: "main_availability", title: "Ver horarios" },
+      { id: "promo_schedule", title: "Agendar" },
+      { id: "main_location", title: "Ubicacion" }
+    ]);
+    return;
+  }
+
   if (intent === "appointment_preparation" || intent === "appointment_requirements" || intent === "appointment_duration") {
     await replyToPatientWithButtons(from, answer, [
       { id: "promo_schedule", title: "Agendar" },
       { id: "promo_info", title: "Ver promo" },
-      { id: "talk_human", title: "Persona" }
+      { id: "main_hours", title: "Horario" }
     ]);
     return;
   }
@@ -5280,6 +5302,15 @@ async function sendFaqResponseWithButtons(from, intent, answer) {
       { id: "promo_schedule", title: "Agendar" },
       { id: "promo_info", title: "Ver promo" },
       { id: "talk_human", title: "Persona" }
+    ]);
+    return;
+  }
+
+  if (intent === "insurance_network") {
+    await replyToPatientWithButtons(from, answer, [
+      { id: "payment_private", title: "Particular" },
+      { id: "payment_network", title: "Red medica" },
+      { id: "promo_schedule", title: "Agendar" }
     ]);
     return;
   }
@@ -5405,8 +5436,8 @@ async function handlePatientResultsRequest(from) {
 
 function menuOptionNumber(text) {
   const normalized = normalizeText(text);
-  const words = { uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8 };
-  if (/^[1-8]$/.test(normalized)) return Number(normalized);
+  const words = { uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10 };
+  if (/^(?:[1-9]|10)$/.test(normalized)) return Number(normalized);
   return words[normalized];
 }
 
@@ -5420,11 +5451,11 @@ async function sendMainMenuToPatient(to) {
   const body = [
     "Hola 😊 Soy el asistente virtual del consultorio.",
     "",
-    "Puedo ayudarte a agendar, revisar horarios, ubicacion, costos, formas de pago, servicios, resultados o pasarte con una persona.",
+    "Puedo ayudarte a agendar, revisar horarios, explicar la promo, dar ubicacion, costos, formas de pago, servicios y preparacion de cita.",
     "",
     PRIVACY_CONSENT_TEXT,
     "",
-    "Elige una opcion:"
+    "Elige una opcion. Si necesitas a una persona, escribe humano."
   ].join("\n");
   try {
     await sendWhatsAppList(to, {
@@ -5448,10 +5479,10 @@ async function sendFallbackMenuToPatient(to) {
       buttons: [
         { id: "promo_info", title: "Promo $1200" },
         { id: "promo_schedule", title: "Agendar" },
-        { id: "talk_human", title: "Humano" }
+        { id: "main_menu", title: "Ver opciones" }
       ]
     });
-    await recordConversationMessage(to, "bot", `${body}\n\n1. Promo $1200\n2. Agendar\n3. Humano`);
+    await recordConversationMessage(to, "bot", `${body}\n\n1. Promo $1200\n2. Agendar\n3. Ver opciones`);
     await notifyBotReply(to, "Menu por fallback enviado.");
   } catch (error) {
     logSafeError(`Failed sending fallback buttons to ${maskPhone(to)}`, error);
@@ -6750,18 +6781,21 @@ function getIntentResponse(intent) {
       "Puedo ayudarte con:",
       "1. 📅 Agendar una cita",
       "2. 🕒 Ver horarios disponibles",
-      "3. 📍 Ubicacion",
-      "4. 💰 Costos",
-      "5. 💵 Formas de pago",
-      "6. 🩺 Servicios",
-      "7. 👩‍💼 Hablar con una persona",
-      "8. 📎 Resultados/estudios",
+      "3. 🎁 Promo $1200",
+      "4. 🩺 Servicios",
+      "5. 💰 Costos",
+      "6. 📍 Ubicacion",
+      "7. 📝 Preparacion",
+      "8. 🕓 Horario de atencion",
+      "9. 💵 Formas de pago",
+      "10. 📎 Resultados/estudios",
       "",
       PRIVACY_CONSENT_TEXT,
       "",
-      "¿Que necesitas?"
+      "¿Que necesitas? Si necesitas a una persona, escribe humano."
     ].join("\n"),
     location: buildLocationMessage(),
+    clinic_hours: "🕓 Atendemos de lunes a viernes por la tarde, de 4:40 p.m. a 8:00 p.m.\n\nNo atendemos sabados, domingos ni por la manana.\n\nPuedo ayudarte a revisar horarios disponibles para agendar.",
     morning_hours: "🌙 No atendemos por la manana. Solo por la tarde, de 4:40 p.m. a 8:00 p.m.\n\n¿Quieres que revise horarios por la tarde?",
     saturday: "📅 No atendemos los sabados ni domingos. Solo de lunes a viernes por la tarde.\n\n¿Quieres que revise disponibilidad entre semana?",
     cost: `💰 La consulta tiene un costo de ${formatMoney(config.consultationPrice)} MXN.`,
@@ -6769,6 +6803,7 @@ function getIntentResponse(intent) {
       ? `🎁 Si, contamos con paquete promocional en ${formatMoney(config.promotionPrice)} MXN.\n\nIncluye:\n${config.promotionDetails}\n\n¿Quieres revisar horarios disponibles?`
       : `🎁 Si, contamos con paquete promocional en ${formatMoney(config.promotionPrice)} MXN.\n\nPara confirmarte exactamente que incluye segun el servicio que necesitas, puedo ayudarte a agendar o pasarte con una persona del consultorio.\n\n¿Quieres revisar horarios disponibles?`,
     payment_methods: "💵 Por el momento aceptamos efectivo o transferencia bancaria.\n\nNo contamos con pago con tarjeta por ahora.",
+    insurance_network: "🏥 La cita puede registrarse como particular o por red medica/aseguradora.\n\nSi vienes por red medica, el consultorio confirma los datos necesarios al registrar tu cita.",
     schedule_appointment: "😊 Claro, te ayudo a agendar tu cita.\n\n¿Me compartes tu nombre completo?",
     check_availability: "🕒 Claro. ¿Para que dia te gustaria revisar disponibilidad?\n\nPuedes decirme, por ejemplo: hoy, manana, viernes o una fecha especifica.",
     closing: "😊 Con gusto. Si necesitas algo mas, aqui estoy para ayudarte.",
@@ -6787,7 +6822,7 @@ function getIntentResponse(intent) {
     appointment_duration: "⏱️ Las citas tienen una duracion aproximada de 40 minutos.",
     new_patient: "Claro 😊 Podemos ayudarte a agendar tu primera consulta.\n\n¿Me compartes tu nombre completo para iniciar el registro?",
     medical_services:
-      "Estos temas los puede revisar el consultorio 😊\n\nPodemos orientarte sobre consulta, paquete de promocion, ultrasonido, papanicolaou, colposcopia, embarazo/control prenatal y pacientes adolescentes.\n\nPara confirmar si el servicio que necesitas aplica para tu caso, puedo ayudarte a agendar o pasarte con una persona del consultorio.",
+      "Podemos ayudarte con informacion administrativa sobre:\n\n• Consulta ginecologica\n• Promo de chequeo completo $1,200\n• Papanicolaou\n• Ultrasonido pelvico/endovaginal\n• Colposcopia\n• Control prenatal/embarazo\n• Revision de mamas\n• Pacientes adolescentes\n\nSi quieres, puedo ayudarte a agendar y elegir horario.",
     medical_urgent: [
       MEDICAL_URGENCY_TEXT,
       "",
@@ -6801,7 +6836,7 @@ function getIntentResponse(intent) {
     patient_results:
       `${RESULTS_PRIVACY_TEXT}\n\nYa deje tu solicitud marcada para revision en el inbox.\n\n${MEDICAL_URGENCY_TEXT}`,
     direct_contact:
-      "Claro 😊 Ya dejo esta conversacion para que una persona del consultorio pueda revisarla.\n\nPuedes escribir tu duda por aqui. Si es una urgencia medica, acude a urgencias o llama a los servicios de emergencia de tu localidad.",
+      "Claro 😊 Ya deje esta conversacion para revision del consultorio.\n\nMientras tanto, tambien puedo ayudarte automaticamente con citas, horarios, ubicacion, costos, promo, pagos, preparacion o resultados.\n\nSi es una urgencia medica, acude a urgencias o llama a los servicios de emergencia de tu localidad.",
     appointment_requirements:
       "Para tu cita, te recomendamos llevar identificacion y, si tienes, estudios o recetas anteriores relacionados con tu consulta.\n\nSi tu cita incluye Papanicolaou o paquete de promocion, tambien se recomienda no estar en periodo menstrual, no tener relaciones sexuales, no realizar duchas vaginales y no aplicar ovulos o cremas vaginales durante las 48 horas previas.",
     late_arrival:

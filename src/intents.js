@@ -46,6 +46,7 @@ export function detectIntent(value) {
       "ocupo cita", "ocupo consulta", "me puedes agendar", "quiero apartar",
       "quiero reservar", "agenda para", "cita para"
     ])],
+    ["clinic_hours", () => isClinicHoursQuestion(text)],
     ["check_availability", () => isAvailabilityIntent(text)],
     ["patient_results", () => isPatientResultsRequest(text)],
     ["featured_promo", () => isFeaturedPromoQuestion(text)],
@@ -79,6 +80,7 @@ export function detectIntent(value) {
       "mamas", "embarazo", "control de embarazo", "consulta ginecologica",
       "chequeo ginecologico", "paquete ginecologico"
     ])],
+    ["insurance_network", () => isInsuranceQuestion(text)],
     ["appointment_requirements", () => hasAny(text, [
       "que necesito llevar", "tengo que llevar", "documentos", "identificacion",
       "estudios anteriores", "receta", "requisitos", "que debo llevar",
@@ -157,6 +159,7 @@ function normalizeWhatsAppWord(word) {
     depositar: "transferencia",
     ultrasonidoo: "ultrasonido",
     ultrasonidoos: "ultrasonido",
+    ultrasonid: "ultrasonido",
     papanicolao: "papanicolaou",
     papanicolau: "papanicolaou",
     pap: "papanicolaou",
@@ -191,6 +194,15 @@ function normalizeWhatsAppWord(word) {
     dctora: "doctora",
     secrtaria: "secretaria",
     asesora: "asesora",
+    aseguranza: "aseguradora",
+    aseguranzaa: "aseguradora",
+    aseguranzaas: "aseguradora",
+    seguroo: "seguro",
+    orario: "horario",
+    horaios: "horarios",
+    orarios: "horarios",
+    habren: "abren",
+    habre: "abre",
     oie: "oye"
   };
   return dictionary[word] ?? word;
@@ -215,6 +227,15 @@ function isLocationQuestion(text) {
     /\b(?:ubicacion|ubicados|direccion|donde estan|donde se ubican|como llego|como llegar|plaza de la paz|consultorio)\b/.test(text) ||
     /\b(?:maps|google maps|mapa|referencia|referencias|estacionamiento|plaza mayor)\b/.test(text) ||
     /\b(?:mandame|manda|pasame|pasa|me pasas)\s+(?:la\s+)?(?:ubicacion|direccion|mapa)\b/.test(text)
+  );
+}
+
+function isClinicHoursQuestion(text) {
+  return (
+    /\b(?:horario de atencion|horarios de atencion|dias de atencion|dias atienden|dias trabajan|que dias atienden|que dias trabajan)\b/.test(text) ||
+    /\b(?:a que hora|que hora|cuando)\s+(?:atienden|abren|cierran|trabajan)\b/.test(text) ||
+    /\b(?:atienden|abren|cierran|trabajan)\s+(?:hoy|manana|por la tarde|en la tarde|entre semana|lunes|martes|miercoles|jueves|viernes)\b/.test(text) ||
+    /\b(?:lunes a viernes|entre semana|horario del consultorio|horario consultorio)\b/.test(text)
   );
 }
 
@@ -279,6 +300,11 @@ function isPromotionQuestion(text) {
 
 function isPaymentQuestion(text) {
   return /\b(?:tarjeta|credito|debito|transferencia|efectivo|pago|formas de pago|forma de pago|metodos de pago|pagar con tarjeta|pagar con transferencia|pagar efectivo|deposito|depositar|terminal|clip|mercado pago|cuenta bancaria)\b/.test(text);
+}
+
+function isInsuranceQuestion(text) {
+  return /\b(?:seguro|aseguradora|aseguradoras|red medica|redes medicas|particular|convenio|convenios|gastos medicos|medica|medico)\b/.test(text) &&
+    /\b(?:aceptan|manejan|trabajan|tienen|puedo|consulta|pagar|voy|ir|es por|soy|red|seguro|aseguradora|particular)\b/.test(text);
 }
 
 function isPatientResultsRequest(text) {

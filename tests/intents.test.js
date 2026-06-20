@@ -37,6 +37,14 @@ test("detecta costo, ubicacion y formas de pago", () => {
   assert.equal(detectIntent("tienen terminal").intent, "payment_methods");
 });
 
+test("detecta horario del consultorio y red medica sin mandar a fallback", () => {
+  assert.equal(detectIntent("a que hora atienden").intent, "clinic_hours");
+  assert.equal(detectIntent("que dias trabajan").intent, "clinic_hours");
+  assert.equal(detectIntent("horario de atencion").intent, "clinic_hours");
+  assert.equal(detectIntent("aceptan seguro o red medica").intent, "insurance_network");
+  assert.equal(detectIntent("voy por aseguradora").intent, "insurance_network");
+});
+
 test("detecta servicios ginecologicos administrativos sin IA", () => {
   assert.equal(detectIntent("tienen ultrasonido").intent, "medical_services");
   assert.equal(detectIntent("hacen papanicolao").intent, "medical_services");
