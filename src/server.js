@@ -3167,13 +3167,33 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       .brand-mark { width: 34px; height: 34px; border-radius: 10px; }
       h1 { font-size: 16px; }
       .status { display: none; }
-      .metric-strip { display: none; }
-      main { display: block; height: calc(100dvh - 58px); min-height: 0; padding: 0; }
+      .metric-strip {
+        display: flex;
+        position: sticky;
+        top: 58px;
+        z-index: 3;
+        gap: 7px;
+        padding: 7px 10px 8px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(245, 249, 255, 0.98);
+        scrollbar-width: none;
+      }
+      .metric-strip::-webkit-scrollbar { display: none; }
+      .metric-pill {
+        min-width: 86px;
+        padding: 7px 9px;
+        border-radius: 13px;
+        background: #ffffff;
+        box-shadow: 0 6px 14px rgba(13, 61, 114, 0.08);
+      }
+      .metric-pill strong { font-size: 17px; }
+      .metric-pill span { font-size: 10px; margin-top: 4px; }
+      main { display: block; height: calc(100dvh - 111px); min-height: 0; padding: 0; }
       body.has-selection aside { display: none; }
       body.no-selection .chat { display: none; }
       .patient-panel { display: none; }
       aside {
-        height: calc(100dvh - 58px);
+        height: calc(100dvh - 111px);
         max-height: none;
         border: 0;
         border-radius: 0;
@@ -3217,7 +3237,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       .thread { padding: 13px 14px; }
       .thread.active { padding-left: 10px; }
       .chat {
-        height: calc(100dvh - 58px);
+        height: calc(100dvh - 111px);
         min-height: 0;
         border: 0;
         border-radius: 0;

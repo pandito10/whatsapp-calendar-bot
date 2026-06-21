@@ -76,6 +76,10 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxHtml, /Locks/);
     assert.match(inboxHtml, /class="no-selection"/);
     assert.match(inboxHtml, /data-refresh-status/);
+    assert.match(inboxHtml, /<div class="metric-strip">/);
+    assert.match(inboxHtml, /<span>Pendientes<\/span>/);
+    assert.match(inboxHtml, /<span>Sin responder<\/span>/);
+    assert.match(inboxHtml, /@media \(max-width: 780px\)[\s\S]*\.metric-strip \{[\s\S]*display: flex;/);
     assert.doesNotMatch(inboxHtml, /http-equiv="refresh"/);
 
     const inboxScript = await fetch("http://127.0.0.1:32131/inbox.js");
