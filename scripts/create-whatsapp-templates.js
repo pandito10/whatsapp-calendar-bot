@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // scripts/create-whatsapp-templates.js
-// Crea las 3 plantillas de recordatorio/cancelación en WhatsApp Business Cloud API.
+// Crea las plantillas operativas seguras en WhatsApp Business Cloud API.
 // Uso: WHATSAPP_BUSINESS_ACCOUNT_ID=xxx WHATSAPP_ACCESS_TOKEN=yyy node scripts/create-whatsapp-templates.js
 
 const { WHATSAPP_BUSINESS_ACCOUNT_ID, WHATSAPP_ACCESS_TOKEN } = process.env;
@@ -18,16 +18,66 @@ const ENDPOINT = `https://graph.facebook.com/v25.0/${WHATSAPP_BUSINESS_ACCOUNT_I
 
 const TEMPLATES = [
   {
+    name: "retomar_conversacion",
+    language: "es_MX",
+    category: "UTILITY",
+    components: [
+      {
+        type: "BODY",
+        text: "Hola {{1}}, seguimos pendientes para ayudarte desde el consultorio. Por favor responde este mensaje para continuar la conversacion.",
+        example: {
+          body_text: [["Maria"]]
+        }
+      },
+      {
+        type: "BUTTONS",
+        buttons: [
+          { type: "QUICK_REPLY", text: "Continuar" },
+          { type: "QUICK_REPLY", text: "Hablar con persona" }
+        ]
+      }
+    ]
+  },
+  {
+    name: "resultados_enviados_correo",
+    language: "es_MX",
+    category: "UTILITY",
+    components: [
+      {
+        type: "BODY",
+        text: "Hola {{1}}, tus documentos del consultorio fueron enviados al correo confirmado {{2}}. Por favor revisa bandeja de entrada y spam. Este chat no interpreta resultados ni sustituye consulta medica.",
+        example: {
+          body_text: [["Maria", "m***@gmail.com"]]
+        }
+      },
+      {
+        type: "BUTTONS",
+        buttons: [
+          { type: "QUICK_REPLY", text: "Recibido" },
+          { type: "QUICK_REPLY", text: "Necesito ayuda" }
+        ]
+      }
+    ]
+  },
+  {
     name: "recordatorio_cita_24h",
     language: "es_MX",
     category: "UTILITY",
     components: [
       {
         type: "BODY",
-        text: "Hola {{1}} 👋 Te recordamos tu cita para el {{2}}. Si necesitas reagendar o cancelar, respóndenos por este chat. ¡Te esperamos! 😊",
+        text: "Hola {{1}}, te recordamos tu cita: {{2}}. Si necesitas cambiarla o cancelarla, responde este mensaje.",
         example: {
-          body_text: [["María", "miércoles 18 de junio 5:00 pm"]]
+          body_text: [["Maria", "miercoles 18 de junio 5:00 pm"]]
         }
+      },
+      {
+        type: "BUTTONS",
+        buttons: [
+          { type: "QUICK_REPLY", text: "Confirmo" },
+          { type: "QUICK_REPLY", text: "Reagendar" },
+          { type: "QUICK_REPLY", text: "Cancelar" }
+        ]
       }
     ]
   },
@@ -38,10 +88,17 @@ const TEMPLATES = [
     components: [
       {
         type: "BODY",
-        text: "Hola {{1}} 👋 Tu cita es hoy a las {{2}}. Si no puedes asistir, avísanos por este chat. ¡Te esperamos! 😊",
+        text: "Hola {{1}}, te esperamos hoy a las {{2}} para tu cita. Si no puedes asistir, responde este mensaje.",
         example: {
-          body_text: [["María", "5:00 pm"]]
+          body_text: [["Maria", "5:00 pm"]]
         }
+      },
+      {
+        type: "BUTTONS",
+        buttons: [
+          { type: "QUICK_REPLY", text: "Confirmo" },
+          { type: "QUICK_REPLY", text: "Reagendar" }
+        ]
       }
     ]
   },
@@ -52,10 +109,17 @@ const TEMPLATES = [
     components: [
       {
         type: "BODY",
-        text: "Hola {{1}}, lamentamos informarte que tu cita ha sido cancelada. Por favor contáctanos por este chat para reagendar. Disculpa las molestias.",
+        text: "Hola {{1}}, necesitamos avisarte que tu cita fue cancelada por el consultorio. Responde este mensaje para ayudarte a reagendar.",
         example: {
-          body_text: [["María"]]
+          body_text: [["Maria"]]
         }
+      },
+      {
+        type: "BUTTONS",
+        buttons: [
+          { type: "QUICK_REPLY", text: "Reagendar" },
+          { type: "QUICK_REPLY", text: "Hablar con persona" }
+        ]
       }
     ]
   }
@@ -82,7 +146,7 @@ async function createTemplate(template) {
 }
 
 async function main() {
-  console.log(`\n📋  Creando ${TEMPLATES.length} plantillas en cuenta ${WHATSAPP_BUSINESS_ACCOUNT_ID}...\n`);
+  console.log(`\n📋  Creando ${TEMPLATES.length} plantillas en cuenta ${maskIdentifier(WHATSAPP_BUSINESS_ACCOUNT_ID)}...\n`);
 
   const results = [];
 
@@ -126,6 +190,12 @@ async function main() {
   }
 
   console.log("");
+}
+
+function maskIdentifier(value) {
+  const text = String(value ?? "");
+  if (text.length <= 8) return text ? "****" : "";
+  return `${text.slice(0, 4)}...${text.slice(-4)}`;
 }
 
 main().catch(err => {

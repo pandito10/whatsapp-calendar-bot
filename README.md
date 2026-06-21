@@ -382,9 +382,10 @@ Para pacientes reales, manten `ENABLE_REMINDER_WORKER=false` hasta tener templat
 
 Plantillas sugeridas para crear en Meta Business Manager:
 
-- `retomar_conversacion` (Utility): `Hola {{1}}, seguimos pendientes para ayudarte desde el consultorio. Por favor responde este mensaje para continuar la conversacion.`
-- `resultados_enviados_correo` (Utility): `Hola {{1}}, tus resultados fueron enviados al correo confirmado {{2}}. Por favor revisa bandeja de entrada y spam. Este chat no interpreta resultados ni sustituye consulta medica.`
+- `retomar_conversacion` (Utility): `Hola {{1}}, seguimos pendientes para ayudarte desde el consultorio. Por favor responde este mensaje para continuar la conversacion.` Botones: `Continuar`, `Hablar con persona`.
+- `resultados_enviados_correo` (Utility): `Hola {{1}}, tus documentos del consultorio fueron enviados al correo confirmado {{2}}. Por favor revisa bandeja de entrada y spam. Este chat no interpreta resultados ni sustituye consulta medica.` Botones: `Recibido`, `Necesito ayuda`.
 - `recordatorio_cita_24h` (Utility): `Hola {{1}}, te recordamos tu cita: {{2}}. Si necesitas cambiarla o cancelarla, responde este mensaje.`
+- `recordatorio_cita_2h` (Utility): `Hola {{1}}, te esperamos hoy a las {{2}} para tu cita. Si no puedes asistir, responde este mensaje.`
 - `cancelacion_cita` (Utility): `Hola {{1}}, necesitamos avisarte que tu cita fue cancelada por el consultorio. Responde este mensaje para ayudarte a reagendar.`
 
 Desde el inbox aparece una seccion "Plantillas Meta". Si la ventana de 24 horas ya cerro, usa esos botones en lugar de texto libre. Si una plantilla aparece como "Falta ...", primero crea y aprueba la plantilla en Meta y luego coloca el nombre exacto en Render.
