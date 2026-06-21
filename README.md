@@ -359,6 +359,8 @@ ENABLE_REMINDER_WORKER=false
 ENABLE_PATIENT_REMINDER_TEMPLATES=false
 WHATSAPP_REMINDER_TEMPLATE_24H=
 WHATSAPP_REMINDER_TEMPLATE_2H=
+WHATSAPP_REENGAGEMENT_TEMPLATE=
+WHATSAPP_RESULTS_EMAIL_TEMPLATE=
 WHATSAPP_TEMPLATE_LANGUAGE=es_MX
 ```
 
@@ -369,12 +371,23 @@ ENABLE_REMINDER_WORKER=true
 ENABLE_PATIENT_REMINDER_TEMPLATES=true
 WHATSAPP_REMINDER_TEMPLATE_24H=nombre_template_24h
 WHATSAPP_REMINDER_TEMPLATE_2H=nombre_template_2h
+WHATSAPP_REENGAGEMENT_TEMPLATE=retomar_conversacion
+WHATSAPP_RESULTS_EMAIL_TEMPLATE=resultados_enviados_correo
 WHATSAPP_TEMPLATE_LANGUAGE=es_MX
 ```
 
 Los templates actuales reciben dos variables en el cuerpo: nombre del paciente y fecha/hora de la cita. Si tu template usa otro orden o mas variables, ajusta `sendReminder` antes de activarlo.
 
 Para pacientes reales, manten `ENABLE_REMINDER_WORKER=false` hasta tener templates aprobados y probados. Los recordatorios a pacientes con templates quedan como segunda fase operativa segura.
+
+Plantillas sugeridas para crear en Meta Business Manager:
+
+- `retomar_conversacion` (Utility): `Hola {{1}}, seguimos pendientes para ayudarte desde el consultorio. Por favor responde este mensaje para continuar la conversacion.`
+- `resultados_enviados_correo` (Utility): `Hola {{1}}, tus resultados fueron enviados al correo confirmado {{2}}. Por favor revisa bandeja de entrada y spam. Este chat no interpreta resultados ni sustituye consulta medica.`
+- `recordatorio_cita_24h` (Utility): `Hola {{1}}, te recordamos tu cita: {{2}}. Si necesitas cambiarla o cancelarla, responde este mensaje.`
+- `cancelacion_cita` (Utility): `Hola {{1}}, necesitamos avisarte que tu cita fue cancelada por el consultorio. Responde este mensaje para ayudarte a reagendar.`
+
+Desde el inbox aparece una seccion "Plantillas Meta". Si la ventana de 24 horas ya cerro, usa esos botones en lugar de texto libre. Si una plantilla aparece como "Falta ...", primero crea y aprueba la plantilla en Meta y luego coloca el nombre exacto en Render.
 
 ## Guardar conversaciones en Supabase
 
@@ -538,6 +551,8 @@ INCLUDE_PATIENT_CONTACT_IN_CALENDAR=false
 ENABLE_PATIENT_REMINDER_TEMPLATES=false
 WHATSAPP_REMINDER_TEMPLATE_24H=
 WHATSAPP_REMINDER_TEMPLATE_2H=
+WHATSAPP_REENGAGEMENT_TEMPLATE=
+WHATSAPP_RESULTS_EMAIL_TEMPLATE=
 WHATSAPP_TEMPLATE_LANGUAGE=es_MX
 ```
 

@@ -30,8 +30,10 @@ export function getConversationStatus(conversation, nowMs = Date.now()) {
   const lastPatientMessage = getLastPatientMessage(conversation);
   const lastPatientText = normalizeText(lastPatientMessage?.body ?? "");
   const windowState = getWhatsAppWindowState(conversation, nowMs);
+  const urgentResolved = tags.has("urgente resuelto") || tags.has("urgencia resuelta");
+  const pendingUrgentText = last?.sender === "patient" && /urgente|emergencia|sangrado|dolor fuerte|dolor intenso|me siento muy mal|desmayo/.test(lastPatientText);
 
-  if (tags.has("urgente") || /urgente|emergencia|sangrado|dolor fuerte|dolor intenso|me siento muy mal|desmayo/.test(lastPatientText)) {
+  if (tags.has("urgente") || (!urgentResolved && pendingUrgentText)) {
     return { key: "urgent", label: "Urgente", className: "urgent", priority: 1 };
   }
 

@@ -80,6 +80,10 @@ services:
         sync: false
       - key: WHATSAPP_REMINDER_TEMPLATE_2H
         sync: false
+      - key: WHATSAPP_REENGAGEMENT_TEMPLATE
+        sync: false
+      - key: WHATSAPP_RESULTS_EMAIL_TEMPLATE
+        sync: false
       - key: WHATSAPP_TEMPLATE_LANGUAGE
         value: es_MX
       - key: REQUIRE_DB_FOR_APPOINTMENTS

@@ -285,8 +285,27 @@ test("inbox/send bloquea cualquier adjunto por WhatsApp", async () => {
     assert.match(loginHtml, /No WhatsApp archivo/);
     assert.match(loginHtml, /Pedir correo/);
     assert.match(loginHtml, /Preparacion/);
+    assert.match(loginHtml, /Plantillas Meta/);
+    assert.match(loginHtml, /Falta WHATSAPP_REENGAGEMENT_TEMPLATE/);
     const csrf = loginHtml.match(/name="csrf" type="hidden" value="([^"]+)"/)?.[1];
     assert.ok(csrf);
+
+    const templateResponse = await fetch("http://127.0.0.1:32137/inbox/send-template", {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Cookie: inboxCookie
+      },
+      body: new URLSearchParams({
+        csrf,
+        phone: patientPhone,
+        template: "reengagement"
+      })
+    });
+    assert.equal(templateResponse.status, 303);
+    const templateLocation = decodeURIComponent(templateResponse.headers.get("location")).replace(/\+/g, " ");
+    assert.match(templateLocation, /Falta configurar WHATSAPP_REENGAGEMENT_TEMPLATE/);
 
     const boundary = "----codex-medical-block";
     const body = Buffer.concat([
@@ -311,6 +330,61 @@ test("inbox/send bloquea cualquier adjunto por WhatsApp", async () => {
     const location = decodeURIComponent(response.headers.get("location")).replace(/\+/g, " ");
     assert.match(location, /archivos, fotos y documentos ya no se envian por WhatsApp/);
     assert.match(location, /Enviar archivo por correo confirmado/);
+  } finally {
+    await app.stop();
+  }
+});
+
+test("inbox permite marcar una urgencia como resuelta", async () => {
+  const appSecret = "app-secret-test";
+  const patientPhone = "5214778811999";
+  const app = await startServer(32138, {
+    ...baseEnv,
+    NODE_ENV: "test",
+    WHATSAPP_APP_SECRET: appSecret,
+    REQUIRE_WEBHOOK_SIGNATURE: "true",
+    ALLOW_UNSIGNED_WEBHOOKS: "false",
+    WHATSAPP_SEND_DRY_RUN: "true"
+  });
+
+  try {
+    const payload = buildTextPayload({
+      from: patientPhone,
+      id: "wamid.urgente-resuelto",
+      text: "tengo sangrado abundante"
+    });
+    const webhook = await fetch("http://127.0.0.1:32138/webhook/123456789012345678901234567890", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Hub-Signature-256": signPayload(appSecret, payload)
+      },
+      body: payload
+    });
+    assert.equal(webhook.status, 200);
+    await waitForOutput(app, /Incoming WhatsApp from 52147\*\*\*\*999/);
+
+    const inboxCookie = await loginInbox(32138, baseEnv.INBOX_PASSWORD);
+    const inboxHtml = await (await fetch(`http://127.0.0.1:32138/inbox?phone=${patientPhone}`, { headers: { Cookie: inboxCookie } })).text();
+    assert.match(inboxHtml, /Marcar urgente resuelto/);
+    const csrf = inboxHtml.match(/name="csrf" type="hidden" value="([^"]+)"/)?.[1];
+    assert.ok(csrf);
+
+    const response = await fetch("http://127.0.0.1:32138/inbox/resolve-urgent", {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Cookie: inboxCookie
+      },
+      body: new URLSearchParams({
+        csrf,
+        phone: patientPhone
+      })
+    });
+    assert.equal(response.status, 303);
+    const location = decodeURIComponent(response.headers.get("location")).replace(/\+/g, " ");
+    assert.match(location, /Urgencia marcada como resuelta/);
   } finally {
     await app.stop();
   }

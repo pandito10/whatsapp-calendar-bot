@@ -392,6 +392,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/inbox/resolve-urgent") {
+      await handleInboxResolveUrgent(req, url, res);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/inbox/send-template") {
+      await handleInboxSendTemplate(req, url, res);
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/inbox/tags") {
       await handleInboxTags(req, url, res);
       return;
@@ -1646,6 +1656,89 @@ async function handleInboxRepairBot(req, url, res) {
   await redirectInbox(res, phone, "Bot reparado: flujo reiniciado, bot activo y menu enviado.");
 }
 
+async function handleInboxResolveUrgent(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) return;
+  if (!checkRateLimit(req, url, "inbox-action")) {
+    res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8" }).end("too many requests");
+    return;
+  }
+
+  const form = await readForm(req, { maxBytes: config.maxRequestBytes });
+  if (!isValidCsrf(req, form.get("csrf"))) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const phone = normalizePhone(form.get("phone") ?? "");
+  if (!isValidWhatsAppPhone(phone)) {
+    await redirectInbox(res, "", "Telefono invalido.");
+    return;
+  }
+
+  const existing = conversations.get(phone) ?? { phoneNumber: phone, messages: [], updatedAt: new Date().toISOString(), tags: [] };
+  const nextTags = markUrgentTagsResolved(existing.tags ?? []);
+  existing.tags = nextTags;
+  conversations.set(phone, existing);
+
+  await setConversationTags(phone, nextTags);
+  await recordConversationMessage(phone, "admin", "Urgencia marcada como resuelta desde el inbox.", {
+    source: "inbox_resolve_urgent",
+    internal: true
+  });
+  await saveConversationNote({
+    phoneNumber: phone,
+    author: "admin",
+    body: "Urgencia marcada como resuelta desde el inbox. La conversacion baja de prioridad."
+  });
+
+  await redirectInbox(res, phone, "Urgencia marcada como resuelta. La conversacion ya no se queda hasta arriba.", "success");
+}
+
+async function handleInboxSendTemplate(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) return;
+  if (!checkRateLimit(req, url, "inbox-action")) {
+    res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8" }).end("too many requests");
+    return;
+  }
+
+  const form = await readForm(req, { maxBytes: config.maxRequestBytes });
+  if (!isValidCsrf(req, form.get("csrf"))) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const phone = normalizePhone(form.get("phone") ?? "");
+  if (!isValidWhatsAppPhone(phone)) {
+    await redirectInbox(res, "", "Telefono invalido.");
+    return;
+  }
+
+  const conversation = (await loadConversationForInboxSend(phone)) ?? conversations.get(phone);
+  const template = buildInboxMetaTemplate(form.get("template"), conversation, phone);
+  if (!template.ok) {
+    await redirectInbox(res, phone, template.error);
+    return;
+  }
+
+  try {
+    await sendWhatsAppTemplate(phone, template.name, config.whatsappTemplateLanguage, template.parameters);
+    await markConversationHumanReply(phone);
+    await recordConversationMessage(phone, "human", `Plantilla Meta enviada: ${template.label}.`, {
+      source: "inbox_template",
+      templateType: template.type
+    });
+    await saveConversationNote({
+      phoneNumber: phone,
+      author: "admin",
+      body: `Plantilla Meta enviada: ${template.label}.`
+    });
+    await redirectInbox(res, phone, `Plantilla enviada: ${template.label}.`, "success");
+  } catch (error) {
+    logSafeError(`Could not send Meta template to ${maskPhone(phone)}`, error);
+    await redirectInbox(res, phone, classifyWhatsAppInboxSendError(error));
+  }
+}
+
 async function handleInboxTags(req, url, res) {
   if (!hasInboxAccess(req, url, res)) return;
   if (!checkRateLimit(req, url, "inbox-action")) {
@@ -1830,6 +1923,89 @@ function parseTags(value) {
     .map((tag) => tag.trim())
     .filter((tag) => tag.length >= 2)
     .slice(0, 12);
+}
+
+function markUrgentTagsResolved(tags = []) {
+  const kept = (Array.isArray(tags) ? tags : [])
+    .map((tag) => String(tag ?? "").trim())
+    .filter((tag) => {
+      const normalized = normalizeText(tag);
+      return normalized !== "urgente" && normalized !== "urgencia";
+    });
+
+  return [...new Set([...kept, "Urgente resuelto"])].slice(0, 12);
+}
+
+function buildInboxMetaTemplate(type, conversation, phone) {
+  const normalizedType = normalizeText(type);
+  const appointment = conversation?.appointment;
+  const fallbackName = firstName(conversation ? getConversationDisplayName(conversation) : formatPhoneForInbox(phone));
+  const patientName = appointment?.patientName ?? fallbackName ?? "Paciente";
+  const slotLabel = appointment?.slotStart ? formatAppointmentFull(appointment.slotStart) : "";
+
+  if (normalizedType === "reengagement") {
+    if (!config.whatsappReengagementTemplate) {
+      return { ok: false, error: "Falta configurar WHATSAPP_REENGAGEMENT_TEMPLATE en Render despues de aprobar la plantilla en Meta." };
+    }
+    return {
+      ok: true,
+      type: "reengagement",
+      label: "Retomar conversacion",
+      name: config.whatsappReengagementTemplate,
+      parameters: [firstName(patientName) || "Paciente"]
+    };
+  }
+
+  if (normalizedType === "results_email") {
+    const emailRecipient = resolveResultsEmailRecipient({ appointment, conversation });
+    if (!isValidPatientEmail(emailRecipient.email)) {
+      return { ok: false, error: "Esta paciente no tiene correo confirmado para enviar aviso de resultados." };
+    }
+    if (!config.whatsappResultsEmailTemplate) {
+      return { ok: false, error: "Falta configurar WHATSAPP_RESULTS_EMAIL_TEMPLATE en Render despues de aprobar la plantilla en Meta." };
+    }
+    return {
+      ok: true,
+      type: "results_email",
+      label: "Aviso de resultados por correo",
+      name: config.whatsappResultsEmailTemplate,
+      parameters: [firstName(patientName) || "Paciente", maskEmail(emailRecipient.email)]
+    };
+  }
+
+  if (normalizedType === "appointment_reminder") {
+    if (!appointment?.slotStart) {
+      return { ok: false, error: "No hay cita registrada para enviar plantilla de recordatorio." };
+    }
+    if (!config.whatsappReminderTemplate24h) {
+      return { ok: false, error: "Falta configurar WHATSAPP_REMINDER_TEMPLATE_24H en Render despues de aprobar la plantilla en Meta." };
+    }
+    return {
+      ok: true,
+      type: "appointment_reminder",
+      label: "Recordatorio de cita",
+      name: config.whatsappReminderTemplate24h,
+      parameters: [patientName, slotLabel]
+    };
+  }
+
+  if (normalizedType === "cancellation") {
+    if (!appointment?.slotStart) {
+      return { ok: false, error: "No hay cita registrada para enviar plantilla de cancelacion." };
+    }
+    if (!config.whatsappCancellationTemplate) {
+      return { ok: false, error: "Falta configurar WHATSAPP_CANCELLATION_TEMPLATE en Render despues de aprobar la plantilla en Meta." };
+    }
+    return {
+      ok: true,
+      type: "cancellation",
+      label: "Cancelacion de cita",
+      name: config.whatsappCancellationTemplate,
+      parameters: [patientName]
+    };
+  }
+
+  return { ok: false, error: "Plantilla no reconocida." };
 }
 
 function hasInboxAccess(req, url, res, options = {}) {
@@ -2689,6 +2865,44 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       color: var(--muted);
       line-height: 1.4;
     }
+    .template-actions {
+      margin: 12px 24px 0;
+      border: 1px solid #cfe1f7;
+      border-radius: 16px;
+      background: #ffffff;
+      padding: 12px;
+      box-shadow: 0 10px 24px rgba(13, 61, 114, 0.08);
+    }
+    .template-actions h2 {
+      margin: 0 0 4px;
+      font-size: 14px;
+      color: #0d3d72;
+    }
+    .template-actions p {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .template-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .template-grid form { display: flex; min-width: 0; }
+    .template-grid button { width: 100%; }
+    .template-missing {
+      display: flex;
+      align-items: center;
+      min-height: 40px;
+      border: 1px dashed #cfe1f7;
+      border-radius: 12px;
+      padding: 8px 10px;
+      color: #4a6a8a;
+      font-size: 12px;
+      font-weight: 700;
+      background: #f5f9ff;
+    }
     body.results-email-open { overflow: hidden; }
     .results-email-modal {
       display: none;
@@ -3356,6 +3570,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       }
       .quick-replies { margin: 0 -2px; padding: 0 2px 4px; }
       .quick-reply { font-size: 12px; padding: 7px 9px; }
+      .template-actions { margin: 10px 14px 0; padding: 10px; }
+      .template-grid { grid-template-columns: 1fr; }
       .file-row span { display: none; }
       .composer-actions {
         display: grid;
@@ -3476,6 +3692,15 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
                     <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
                     <button class="button-danger" type="submit" onclick="return confirm('¿Arreglar el bot para esta conversacion? Esto reinicia el flujo, libera apartados temporales y manda el menu inicial.')">Arreglar bot</button>
                   </form>
+                  ${
+                    selectedStatus.key === "urgent"
+                      ? `<form method="post" action="/inbox/resolve-urgent">
+                          <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                          <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                          <button type="submit">Marcar urgente resuelto</button>
+                        </form>`
+                      : ""
+                  }
                   <form class="tag-form" method="post" action="/inbox/tags">
                     <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
                     <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
@@ -3499,6 +3724,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       ${inboxSuccess ? `<div class="mobile-toast success" role="status">${escapeHtml(inboxSuccess)}</div>` : ""}
       ${selected?.botPaused ? `<div class="notice">Modo humano activo: el bot guarda mensajes entrantes, pero no responde automaticamente a este paciente.</div>` : ""}
       ${needsTemplateNotice ? `<div class="notice">La ultima interaccion del paciente fue hace mas de 24 horas. Puede requerir plantilla aprobada de WhatsApp para responder fuera de la ventana de atencion.</div>` : ""}
+      ${selected ? renderInboxMetaTemplateActions(selected, selectedPhone, csrf) : ""}
       ${appointmentCard}
       <div class="messages">${messages}</div>
       ${selected ? renderInlineResultsEmailAction(selected, selectedPhone, csrf) : ""}
@@ -3861,6 +4087,64 @@ function renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, win
 
     ${renderKnowledgePanel(knowledgeSuggestions, csrf, selectedPhone)}
 	  </aside>`;
+}
+
+function renderInboxMetaTemplateActions(conversation, selectedPhone, csrf) {
+  if (!conversation) return "";
+  const appointment = conversation.appointment;
+  const emailRecipient = resolveResultsEmailRecipient({ appointment, conversation });
+  const hasEmail = isValidPatientEmail(emailRecipient.email);
+  const actions = [
+    {
+      type: "reengagement",
+      label: "Retomar chat",
+      configured: Boolean(config.whatsappReengagementTemplate),
+      missing: "Falta WHATSAPP_REENGAGEMENT_TEMPLATE"
+    },
+    {
+      type: "results_email",
+      label: "Aviso resultados por correo",
+      configured: Boolean(config.whatsappResultsEmailTemplate),
+      visible: hasEmail,
+      missing: "Falta WHATSAPP_RESULTS_EMAIL_TEMPLATE"
+    },
+    {
+      type: "appointment_reminder",
+      label: "Recordatorio cita",
+      configured: Boolean(config.whatsappReminderTemplate24h),
+      visible: Boolean(appointment?.slotStart),
+      missing: "Falta WHATSAPP_REMINDER_TEMPLATE_24H"
+    },
+    {
+      type: "cancellation",
+      label: "Cancelacion cita",
+      configured: Boolean(config.whatsappCancellationTemplate),
+      visible: Boolean(appointment?.slotStart),
+      missing: "Falta WHATSAPP_CANCELLATION_TEMPLATE"
+    }
+  ].filter((action) => action.visible !== false);
+
+  if (!actions.length) return "";
+
+  return `<div class="template-actions">
+    <h2>Plantillas Meta</h2>
+    <p>Usalas para responder fuera de la ventana de 24h. Solo funcionan si Meta ya aprobo la plantilla y el nombre esta configurado en Render.</p>
+    <div class="template-grid">
+      ${actions.map((action) => renderInboxMetaTemplateButton(action, selectedPhone, csrf)).join("")}
+    </div>
+  </div>`;
+}
+
+function renderInboxMetaTemplateButton(action, selectedPhone, csrf) {
+  if (!action.configured) {
+    return `<div class="template-missing">${escapeHtml(action.label)}: ${escapeHtml(action.missing)}</div>`;
+  }
+  return `<form method="post" action="/inbox/send-template">
+    <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+    <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+    <input name="template" type="hidden" value="${escapeHtml(action.type)}">
+    <button type="submit">${escapeHtml(action.label)}</button>
+  </form>`;
 }
 
 function renderResultsEmailSection(conversation, selectedPhone, csrf) {

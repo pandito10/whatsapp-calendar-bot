@@ -60,6 +60,25 @@ test("prioriza conversaciones urgentes, no entendidas y por confirmar", () => {
   ]);
 });
 
+test("urgente resuelto baja prioridad sin apagar futuras urgencias", () => {
+  const resolved = conversation({
+    tags: ["Urgente resuelto"],
+    messages: [
+      { sender: "patient", body: "tengo sangrado abundante", timestamp: "2030-06-17T17:45:00.000Z" },
+      { sender: "admin", body: "Urgencia marcada como resuelta desde el inbox.", timestamp: "2030-06-17T17:50:00.000Z" }
+    ]
+  });
+  assert.notEqual(getConversationStatus(resolved, now).key, "urgent");
+
+  const newUrgent = conversation({
+    tags: ["Urgente resuelto", "Urgente"],
+    messages: [
+      { sender: "patient", body: "tengo dolor intenso", timestamp: "2030-06-17T17:59:00.000Z" }
+    ]
+  });
+  assert.equal(getConversationStatus(newUrgent, now).key, "urgent");
+});
+
 test("orden de recepcion pone arriba el ultimo mensaje entrante de paciente", () => {
   const olderPriority = conversation({
     phoneNumber: "5214770000010",
