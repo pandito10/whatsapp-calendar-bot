@@ -911,6 +911,14 @@ function handleInboxScript(res) {
     }
   }
 
+  function bindInboxDynamicActions() {
+    bindQuickReplies();
+    bindCopyButtons();
+    bindComposerEnhancements();
+    bindResultsEmailActions();
+    bindDirtyForms();
+  }
+
   function bindResultsEmailActions() {
     const openPanel = (event) => {
       event.preventDefault();
@@ -1008,6 +1016,48 @@ function handleInboxScript(res) {
     return distanceFromBottom > 180;
   }
 
+  async function refreshInboxContent() {
+    const url = new URL(window.location.href);
+    url.searchParams.set("refresh", String(Date.now()));
+
+    const currentMessages = document.querySelector(".messages");
+    const wasReadingOld = userIsReadingOldMessages();
+    const distanceFromBottom = currentMessages
+      ? currentMessages.scrollHeight - currentMessages.scrollTop - currentMessages.clientHeight
+      : 0;
+
+    const response = await fetch(url.toString(), {
+      headers: { "X-Inbox-Refresh": "1" },
+      credentials: "same-origin"
+    });
+    if (!response.ok) throw new Error("refresh failed");
+
+    const nextDocument = new DOMParser().parseFromString(await response.text(), "text/html");
+    const nextMain = nextDocument.querySelector("main");
+    const currentMain = document.querySelector("main");
+    if (nextMain && currentMain) currentMain.replaceWith(nextMain);
+
+    const nextMetricStrip = nextDocument.querySelector(".metric-strip");
+    const currentMetricStrip = document.querySelector(".metric-strip");
+    if (nextMetricStrip && currentMetricStrip) currentMetricStrip.replaceWith(nextMetricStrip);
+
+    const nextStatus = nextDocument.querySelector("header .status");
+    const currentStatus = document.querySelector("header .status");
+    if (nextStatus && currentStatus) currentStatus.replaceWith(nextStatus);
+
+    document.body.className = nextDocument.body.className;
+    bindInboxDynamicActions();
+
+    const refreshedMessages = document.querySelector(".messages");
+    if (refreshedMessages) {
+      if (wasReadingOld) {
+        refreshedMessages.scrollTop = Math.max(0, refreshedMessages.scrollHeight - refreshedMessages.clientHeight - distanceFromBottom);
+      } else {
+        refreshedMessages.scrollTop = refreshedMessages.scrollHeight;
+      }
+    }
+  }
+
   function bindSmartRefresh() {
     const refreshMs = 20000;
     let lastRefresh = Date.now();
@@ -1043,26 +1093,25 @@ function handleInboxScript(res) {
         updateRefreshStatus("Pausado: cambios sin guardar");
         return;
       }
-      if (userIsReadingOldMessages()) {
-        updateRefreshStatus("Pausado mientras lees");
-        return;
-      }
       if (elapsedSeconds < Math.ceil(refreshMs / 1000)) {
         updateRefreshStatus("Actualizado hace " + elapsedSeconds + "s");
         return;
       }
-      const url = new URL(window.location.href);
-      url.searchParams.set("refresh", String(Date.now()));
-      window.location.replace(url.toString());
+      refreshInboxContent()
+        .then(() => {
+          lastRefresh = Date.now();
+          updateRefreshStatus(userIsReadingOldMessages() ? "Actualizado sin moverte" : "Actualizado ahora");
+        })
+        .catch(() => {
+          const url = new URL(window.location.href);
+          url.searchParams.set("refresh", String(Date.now()));
+          window.location.replace(url.toString());
+        });
     }, 5000);
   }
 
   function initInbox() {
-    bindQuickReplies();
-    bindCopyButtons();
-    bindComposerEnhancements();
-    bindResultsEmailActions();
-    bindDirtyForms();
+    bindInboxDynamicActions();
     bindSmartRefresh();
     scrollMessagesToBottom();
   }
@@ -3137,9 +3186,27 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
         background: rgba(255, 255, 255, 0.96);
       }
       .stats,
-      .metrics-card,
-      .diagnostics-card {
+      .metrics-card {
         display: none;
+      }
+      .diagnostics-card {
+        display: block;
+        margin: 8px 14px 10px;
+        padding: 10px;
+        border-radius: 14px;
+        background: #ffffff;
+      }
+      .diagnostics-head {
+        margin-bottom: 8px;
+      }
+      .diagnostics-grid {
+        max-height: 122px;
+        overflow: auto;
+        padding-right: 2px;
+      }
+      .diagnostic-row {
+        grid-template-columns: 10px minmax(0, 86px) minmax(0, 1fr);
+        font-size: 11px;
       }
       .tools {
         position: sticky;
