@@ -47,6 +47,30 @@ export async function sendMedicalResultEmail({ to, name, clinicName, file, note 
   });
 }
 
+export function classifyEmailDeliveryError(error) {
+  const status = Number(error?.resendStatus ?? error?.status ?? 0);
+  const message = String(error?.resendMessage ?? error?.message ?? "");
+
+  if (status === 401 || /invalid api key|api key/i.test(message)) {
+    return "No se pudo enviar el correo. RESEND_API_KEY no es valida o ya no esta activa en Resend.";
+  }
+
+  const unverifiedDomain = message.match(/The\s+([^\s]+)\s+domain is not verified/i)?.[1];
+  if (status === 403 && unverifiedDomain) {
+    return `No se pudo enviar el correo. Resend bloqueo el envio porque el dominio ${unverifiedDomain} no esta verificado. Entra a Resend > Domains, agrega los DNS en Hostinger y presiona Verify.`;
+  }
+
+  if (status === 403 || /domain is not verified|verify your domain|sender|from/i.test(message)) {
+    return "No se pudo enviar el correo. Resend rechazo el remitente; revisa que RESEND_FROM_EMAIL use un dominio verificado en Resend.";
+  }
+
+  if (status >= 500) {
+    return "No se pudo enviar el correo por un problema temporal de Resend. Intenta de nuevo en unos minutos.";
+  }
+
+  return "No se pudo enviar el correo. Revisa RESEND_API_KEY, RESEND_FROM_EMAIL y que el dominio este verificado en Resend.";
+}
+
 async function sendResendEmail({ to, subject, html, attachments }) {
   const payload = { from: config.resendFromEmail, to: [to], subject, html };
   if (attachments?.length) payload.attachments = attachments;
@@ -63,7 +87,17 @@ async function sendResendEmail({ to, subject, html, attachments }) {
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Resend API error ${res.status}: ${text.slice(0, 200)}`);
+    let details = {};
+    try {
+      details = JSON.parse(text);
+    } catch {
+      details = {};
+    }
+    const error = new Error(`Resend API error ${res.status}`);
+    error.resendStatus = res.status;
+    error.resendMessage = String(details.message ?? text).slice(0, 300);
+    error.resendName = details.name;
+    throw error;
   }
 }
 

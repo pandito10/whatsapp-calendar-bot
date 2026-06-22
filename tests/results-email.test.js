@@ -134,6 +134,19 @@ test("sendMedicalResultEmail envia adjunto por Resend", async () => {
   }
 });
 
+test("clasifica dominio no verificado de Resend con mensaje accionable", async () => {
+  const { classifyEmailDeliveryError } = await import(`../src/email.js?classify=${Date.now()}`);
+  const error = new Error("Resend API error 403");
+  error.resendStatus = 403;
+  error.resendMessage = "The ginecologiaintegralgto.com domain is not verified. Please, add and verify your domain on https://resend.com/domains";
+
+  const message = classifyEmailDeliveryError(error);
+
+  assert.match(message, /ginecologiaintegralgto\.com/);
+  assert.match(message, /Resend > Domains/);
+  assert.match(message, /Hostinger/);
+});
+
 test("auditoria de resultados usa correo enmascarado y no contenido del archivo", () => {
   const text = buildResultsEmailAuditText({
     email: "correopaciente@example.com",

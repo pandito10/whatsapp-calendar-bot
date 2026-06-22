@@ -75,7 +75,7 @@ import {
 } from "./db.js";
 import { downloadWhatsAppAudio, getLastWhatsAppSendDiagnostic, sendMessageWithOptions, sendWhatsAppButtons, sendWhatsAppList, sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.js";
 import { appendLeadToSheet, appendAppointmentToSheet, appendUnknownQuestionToSheet, isSheetsEnabled } from "./sheets.js";
-import { isEmailEnabled, sendAppointmentConfirmationEmail, sendCancellationEmail, sendMedicalResultEmail } from "./email.js";
+import { classifyEmailDeliveryError, isEmailEnabled, sendAppointmentConfirmationEmail, sendCancellationEmail, sendMedicalResultEmail } from "./email.js";
 import {
   buildResultSentWhatsAppNotice,
   buildResultsEmailAuditText,
@@ -1250,7 +1250,7 @@ async function handleInboxResultsEmail(req, url, res) {
     });
   } catch (error) {
     logSafeError(`Could not send medical result email to ${emailMasked}`, error);
-    await redirectInbox(res, phone, "No se pudo enviar el correo. Resend rechazo el envio; revisa que RESEND_FROM_EMAIL sea un remitente verificado y que RESEND_API_KEY este activa.");
+    await redirectInbox(res, phone, classifyEmailDeliveryError(error));
     return;
   }
 
