@@ -4818,6 +4818,10 @@ async function handleIncomingText(from, text, options = {}) {
     return;
   }
 
+  if (existing && await handleActiveSessionFaqQuestion(from, normalized, detectedIntent.intent, existing)) {
+    return;
+  }
+
   if (existing?.step === "collectingEmail" && isSkipEmailText(normalized)) {
     const updated = { ...existing, emailSkipped: true };
     await setPatientSession(from, updated);
@@ -6284,6 +6288,120 @@ async function replyWithActiveSessionButtons(to, body) {
     { id: "active_restart", title: "Nuevo inicio" },
     { id: "active_human", title: "Persona" }
   ]);
+}
+
+async function handleActiveSessionFaqQuestion(from, text, intent, session) {
+  if (!isSafeActiveSessionFaqIntent(intent)) return false;
+  if (shouldLetAppointmentFlowUseReply(text, intent, session)) return false;
+
+  const answer = buildActiveSessionFaqAnswer(intent);
+  if (!answer) return false;
+
+  await replyWithActiveSessionButtons(
+    from,
+    [
+      answer,
+      "",
+      buildActiveSessionResumePrompt(session)
+    ].join("\n")
+  );
+  return true;
+}
+
+function isSafeActiveSessionFaqIntent(intent) {
+  return new Set([
+    "location",
+    "clinic_hours",
+    "morning_hours",
+    "saturday",
+    "cost",
+    "promotion",
+    "featured_promo",
+    "payment_methods",
+    "insurance_network",
+    "appointment_preparation",
+    "appointment_requirements",
+    "appointment_duration",
+    "medical_services",
+    "invoice",
+    "contact_info"
+  ]).has(intent);
+}
+
+function shouldLetAppointmentFlowUseReply(text, intent, session) {
+  if (session?.step !== "collectingService") return false;
+  if (!["promotion", "featured_promo", "medical_services"].includes(intent)) return false;
+
+  return isLikelyServiceChoice(text);
+}
+
+function isLikelyServiceChoice(text) {
+  return (
+    /^(?:una|un)?\s*(?:cita|consulta|revision|chequeo)\s*$/.test(text) ||
+    /^(?:promo|promocion|paquete|paquete promocional|1200)\s*$/.test(text) ||
+    /^(?:ultrasonido|ultra|papanicolaou|papanicolau|papanicolao|colposcopia|colposkopia|colpo|control prenatal|embarazo|otro|otro motivo|otro motivo general)\s*$/.test(text) ||
+    /\b(?:quiero|necesito|ocupo|voy por|agendar|hacer|sacar|reservar)\b.*\b(?:consulta|cita|promo|promocion|ultrasonido|papanicolaou|colposcopia|control prenatal)\b/.test(text)
+  );
+}
+
+function buildActiveSessionFaqAnswer(intent) {
+  if (intent === "cost") {
+    return `${getIntentResponse("cost")}\n\n${getIntentResponse("promotion")}`;
+  }
+  if (intent === "payment_methods") {
+    return `${getIntentResponse("payment_methods")}\n\n${getIntentResponse("insurance_network")}`;
+  }
+  if (intent === "appointment_requirements" || intent === "appointment_duration") {
+    return getIntentResponse("appointment_preparation");
+  }
+  return getIntentResponse(intent);
+}
+
+function buildActiveSessionResumePrompt(session) {
+  const stepLabel = formatSessionStep(session?.step).toLowerCase();
+
+  if (session?.step === "choosingSlot" || session?.step === "choosingAvailabilitySlot") {
+    return [
+      "Seguimos con los horarios que te mande.",
+      "Toca Continuar para verlos otra vez, Nuevo inicio para empezar de cero o Persona si necesitas apoyo."
+    ].join("\n");
+  }
+
+  if (session?.step === "confirmingAppointment") {
+    return [
+      "Seguimos revisando tu cita antes de confirmarla.",
+      "Toca Continuar para ver el resumen otra vez, o responde SI para agendar / NO para elegir otro horario."
+    ].join("\n");
+  }
+
+  if (!session?.name) {
+    return "Seguimos con tu registro. Me falta tu nombre completo.";
+  }
+
+  if (!session?.email && !session?.emailSkipped) {
+    return "Seguimos con tu registro. Me falta tu correo para la confirmacion de Google Calendar.";
+  }
+
+  if (!session?.firstVisit) {
+    return "Seguimos con tu registro. Me falta saber si es tu primera vez con nosotros.";
+  }
+
+  if (!session?.reason) {
+    return "Seguimos con tu registro. Me falta el servicio o motivo general de la cita.";
+  }
+
+  if (!session?.paymentType) {
+    return "Seguimos con tu registro. Me falta saber si vienes particular o por red medica/aseguradora.";
+  }
+
+  if (!session?.preferredDateText) {
+    return "Seguimos con tu cita. Me falta el dia que quieres revisar.";
+  }
+
+  return [
+    `Seguimos en: ${stepLabel}.`,
+    "Toca Continuar para retomar el paso exacto, Nuevo inicio para empezar de cero o Persona si necesitas apoyo."
+  ].join("\n");
 }
 
 async function continueActiveSession(from, session) {

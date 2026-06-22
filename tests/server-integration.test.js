@@ -246,6 +246,62 @@ test("saludo del numero nuevo entra por webhook valido y dispara menu inicial", 
   }
 });
 
+test("FAQ administrativa en flujo activo responde y permite continuar la cita", async () => {
+  const appSecret = "app-secret-test";
+  const patientPhone = "5214778811990";
+  const app = await startServer(32139, {
+    ...baseEnv,
+    NODE_ENV: "test",
+    WHATSAPP_APP_SECRET: appSecret,
+    REQUIRE_WEBHOOK_SIGNATURE: "true",
+    ALLOW_UNSIGNED_WEBHOOKS: "false",
+    WHATSAPP_SEND_DRY_RUN: "true"
+  });
+
+  try {
+    const firstPayload = buildTextPayload({
+      from: patientPhone,
+      id: "wamid.faq-activa-1",
+      text: "quiero una cita"
+    });
+    const firstResponse = await fetch("http://127.0.0.1:32139/webhook/123456789012345678901234567890", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Hub-Signature-256": signPayload(appSecret, firstPayload)
+      },
+      body: firstPayload
+    });
+    assert.equal(firstResponse.status, 200);
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*990/g, 1);
+
+    const secondPayload = buildTextPayload({
+      from: patientPhone,
+      id: "wamid.faq-activa-2",
+      text: "cuanto cuesta la consulta"
+    });
+    const secondResponse = await fetch("http://127.0.0.1:32139/webhook/123456789012345678901234567890", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Hub-Signature-256": signPayload(appSecret, secondPayload)
+      },
+      body: secondPayload
+    });
+    assert.equal(secondResponse.status, 200);
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*990/g, 2);
+
+    const inboxCookie = await loginInbox(32139, baseEnv.INBOX_PASSWORD);
+    const inboxHtml = await (await fetch(`http://127.0.0.1:32139/inbox?phone=${patientPhone}`, { headers: { Cookie: inboxCookie } })).text();
+    assert.match(inboxHtml, /La consulta tiene un costo/);
+    assert.match(inboxHtml, /Seguimos con tu registro/);
+    assert.match(inboxHtml, /Me falta tu nombre completo/);
+    assert.match(inboxHtml, /Continuar/);
+  } finally {
+    await app.stop();
+  }
+});
+
 test("inbox/send bloquea cualquier adjunto por WhatsApp", async () => {
   const appSecret = "app-secret-test";
   const patientPhone = "5214778811965";
@@ -561,6 +617,16 @@ async function waitForOutput(app, regex) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`expected output ${regex}, got:\n${app.output()}`);
+}
+
+async function waitForOutputCount(app, regex, count) {
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    const matches = app.output().match(regex) ?? [];
+    if (matches.length >= count) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`expected ${count} matches for ${regex}, got:\n${app.output()}`);
 }
 
 async function waitForLive(port, child, getOutput) {

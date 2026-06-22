@@ -142,6 +142,8 @@ function normalizeWhatsAppWord(word) {
     q: "que",
     ke: "que",
     k: "que",
+    xq: "porque",
+    pq: "porque",
     kuanto: "cuanto",
     quanto: "cuanto",
     cuantoo: "cuanto",
@@ -178,6 +180,8 @@ function normalizeWhatsAppWord(word) {
     urgen: "urge",
     sangradoo: "sangrado",
     condisiones: "condiciones",
+    condision: "condiciones",
+    condicionez: "condiciones",
     condicion: "condiciones",
     presentarce: "presentarse",
     recomendasion: "recomendacion",
@@ -192,6 +196,7 @@ function normalizeWhatsAppWord(word) {
     paqete: "paquete",
     docotra: "doctora",
     dctora: "doctora",
+    dcotora: "doctora",
     secrtaria: "secretaria",
     asesora: "asesora",
     aseguranza: "aseguradora",
@@ -244,7 +249,8 @@ function isGreetingQuestion(text) {
 }
 
 function isConversationClosing(text) {
-  return /^(?:gracias|muchas gracias|ok gracias|okay gracias|listo gracias|perfecto gracias|esta bien gracias|sale gracias|va gracias|ya gracias|no gracias|por ahora no|seria todo|eso es todo|listo|ok|okay|va|sale|perfecto)$/.test(text);
+  return /^(?:gracias|muchas gracias|ok gracias|okay gracias|listo gracias|perfecto gracias|esta bien gracias|sale gracias|va gracias|ya gracias|no gracias|por ahora no|seria todo|eso es todo|listo|ok|okay|va|sale|perfecto|todo bien|muchas gracias eso es todo|gracias eso seria todo)$/.test(text) ||
+    /\b(?:ya tengo|ya quedo|ya esta)\s+(?:mi\s+)?cita\b.*\b(?:gracias|listo|perfecto|ok|sale)\b/.test(text);
 }
 
 function isCancellationRequest(text) {
@@ -274,7 +280,9 @@ function isAppointmentPreparationQuestion(text) {
       "condiciones", "presentarse", "como presentarme", "prepararme",
       "preparacion", "indicaciones", "recomendacion", "recomendaciones",
       "antes de la cita", "antes del estudio", "antes del papanicolaou",
-      "antes del pap", "que tengo que hacer antes",
+      "antes del pap", "que tengo que hacer antes", "como voy preparada",
+      "como debo presentarme", "como tengo que ir", "que condiciones hay",
+      "en que condiciones tengo que ir", "en que condiciones hay que presentarse",
       "como debo ir", "como me presento", "en que condiciones",
       "puedo ir con regla", "estoy en mis dias", "ando en mis dias",
       "estoy menstruando", "menstruacion", "periodo menstrual",

@@ -57,6 +57,8 @@ test("detecta servicios ginecologicos administrativos sin IA", () => {
 test("detecta duracion y condiciones para presentarse", () => {
   assert.equal(detectIntent("Cuanto se tardan en cada cita y en que condiciones hay que presentarse????").intent, "appointment_preparation");
   assert.equal(detectIntent("condisiones para presentarce a mi cita").intent, "appointment_preparation");
+  assert.equal(detectIntent("en que condicionez tengo que ir").intent, "appointment_preparation");
+  assert.equal(detectIntent("como voy preparada para el chequeo").intent, "appointment_preparation");
   assert.equal(detectIntent("puedo ir con regla").intent, "appointment_preparation");
   assert.equal(detectIntent("puedo llevar acompañante").intent, "appointment_preparation");
 });
@@ -84,6 +86,11 @@ test("detecta paciente nueva con variaciones reales", () => {
 test("prioriza urgencia medica", () => {
   assert.equal(detectIntent("estoy embarazada y me duele mucho").intent, "medical_urgent");
   assert.equal(detectIntent("tengo sangrado").intent, "medical_urgent");
+});
+
+test("detecta cierres sin seguir empujando el flujo", () => {
+  assert.equal(detectIntent("todo bien").intent, "closing");
+  assert.equal(detectIntent("ya tengo mi cita gracias").intent, "closing");
 });
 
 test("marca desconocidos con categoria aproximada", () => {
