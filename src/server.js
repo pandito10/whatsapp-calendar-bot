@@ -1009,7 +1009,7 @@ function handleInboxScript(res) {
   }
 
   function hasOpenWorkPanel() {
-    return Boolean(document.querySelector("details[open]:not(.appointment-card), .results-email-modal.is-open"));
+    return Boolean(document.querySelector("details[open]:not(.appointment-card):not(.mobile-patient-sheet):not(.template-actions), .results-email-modal.is-open"));
   }
 
   function hasDraft() {
@@ -2870,8 +2870,37 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       border: 1px solid #cfe1f7;
       border-radius: 16px;
       background: #ffffff;
-      padding: 12px;
       box-shadow: 0 10px 24px rgba(13, 61, 114, 0.08);
+      overflow: hidden;
+    }
+    .template-actions summary {
+      cursor: pointer;
+      list-style: none;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 12px;
+    }
+    .template-actions summary::-webkit-details-marker { display: none; }
+    .template-actions summary::after {
+      content: "Abrir";
+      color: var(--brand-dark);
+      background: #f0f6ff;
+      border: 1px solid #9fc5ef;
+      padding: 5px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .template-actions[open] summary::after {
+      content: "Cerrar";
+    }
+    .template-actions[open] summary {
+      border-bottom: 1px solid #dbeafe;
+    }
+    .template-body {
+      padding: 12px;
     }
     .template-actions h2 {
       margin: 0 0 4px;
@@ -3512,7 +3541,21 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
         overflow: auto;
         padding-right: 2px;
       }
-      .messages { padding: 10px; }
+      .chat-title { order: 0; flex: 0 0 auto; }
+      .messages {
+        order: 1;
+        padding: 10px;
+        min-height: 180px;
+      }
+      .mobile-patient-sheet,
+      .template-actions,
+      .appointment-card,
+      .notice,
+      .error-banner,
+      .success-banner {
+        order: 2;
+        flex: 0 0 auto;
+      }
       .appointment-card { margin: 6px 10px 0; }
       .appointment-card[open] .appointment-grid {
         max-height: 150px;
@@ -3546,6 +3589,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       .appointment-grid { grid-template-columns: 1fr; }
       .bubble { max-width: 92%; }
       .composer {
+        order: 3;
         padding: 10px;
         padding-bottom: max(10px, env(safe-area-inset-bottom));
       }
@@ -3570,7 +3614,11 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       }
       .quick-replies { margin: 0 -2px; padding: 0 2px 4px; }
       .quick-reply { font-size: 12px; padding: 7px 9px; }
-      .template-actions { margin: 10px 14px 0; padding: 10px; }
+      .template-actions { margin: 8px 10px 0; }
+      .template-actions summary { padding: 10px; }
+      .template-body { padding: 10px; max-height: 190px; overflow: auto; }
+      .template-actions h2 { margin-bottom: 2px; }
+      .template-actions p { display: none; }
       .template-grid { grid-template-columns: 1fr; }
       .file-row span { display: none; }
       .composer-actions {
@@ -4126,13 +4174,19 @@ function renderInboxMetaTemplateActions(conversation, selectedPhone, csrf) {
 
   if (!actions.length) return "";
 
-  return `<div class="template-actions">
-    <h2>Plantillas Meta</h2>
-    <p>Usalas para responder fuera de la ventana de 24h. Solo funcionan si Meta ya aprobo la plantilla y el nombre esta configurado en Render.</p>
-    <div class="template-grid">
-      ${actions.map((action) => renderInboxMetaTemplateButton(action, selectedPhone, csrf)).join("")}
+  return `<details class="template-actions">
+    <summary>
+      <div>
+        <h2>Plantillas Meta</h2>
+        <p>Usalas para responder fuera de la ventana de 24h. Solo funcionan si Meta ya aprobo la plantilla y el nombre esta configurado en Render.</p>
+      </div>
+    </summary>
+    <div class="template-body">
+      <div class="template-grid">
+        ${actions.map((action) => renderInboxMetaTemplateButton(action, selectedPhone, csrf)).join("")}
+      </div>
     </div>
-  </div>`;
+  </details>`;
 }
 
 function renderInboxMetaTemplateButton(action, selectedPhone, csrf) {
