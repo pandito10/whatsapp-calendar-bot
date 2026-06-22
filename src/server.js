@@ -2866,7 +2866,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       line-height: 1.4;
     }
     .template-actions {
-      margin: 12px 24px 0;
+      margin: 0;
       border: 1px solid #cfe1f7;
       border-radius: 16px;
       background: #ffffff;
@@ -2931,6 +2931,52 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       font-size: 12px;
       font-weight: 700;
       background: #f5f9ff;
+    }
+    .conversation-panels {
+      flex: 0 0 auto;
+      margin: 10px 24px 0;
+      border: 1px solid #cfe1f7;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 10px 24px rgba(13, 61, 114, 0.08);
+      overflow: hidden;
+    }
+    .conversation-panels summary {
+      cursor: pointer;
+      list-style: none;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      color: #0d3d72;
+      font-weight: 900;
+    }
+    .conversation-panels summary::-webkit-details-marker { display: none; }
+    .conversation-panels summary::after {
+      content: "Abrir";
+      color: var(--brand-dark);
+      background: #f0f6ff;
+      border: 1px solid #9fc5ef;
+      padding: 5px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .conversation-panels[open] summary::after { content: "Cerrar"; }
+    .conversation-panels[open] summary { border-bottom: 1px solid #dbeafe; }
+    .conversation-panels-body {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      max-height: 38dvh;
+      overflow: auto;
+    }
+    .conversation-panels .notice,
+    .conversation-panels .error-banner,
+    .conversation-panels .success-banner,
+    .conversation-panels .appointment-card {
+      margin: 0;
     }
     body.results-email-open { overflow: hidden; }
     .results-email-modal {
@@ -3548,11 +3594,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
         min-height: 180px;
       }
       .mobile-patient-sheet,
-      .template-actions,
-      .appointment-card,
-      .notice,
-      .error-banner,
-      .success-banner {
+      .conversation-panels {
         order: 2;
         flex: 0 0 auto;
       }
@@ -3620,6 +3662,17 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       .template-actions h2 { margin-bottom: 2px; }
       .template-actions p { display: none; }
       .template-grid { grid-template-columns: 1fr; }
+      .conversation-panels {
+        margin: 8px 10px 0;
+      }
+      .conversation-panels summary {
+        padding: 10px;
+        font-size: 13px;
+      }
+      .conversation-panels-body {
+        max-height: 190px;
+        padding: 10px;
+      }
       .file-row span { display: none; }
       .composer-actions {
         display: grid;
@@ -3766,16 +3819,25 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
         }
       </div>
       ${renderMobilePatientSheet(selected, { selectedStatus, windowState })}
-      ${inboxError ? `<div class="error-banner">${escapeHtml(inboxError)}</div>` : ""}
-      ${inboxSuccess ? `<div class="success-banner">${escapeHtml(inboxSuccess)}</div>` : ""}
       ${inboxError ? `<div class="mobile-toast error" role="alert">${escapeHtml(inboxError)}</div>` : ""}
       ${inboxSuccess ? `<div class="mobile-toast success" role="status">${escapeHtml(inboxSuccess)}</div>` : ""}
-      ${selected?.botPaused ? `<div class="notice">Modo humano activo: el bot guarda mensajes entrantes, pero no responde automaticamente a este paciente.</div>` : ""}
-      ${needsTemplateNotice ? `<div class="notice">La ultima interaccion del paciente fue hace mas de 24 horas. Puede requerir plantilla aprobada de WhatsApp para responder fuera de la ventana de atencion.</div>` : ""}
-      ${selected ? renderInboxMetaTemplateActions(selected, selectedPhone, csrf) : ""}
-      ${appointmentCard}
       <div class="messages">${messages}</div>
       ${selected ? renderInlineResultsEmailAction(selected, selectedPhone, csrf) : ""}
+      ${
+        selected
+          ? `<details class="conversation-panels">
+              <summary>Herramientas y avisos</summary>
+              <div class="conversation-panels-body">
+                ${inboxError ? `<div class="error-banner">${escapeHtml(inboxError)}</div>` : ""}
+                ${inboxSuccess ? `<div class="success-banner">${escapeHtml(inboxSuccess)}</div>` : ""}
+                ${selected?.botPaused ? `<div class="notice">Modo humano activo: el bot guarda mensajes entrantes, pero no responde automaticamente a este paciente.</div>` : ""}
+                ${needsTemplateNotice ? `<div class="notice">La ultima interaccion del paciente fue hace mas de 24 horas. Puede requerir plantilla aprobada de WhatsApp para responder fuera de la ventana de atencion.</div>` : ""}
+                ${selected ? renderInboxMetaTemplateActions(selected, selectedPhone, csrf) : ""}
+                ${appointmentCard}
+              </div>
+            </details>`
+          : ""
+      }
       ${
         selected
           ? `<div class="composer">
