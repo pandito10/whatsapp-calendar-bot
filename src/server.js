@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { URL } from "node:url";
 import { readFile } from "node:fs/promises";
 import { understandMessage, transcribeAudio } from "./ai.js";
+import { mayNeedExistingAppointmentProtection, shouldProtectExistingAppointmentFromScheduling } from "./appointment-guard.js";
 import { cancelAppointment, createAppointment, findAvailableSlots, isBlockedDate, isClinicWorkDateISO, isSlotAvailable, reconcileConfirmedCitasWithGoogleCalendar, getLastReconciliationResult } from "./calendar.js";
 import { config } from "./config.js";
 import { buildDateOptionRows, dateOptionReplyText } from "./date-options.js";
@@ -4787,6 +4788,10 @@ async function handleIncomingText(from, text, options = {}) {
 
   const existing = await getPatientSession(from);
 
+  if (await maybeProtectExistingAppointmentFromScheduling(from, normalized, detectedIntent.intent)) {
+    return;
+  }
+
   if (existing && isActiveSessionRestart(normalized)) {
     await deletePatientSession(from);
     await sendGreetingMenuToPatient(from);
@@ -6177,6 +6182,53 @@ async function sendGreetingMenuToPatient(to) {
     await replyToPatient(
       to,
       `${body}\n\nPuedes escribirme: "agendar otra cita", "tengo cita", "reagendar", "cancelar", "resultados", "ubicacion" o "humano".`
+    );
+  }
+}
+
+async function maybeProtectExistingAppointmentFromScheduling(from, text, intent) {
+  if (!mayNeedExistingAppointmentProtection(text, intent)) {
+    return false;
+  }
+
+  const cita = await loadReturningPatientProfile(from);
+  if (!shouldProtectExistingAppointmentFromScheduling(text, intent, cita)) {
+    return false;
+  }
+
+  await deletePatientSession(from);
+  await replyWithExistingAppointmentOptions(from, cita);
+  return true;
+}
+
+async function replyWithExistingAppointmentOptions(to, cita) {
+  const body = [
+    `Claro 😊 ya tengo registrada tu cita para ${formatAppointmentFull(cita.slotStart)}.`,
+    "",
+    "No voy a moverla ni agendar otra por error.",
+    "¿Que necesitas hacer?"
+  ].join("\n");
+  const rows = [
+    { id: "returning_next", title: "Ver mi cita", description: "Confirmar dia y hora" },
+    { id: "returning_reschedule", title: "Reagendar", description: "Cambiar tu cita" },
+    { id: "returning_cancel", title: "Cancelar cita", description: "Cancelar con confirmacion" },
+    { id: "returning_schedule", title: "Agendar otra", description: "Crear una cita adicional" },
+    { id: "returning_human", title: "Hablar con persona", description: "Pedir apoyo del consultorio" }
+  ];
+
+  try {
+    await sendWhatsAppList(to, {
+      body,
+      buttonText: "Opciones",
+      sections: [{ title: "Cita registrada", rows }]
+    });
+    await recordConversationMessage(to, "bot", `${body}\n\n${rows.map((row, index) => `${index + 1}. ${row.title}`).join("\n")}`);
+    await notifyBotReply(to, "Opciones de cita existente enviadas.");
+  } catch (error) {
+    logSafeError(`Failed sending existing appointment options to ${maskPhone(to)}`, error);
+    await replyToPatient(
+      to,
+      `${body}\n\nPuedes escribirme: "tengo cita", "reagendar", "cancelar", "agendar otra cita" o "humano".`
     );
   }
 }
