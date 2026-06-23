@@ -15,3 +15,23 @@ test("indice unico de citas confirmadas solo bloquea slots con google_event_id",
     assert.match(sql, /where status = 'confirmed' and nullif\(google_event_id, ''\) is not null/i);
   }
 });
+
+test("render y README documentan plantillas Meta operativas", () => {
+  const renderYaml = readFileSync(`${repoRoot}/render.yaml`, "utf8");
+  const readme = readFileSync(`${repoRoot}/README.md`, "utf8");
+
+  for (const key of [
+    "WHATSAPP_REENGAGEMENT_TEMPLATE",
+    "WHATSAPP_RESULTS_EMAIL_TEMPLATE",
+    "WHATSAPP_REMINDER_TEMPLATE_24H",
+    "WHATSAPP_REMINDER_TEMPLATE_2H",
+    "WHATSAPP_CANCELLATION_TEMPLATE",
+    "WHATSAPP_TEMPLATE_LANGUAGE"
+  ]) {
+    assert.match(renderYaml, new RegExp(key));
+    assert.match(readme, new RegExp(key));
+  }
+
+  assert.match(readme, /scripts\/create-whatsapp-templates\.js/);
+  assert.match(readme, /cancelacion_cita/);
+});

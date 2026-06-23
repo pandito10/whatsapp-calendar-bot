@@ -361,6 +361,7 @@ WHATSAPP_REMINDER_TEMPLATE_24H=
 WHATSAPP_REMINDER_TEMPLATE_2H=
 WHATSAPP_REENGAGEMENT_TEMPLATE=
 WHATSAPP_RESULTS_EMAIL_TEMPLATE=
+WHATSAPP_CANCELLATION_TEMPLATE=
 WHATSAPP_TEMPLATE_LANGUAGE=es_MX
 ```
 
@@ -373,6 +374,7 @@ WHATSAPP_REMINDER_TEMPLATE_24H=nombre_template_24h
 WHATSAPP_REMINDER_TEMPLATE_2H=nombre_template_2h
 WHATSAPP_REENGAGEMENT_TEMPLATE=retomar_conversacion
 WHATSAPP_RESULTS_EMAIL_TEMPLATE=resultados_enviados_correo
+WHATSAPP_CANCELLATION_TEMPLATE=cancelacion_cita
 WHATSAPP_TEMPLATE_LANGUAGE=es_MX
 ```
 
@@ -389,6 +391,25 @@ Plantillas sugeridas para crear en Meta Business Manager:
 - `cancelacion_cita` (Utility): `Hola {{1}}, necesitamos avisarte que tu cita fue cancelada por el consultorio. Responde este mensaje para ayudarte a reagendar.`
 
 Desde el inbox aparece una seccion "Plantillas Meta". Si la ventana de 24 horas ya cerro, usa esos botones en lugar de texto libre. Si una plantilla aparece como "Falta ...", primero crea y aprueba la plantilla en Meta y luego coloca el nombre exacto en Render.
+
+Si tienes un token con permiso `whatsapp_business_management`, puedes crear las plantillas sugeridas con:
+
+```bash
+WHATSAPP_BUSINESS_ACCOUNT_ID=tu_waba_id \
+WHATSAPP_ACCESS_TOKEN=tu_token_con_management \
+node scripts/create-whatsapp-templates.js
+```
+
+Despues de que Meta las apruebe, en Render configura los nombres exactos:
+
+```env
+WHATSAPP_REENGAGEMENT_TEMPLATE=retomar_conversacion
+WHATSAPP_RESULTS_EMAIL_TEMPLATE=resultados_enviados_correo
+WHATSAPP_REMINDER_TEMPLATE_24H=recordatorio_cita_24h
+WHATSAPP_REMINDER_TEMPLATE_2H=recordatorio_cita_2h
+WHATSAPP_CANCELLATION_TEMPLATE=cancelacion_cita
+WHATSAPP_TEMPLATE_LANGUAGE=es_MX
+```
 
 ## Guardar conversaciones en Supabase
 

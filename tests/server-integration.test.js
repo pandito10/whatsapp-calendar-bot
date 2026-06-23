@@ -80,6 +80,7 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxHtml, /<span>Pendientes<\/span>/);
     assert.match(inboxHtml, /<span>Sin responder<\/span>/);
     assert.match(inboxHtml, /@media \(max-width: 780px\)[\s\S]*\.metric-strip \{[\s\S]*display: flex;/);
+    assert.match(inboxHtml, /\.results-email-modal:target/);
     assert.doesNotMatch(inboxHtml, /http-equiv="refresh"/);
 
     const inboxScript = await fetch("http://127.0.0.1:32131/inbox.js");
@@ -91,6 +92,7 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxScriptText, /bindSmartRefresh/);
     assert.match(inboxScriptText, /refreshInboxContent/);
     assert.match(inboxScriptText, /bindDirtyForms/);
+    assert.match(inboxScriptText, /bindChatScrollButtons/);
     assert.match(inboxScriptText, /hasDirtyForm/);
     assert.match(inboxScriptText, /hasOpenWorkPanel/);
     assert.match(inboxScriptText, /Auto refresh apagado/);
@@ -333,8 +335,11 @@ test("inbox/send bloquea cualquier adjunto por WhatsApp", async () => {
 
     const inboxCookie = await loginInbox(32137, baseEnv.INBOX_PASSWORD);
     const loginHtml = await (await fetch(`http://127.0.0.1:32137/inbox?phone=${patientPhone}`, { headers: { Cookie: inboxCookie } })).text();
+    assert.match(loginHtml, /Leer chat/);
+    assert.match(loginHtml, /data-scroll-chat/);
     assert.match(loginHtml, /Enviar archivo al correo de la paciente/);
     assert.match(loginHtml, /Enviar archivo al correo/);
+    assert.match(loginHtml, /Abrir envio seguro por correo|No puedo enviar el archivo/);
     assert.match(loginHtml, /sin correo confirmado/);
     assert.match(loginHtml, /Esta paciente todavia no tiene correo confirmado/);
     assert.match(loginHtml, /Archivo por correo/);
@@ -343,6 +348,7 @@ test("inbox/send bloquea cualquier adjunto por WhatsApp", async () => {
     assert.match(loginHtml, /Preparacion/);
     assert.match(loginHtml, /Plantillas Meta/);
     assert.match(loginHtml, /Falta WHATSAPP_REENGAGEMENT_TEMPLATE/);
+    assert.doesNotMatch(loginHtml, /name="attachment"/);
     const csrf = loginHtml.match(/name="csrf" type="hidden" value="([^"]+)"/)?.[1];
     assert.ok(csrf);
 

@@ -936,8 +936,21 @@ function handleInboxScript(res) {
     bindQuickReplies();
     bindCopyButtons();
     bindComposerEnhancements();
+    bindChatScrollButtons();
     bindResultsEmailActions();
     bindDirtyForms();
+  }
+
+  function bindChatScrollButtons() {
+    document.querySelectorAll("[data-scroll-chat]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const messages = document.querySelector(".messages");
+        if (!messages) return;
+        messages.scrollIntoView({ block: "center", behavior: "smooth" });
+        scrollMessagesToBottom();
+        if (typeof messages.focus === "function") messages.focus({ preventScroll: true });
+      });
+    });
   }
 
   function bindResultsEmailActions() {
@@ -1020,7 +1033,7 @@ function handleInboxScript(res) {
   }
 
   function hasOpenWorkPanel() {
-    return Boolean(document.querySelector("details[open]:not(.appointment-card):not(.mobile-patient-sheet):not(.template-actions), .results-email-modal.is-open"));
+    return Boolean(document.querySelector("details[open]:not(.appointment-card):not(.mobile-patient-sheet), .results-email-modal.is-open, .results-email-modal:target"));
   }
 
   function hasDraft() {
@@ -2979,6 +2992,16 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       color: var(--muted);
       line-height: 1.4;
     }
+    .results-email-primary {
+      display: flex;
+      justify-content: center;
+      text-align: center;
+    }
+    .compact-notice {
+      margin: 0;
+      padding: 10px 11px;
+      font-size: 12px;
+    }
     .template-actions {
       margin: 0;
       border: 1px solid #cfe1f7;
@@ -3101,6 +3124,10 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       padding: 18px;
     }
     .results-email-modal.is-open {
+      display: grid;
+      place-items: center;
+    }
+    .results-email-modal:target {
       display: grid;
       place-items: center;
     }
@@ -3705,8 +3732,9 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       .messages {
         order: 1;
         padding: 10px;
-        flex: 1 1 260px;
-        min-height: 240px;
+        flex: 1 1 48dvh;
+        min-height: min(320px, 48dvh);
+        scroll-margin-top: 150px;
       }
       .mobile-patient-sheet,
       .conversation-panels {
@@ -3884,7 +3912,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
             selected
               ? `<div class="conversation-tools">
                   <a class="mobile-back button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">← Pacientes</a>
-                  <a class="button-link" href="#send-file-email">📤 Archivo al correo</a>
+                  <button type="button" class="button-secondary" data-scroll-chat>Leer chat</button>
+                  <a class="button-link" href="#send-file-email" data-open-results-email>📤 Archivo al correo</a>
                   <a class="button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">Cerrar conversacion</a>
                   <a class="button-link button-secondary" href="https://wa.me/${encodeURIComponent(selectedPhone)}" target="_blank" rel="noreferrer">Abrir WhatsApp</a>
                   <button type="button" class="button-secondary" data-copy-phone="${escapeHtml(selectedPhone)}">Copiar telefono</button>
@@ -3936,7 +3965,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       ${renderMobilePatientSheet(selected, { selectedStatus, windowState })}
       ${inboxError ? `<div class="mobile-toast error" role="alert">${escapeHtml(inboxError)}</div>` : ""}
       ${inboxSuccess ? `<div class="mobile-toast success" role="status">${escapeHtml(inboxSuccess)}</div>` : ""}
-      <div class="messages">${messages}</div>
+      <div id="chat-messages" class="messages" tabindex="-1">${messages}</div>
       ${selected ? renderInlineResultsEmailAction(selected, selectedPhone, csrf) : ""}
       ${
         selected
@@ -4404,35 +4433,23 @@ function renderResultsEmailSection(conversation, selectedPhone, csrf) {
         ? "Correo detectado en la conversacion"
         : "Sin correo confirmado";
   const emailMasked = emailIsValid ? maskEmail(patientEmail) : hasEmail ? "correo no valido" : "sin correo confirmado";
+  const emailConfigWarning = !isEmailEnabled()
+    ? `<div class="notice compact-notice">Falta configurar RESEND_API_KEY / RESEND_FROM_EMAIL o verificar el dominio en Resend antes de enviar correos reales.</div>`
+    : "";
 
   return `<div class="panel-section results-email-section">
     <h2>Enviar archivo al correo</h2>
     <div class="results-email-card">
       <p><strong>Correo confirmado de paciente:</strong><br>${escapeHtml(emailMasked)}</p>
       <small>${escapeHtml(emailSourceLabel)}${emailRecipient.source === "conversation" ? ". Confirma con la paciente antes de enviar." : ""}</small>
+      ${emailConfigWarning}
       ${
         !hasEmail
           ? `<div class="empty-state">Esta paciente todavia no tiene correo confirmado. Pidele su correo y confirmalo antes de enviar archivos.</div>`
           : !emailIsValid
             ? `<div class="empty-state">El correo guardado no parece valido. Corrigelo antes de enviar archivos.</div>`
-            : `<details open>
-                <summary>Enviar archivo por correo confirmado</summary>
-                <form class="knowledge-form" method="post" action="/inbox/results-email" enctype="multipart/form-data">
-                  <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
-                  <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
-                  <label class="file-row">
-                    <span>Archivo para correo confirmado (PDF, JPG, PNG o WEBP)</span>
-                    <input name="resultFile" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp" required>
-                  </label>
-                  <textarea name="note" rows="3" maxlength="600" placeholder="Nota corta para la paciente (opcional). No diagnosticar ni indicar tratamiento."></textarea>
-                  <label class="checkbox-row">
-                    <input name="confirmed" value="yes" type="checkbox" required>
-                    <span>Confirmo que este archivo corresponde a esta paciente y que el correo fue confirmado.</span>
-                  </label>
-                  <button type="submit">Enviar archivo al correo de la paciente</button>
-                  <small>Este archivo se envia al correo confirmado de la paciente. No se manda por WhatsApp, no se guarda en Supabase.</small>
-                </form>
-              </details>`
+            : `<a class="button-link results-email-primary" href="#send-file-email" data-open-results-email>📤 Abrir envio seguro por correo</a>
+              <small>El archivo se envia solo al correo confirmado. No se manda por WhatsApp y no se guarda en Supabase.</small>`
       }
     </div>
   </div>`;
