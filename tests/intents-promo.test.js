@@ -43,6 +43,13 @@ test("detecta featured_promo desde me interesa la promo", () => {
   assert.equal(detectIntent("me interesa la promo").intent, "featured_promo");
 });
 
+test("detecta featured_promo desde respuestas cortas de anuncios", () => {
+  assert.equal(detectIntent("info").intent, "featured_promo");
+  assert.equal(detectIntent("me interesa").intent, "featured_promo");
+  assert.equal(detectIntent("mas info").intent, "featured_promo");
+  assert.equal(detectIntent("paquete 1200").intent, "featured_promo");
+});
+
 test("detecta promo_schedule cuando quieren agendar la promocion", () => {
   assert.equal(detectIntent("quiero agendar la promo").intent, "promo_schedule");
   assert.equal(detectIntent("apartar el paquete de 1200").intent, "promo_schedule");

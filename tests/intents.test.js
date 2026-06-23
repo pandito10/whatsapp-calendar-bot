@@ -16,10 +16,14 @@ test("detecta saludo y menu", () => {
 
 test("detecta agenda, disponibilidad y horarios", () => {
   assert.equal(detectIntent("kiero cita").intent, "schedule_appointment");
+  assert.equal(detectIntent("una cita").intent, "schedule_appointment");
+  assert.equal(detectIntent("consulta").intent, "schedule_appointment");
   assert.equal(detectIntent("q horarios tienen").intent, "check_availability");
   assert.equal(detectIntent("tienen citas mañana?").intent, "check_availability");
   assert.equal(detectIntent("tienen cupos para hoy").intent, "check_availability");
   assert.equal(detectIntent("hay espacios mañana").intent, "check_availability");
+  assert.equal(detectIntent("a ver").intent, "check_availability");
+  assert.equal(detectIntent("que lugares tienes").intent, "check_availability");
 });
 
 test("pide reservar por el flujo normal sin link externo", () => {
@@ -65,6 +69,7 @@ test("detecta duracion y condiciones para presentarse", () => {
 
 test("detecta solicitud de resultados sin confundir servicios", () => {
   assert.equal(detectIntent("me mandas mis resultados").intent, "patient_results");
+  assert.equal(detectIntent("me pasas mis resultdos").intent, "patient_results");
   assert.equal(detectIntent("ya estan mis estudios?").intent, "patient_results");
   assert.equal(detectIntent("quiero mi diagnostico del paquete").intent, "patient_results");
   assert.equal(detectIntent("que estudios hacen").intent, "medical_services");

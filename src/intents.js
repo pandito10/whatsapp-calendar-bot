@@ -44,8 +44,9 @@ export function detectIntent(value) {
       "necesito una cita", "necesito cita", "quiero cita", "agendar consulta",
       "necesito consulta", "quiero consultar", "apartar cita", "me urge una cita",
       "ocupo cita", "ocupo consulta", "me puedes agendar", "quiero apartar",
-      "quiero reservar", "agenda para", "cita para"
-    ])],
+      "quiero reservar", "agenda para", "cita para", "sacar consulta",
+      "reservar consulta"
+    ]) || /^(?:una|un)?\s*(?:cita|consulta)\s*$/.test(text)],
     ["clinic_hours", () => isClinicHoursQuestion(text)],
     ["check_availability", () => isAvailabilityIntent(text)],
     ["patient_results", () => isPatientResultsRequest(text)],
@@ -149,6 +150,7 @@ function normalizeWhatsAppWord(word) {
     cuantoo: "cuanto",
     presio: "precio",
     presios: "precios",
+    presioso: "precio",
     dondee: "donde",
     estan: "estan",
     stn: "estan",
@@ -194,6 +196,7 @@ function normalizeWhatsAppWord(word) {
     pquete: "paquete",
     pakete: "paquete",
     paqete: "paquete",
+    paq: "paquete",
     docotra: "doctora",
     dctora: "doctora",
     dcotora: "doctora",
@@ -206,9 +209,19 @@ function normalizeWhatsAppWord(word) {
     orario: "horario",
     horaios: "horarios",
     orarios: "horarios",
+    horaro: "horario",
+    horaros: "horarios",
     habren: "abren",
     habre: "abre",
-    oie: "oye"
+    oie: "oye",
+    resuktados: "resultados",
+    resutados: "resultados",
+    resultdos: "resultados",
+    examenes: "examenes",
+    cooreo: "correo",
+    correeo: "correo",
+    coreo: "correo",
+    gmail: "gmail"
   };
   return dictionary[word] ?? word;
 }
@@ -220,7 +233,9 @@ function isAvailabilityIntent(text) {
       "que horarios", "hay cita", "tienes lugar", "hay espacio", "tienen citas",
       "citas hoy", "citas manana", "que citas tienes", "cupos", "espacios",
       "lugar hoy", "lugar manana", "hay para hoy", "hay para manana",
-      "fechas disponibles", "dias disponibles"
+      "fechas disponibles", "dias disponibles", "que fechas tienes",
+      "que lugares tienes", "que tienes disponible", "que tienes libre",
+      "a ver horarios", "a ver fechas", "a ver disponibilidad", "a ver"
     ]) ||
     /\b(?:hay|tienes|tienen)\s+(?:lugar|espacio|cita|horario|disponible)\b/.test(text) ||
     looksLikeDateRequest(text)
@@ -331,7 +346,7 @@ function isPatientResultsRequest(text) {
 }
 
 function isGeneralMenuQuestion(text) {
-  return /\b(?:menu|informacion|dudas|preguntas|opciones|ayuda)\b/.test(text);
+  return /\b(?:menu general|info general|dudas|preguntas|opciones|ayuda)\b/.test(text);
 }
 
 function isFeaturedPromoQuestion(text) {
@@ -342,8 +357,13 @@ function isFeaturedPromoQuestion(text) {
     "me interesa la promo", "me interesa el paquete",
     "chequeo ginecologico", "chequeo completo", "paquete ginecologico",
     "consulta con ultrasonido", "papanicolaou precio", "ultrasonido precio",
-    "el de 1200", "los 1200", "cuanto incluye", "que incluye el paquete"
+    "el de 1200", "los 1200", "cuanto incluye", "que incluye el paquete",
+    "informacion de la promo", "info de la promo",
+    "promocion del anuncio", "paquete del anuncio", "chequeo de 1200",
+    "promo 1200", "paquete 1200", "consulta de 1200", "chequeo completo 1200"
   ])) return true;
+
+  if (/^(?:me interesa|quiero informacion|quiero info|mas informacion|mas info|informacion|info)$/.test(text)) return true;
 
   // "que incluye / que trae / de que se trata" without a specific non-promo service = asking about promo
   if (
@@ -354,8 +374,8 @@ function isFeaturedPromoQuestion(text) {
   // Price anchors for the promo
   if (/\b1200\b/.test(text)) return true;
 
-  // Only "informes" alone should trigger this (not as part of other phrases)
-  if (/^informes$/.test(text)) return true;
+  // Short ad lead replies often arrive like this.
+  if (/^(?:informes|info|mas info|informacion)$/.test(text)) return true;
 
   return false;
 }
