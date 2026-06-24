@@ -66,10 +66,15 @@ export function getConversationStatus(conversation, nowMs = Date.now()) {
   const lastPatientText = normalizeText(lastPatientMessage?.body ?? "");
   const windowState = getWhatsAppWindowState(conversation, nowMs);
   const urgentResolved = tags.has("urgente resuelto") || tags.has("urgencia resuelta");
+  const caseResolved = tags.has("resuelto") || tags.has("caso resuelto") || tags.has("cerrado");
   const pendingUrgentText = last?.sender === "patient" && /urgente|emergencia|sangrado|dolor fuerte|dolor intenso|me siento muy mal|desmayo/.test(lastPatientText);
 
   if (tags.has("urgente") || (!urgentResolved && pendingUrgentText)) {
     return { key: "urgent", label: "Urgente", className: "urgent", priority: 1 };
+  }
+
+  if (caseResolved && last?.sender !== "patient") {
+    return { key: "resolved", label: "Resuelto", className: "resolved", priority: 10 };
   }
 
   if (tags.has("bot no entendio") || hasRecentFallback(conversation)) {
@@ -214,9 +219,10 @@ export function buildInboxStats(list, nowMs = Date.now()) {
       if (status.key === "misunderstood") stats.misunderstood += 1;
       if (status.key === "closing_window" || status.key === "expired_window") stats.windowRisk += 1;
       if (status.key === "stuck") stats.stuck += 1;
+      if (status.key === "resolved") stats.resolved += 1;
       return stats;
     },
-    { total: 0, confirmed: 0, followup: 0, open: 0, human: 0, urgent: 0, noReply: 0, misunderstood: 0, windowRisk: 0, stuck: 0 }
+    { total: 0, confirmed: 0, followup: 0, open: 0, human: 0, urgent: 0, noReply: 0, misunderstood: 0, windowRisk: 0, stuck: 0, resolved: 0 }
   );
 }
 
@@ -349,6 +355,16 @@ export function buildCrmNextAction(conversation, nowMs = Date.now()) {
       title: "Modo humano activo",
       detail: "El bot esta pausado para esta paciente. Devuelvelo al bot cuando ya no necesite atencion manual.",
       cta: "Devolver al bot"
+    };
+  }
+
+  if (status.key === "resolved") {
+    return {
+      key: "resolved",
+      level: "success",
+      title: "Caso resuelto",
+      detail: "La conversacion esta cerrada. Si la paciente vuelve a escribir, regresara automaticamente a pendientes.",
+      cta: "Ver chat"
     };
   }
 

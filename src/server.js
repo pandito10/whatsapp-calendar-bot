@@ -453,6 +453,11 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/inbox/resolve-conversation") {
+      await handleInboxResolveConversation(req, url, res);
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/inbox/send-template") {
       await handleInboxSendTemplate(req, url, res);
       return;
@@ -1898,6 +1903,49 @@ async function handleInboxResolveUrgent(req, url, res) {
   await redirectInbox(res, phone, "Urgencia marcada como resuelta. La conversacion ya no se queda hasta arriba.", "success");
 }
 
+async function handleInboxResolveConversation(req, url, res) {
+  if (!hasInboxAccess(req, url, res)) return;
+  if (!checkRateLimit(req, url, "inbox-action")) {
+    res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8" }).end("too many requests");
+    return;
+  }
+
+  const form = await readForm(req, { maxBytes: config.maxRequestBytes });
+  if (!isValidCsrf(req, form.get("csrf"))) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("forbidden");
+    return;
+  }
+
+  const phone = normalizePhone(form.get("phone") ?? "");
+  if (!isValidWhatsAppPhone(phone)) {
+    await redirectInbox(res, "", "Telefono invalido.");
+    return;
+  }
+
+  const existing = conversations.get(phone) ?? { phoneNumber: phone, messages: [], updatedAt: new Date().toISOString(), tags: [] };
+  const nextTags = markConversationResolved(existing.tags ?? []);
+  existing.tags = nextTags;
+  existing.botPaused = false;
+  existing.assignedTo = undefined;
+  existing.updatedAt = new Date().toISOString();
+  conversations.set(phone, existing);
+
+  await setConversationHumanMode(phone, false);
+  setMemoryHumanMode(phone, false);
+  await setConversationTags(phone, nextTags);
+  await recordConversationMessage(phone, "admin", "Caso marcado como resuelto desde el inbox.", {
+    source: "inbox_resolve_conversation",
+    internal: true
+  });
+  await saveConversationNote({
+    phoneNumber: phone,
+    author: "admin",
+    body: "Caso marcado como resuelto desde el inbox. Si la paciente vuelve a escribir, regresara a pendientes."
+  });
+
+  await redirectInbox(res, phone, "Conversacion marcada como resuelta. Si la paciente escribe de nuevo, volvera a pendientes.", "success");
+}
+
 async function handleInboxSendTemplate(req, url, res) {
   if (!hasInboxAccess(req, url, res)) return;
   if (!checkRateLimit(req, url, "inbox-action")) {
@@ -2147,6 +2195,31 @@ function markUrgentTagsResolved(tags = []) {
   return [...new Set([...kept, "Urgente resuelto"])].slice(0, 12);
 }
 
+function markConversationResolved(tags = []) {
+  const resolvedBlockers = new Set([
+    "urgente",
+    "urgencia",
+    "bot no entendio",
+    "humano requerido",
+    "modo humano",
+    "resultados",
+    "resultados pendientes",
+    "reagendar",
+    "cancelar",
+    "template meta",
+    "requiere template meta",
+    "paciente atorada"
+  ]);
+  const kept = (Array.isArray(tags) ? tags : [])
+    .map((tag) => String(tag ?? "").trim())
+    .filter((tag) => {
+      const normalized = normalizeText(tag);
+      return tag && !resolvedBlockers.has(normalized);
+    });
+
+  return [...new Set([...kept, "Resuelto"])].slice(0, 12);
+}
+
 function buildInboxMetaTemplate(type, conversation, phone) {
   const normalizedType = normalizeText(type);
   const appointment = conversation?.appointment;
@@ -2213,6 +2286,19 @@ function buildInboxMetaTemplate(type, conversation, phone) {
       label: "Cancelacion de cita",
       name: config.whatsappCancellationTemplate,
       parameters: [patientName]
+    };
+  }
+
+  if (normalizedType === "reschedule") {
+    if (!config.whatsappRescheduleTemplate) {
+      return { ok: false, error: "Falta configurar WHATSAPP_RESCHEDULE_TEMPLATE en Render despues de aprobar la plantilla en Meta." };
+    }
+    return {
+      ok: true,
+      type: "reschedule",
+      label: "Reagendar cita",
+      name: config.whatsappRescheduleTemplate,
+      parameters: [firstName(patientName) || "Paciente"]
     };
   }
 
@@ -2567,6 +2653,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
             ${renderFilterOption("new_patient", "Primera vez", filter)}
             ${renderFilterOption("returning_patient", "Recurrentes", filter)}
             ${renderFilterOption("human", "Modo humano", filter)}
+            ${renderFilterOption("resolved", "Resueltas", filter)}
           </select>
           <button type="submit">Filtrar</button>
         </div>
@@ -3377,6 +3464,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     .tag.closing { color: #92400e; background: #fef3c7; border-color: #fde68a; }
     .tag.expired { color: #991b1b; background: #fee2e2; border-color: #fecaca; }
     .tag.waiting { color: #075985; background: #e0f2fe; border-color: #bae6fd; }
+    .tag.resolved { color: #166534; background: #ecfdf5; border-color: #bbf7d0; }
     .tools {
       display: grid;
       gap: 8px;
@@ -4889,6 +4977,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
         <div class="stat"><strong>${stats.human}</strong><span>Humano</span></div>
         <div class="stat"><strong>${stats.urgent}</strong><span>Urgentes</span></div>
         <div class="stat"><strong>${stats.noReply}</strong><span>No respondio</span></div>
+        <div class="stat"><strong>${stats.resolved}</strong><span>Resueltas</span></div>
       </div>
       ${sidebarTabs}
       ${sidebarContent}
@@ -4907,6 +4996,11 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
                   <a class="button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">Cerrar conversacion</a>
                   <a class="button-link button-secondary" href="https://wa.me/${encodeURIComponent(selectedPhone)}" target="_blank" rel="noreferrer">Abrir WhatsApp</a>
                   <button type="button" class="button-secondary" data-copy-phone="${escapeHtml(selectedPhone)}">Copiar telefono</button>
+                  <form method="post" action="/inbox/resolve-conversation">
+                    <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                    <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                    <button type="submit" onclick="return confirm('¿Marcar esta conversacion como resuelta? Si la paciente escribe de nuevo, volvera a pendientes.')">Marcar resuelto</button>
+                  </form>
                   ${
                     selected.botPaused
                       ? `<form method="post" action="/inbox/release"><input name="csrf" type="hidden" value="${escapeHtml(csrf)}"><input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}"><button type="submit">Devolver al bot</button></form>`
@@ -5015,13 +5109,14 @@ function renderCrmDashboard(list) {
   const total = Math.max(1, stats.total);
   const scheduledPct = Math.round((stats.confirmed / total) * 100);
   const attentionCount = stats.urgent + stats.misunderstood + stats.stuck + stats.windowRisk;
+  const revenue = estimateInboxRevenue(list);
   const next = buildDashboardPriorityList(list);
 
   return `<section class="crm-dashboard" aria-label="Resumen premium del CRM">
     <div class="crm-dashboard-head">
       <div>
         <span>Panel operativo</span>
-        <strong>Hoy hay ${stats.followup} pacientes por atender</strong>
+        <strong>${stats.followup} pacientes por atender · ${stats.resolved} resueltas</strong>
       </div>
       <a href="/inbox?filter=priority">Ver prioridad</a>
     </div>
@@ -5029,6 +5124,9 @@ function renderCrmDashboard(list) {
       <div><strong>${scheduledPct}%</strong><span>Conversion a cita</span></div>
       <div><strong>${attentionCount}</strong><span>Alertas reales</span></div>
       <div><strong>${stats.noReply}</strong><span>Sin responder</span></div>
+      <div><strong>${formatMoney(revenue.estimatedRevenue)}</strong><span>Venta estimada</span></div>
+      <div><strong>${revenue.promoCount}</strong><span>Promos $${escapeHtml(config.promotionPrice)}</span></div>
+      <div><strong>${stats.resolved}</strong><span>Casos cerrados</span></div>
     </div>
     <div class="crm-dashboard-next">
       <span>Atender primero</span>
@@ -5049,6 +5147,29 @@ function buildDashboardPriorityList(list) {
       name: getConversationDisplayName(conversation),
       status: getInboxConversationStatus(conversation).label
     }));
+}
+
+function estimateInboxRevenue(list) {
+  const consultation = Number(String(config.consultationPrice ?? "1000").replace(/[^\d.]/g, "")) || 1000;
+  const promotion = Number(String(config.promotionPrice ?? "1200").replace(/[^\d.]/g, "")) || 1200;
+  let estimatedRevenue = 0;
+  let promoCount = 0;
+  let confirmedCount = 0;
+
+  for (const conversation of list) {
+    if (conversation?.appointment?.status !== "confirmed") continue;
+    confirmedCount += 1;
+    const text = normalizeText([
+      conversation.appointment?.reason,
+      conversation.appointment?.paymentType,
+      ...(conversation.tags ?? [])
+    ].filter(Boolean).join(" "));
+    const isPromo = /promo|promocion|paquete|1200|chequeo/.test(text);
+    if (isPromo) promoCount += 1;
+    estimatedRevenue += isPromo ? promotion : consultation;
+  }
+
+  return { estimatedRevenue, promoCount, confirmedCount };
 }
 
 function renderCrmPipeline(list, { currentFilter = "all", query = "" } = {}) {
@@ -5354,7 +5475,8 @@ function renderInboxQuickFilters(current, query = "") {
     ["stuck", "Atoradas"],
     ["waiting", "Esperando datos"],
     ["confirmed", "Agendadas"],
-    ["human", "Humano"]
+    ["human", "Humano"],
+    ["resolved", "Resueltas"]
   ];
 
   return `<div class="quick-filters">
@@ -5518,6 +5640,10 @@ function renderCrmPrimaryAction(action, selected, selectedPhone, csrf) {
       <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
       <button type="submit">Devolver al bot</button>
     </form>`;
+  }
+
+  if (action.key === "resolved") {
+    return `<button type="button" data-scroll-chat>${escapeHtml(action.cta ?? "Ver chat")}</button>`;
   }
 
   if (action.key === "misunderstood") {
@@ -5763,6 +5889,12 @@ function renderInboxMetaTemplateActions(conversation, selectedPhone, csrf) {
       configured: Boolean(config.whatsappCancellationTemplate),
       visible: Boolean(appointment?.slotStart),
       missing: "Falta WHATSAPP_CANCELLATION_TEMPLATE"
+    },
+    {
+      type: "reschedule",
+      label: "Reagendar cita",
+      configured: Boolean(config.whatsappRescheduleTemplate),
+      missing: "Falta WHATSAPP_RESCHEDULE_TEMPLATE"
     }
   ].filter((action) => action.visible !== false);
 

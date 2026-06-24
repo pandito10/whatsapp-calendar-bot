@@ -367,6 +367,10 @@ test("inbox/send bloquea cualquier adjunto por WhatsApp", async () => {
     assert.match(loginHtml, /Falta WHATSAPP_REENGAGEMENT_TEMPLATE/);
     assert.match(loginHtml, /Respuestas sugeridas/);
     assert.match(loginHtml, /Senales rapidas del paciente/);
+    assert.match(loginHtml, /Marcar resuelto/);
+    assert.match(loginHtml, /Venta estimada/);
+    assert.match(loginHtml, /Reagendar cita/);
+    assert.match(loginHtml, /Falta WHATSAPP_RESCHEDULE_TEMPLATE/);
     assert.match(loginHtml, /Correo/);
     assert.match(loginHtml, /Riesgo/);
     assert.doesNotMatch(loginHtml, /name="attachment"/);
@@ -468,6 +472,22 @@ test("inbox permite marcar una urgencia como resuelta", async () => {
     assert.equal(response.status, 303);
     const location = decodeURIComponent(response.headers.get("location")).replace(/\+/g, " ");
     assert.match(location, /Urgencia marcada como resuelta/);
+
+    const resolveResponse = await fetch("http://127.0.0.1:32138/inbox/resolve-conversation", {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Cookie: inboxCookie
+      },
+      body: new URLSearchParams({
+        csrf,
+        phone: patientPhone
+      })
+    });
+    assert.equal(resolveResponse.status, 303);
+    const resolveLocation = decodeURIComponent(resolveResponse.headers.get("location")).replace(/\+/g, " ");
+    assert.match(resolveLocation, /Conversacion marcada como resuelta/);
   } finally {
     await app.stop();
   }

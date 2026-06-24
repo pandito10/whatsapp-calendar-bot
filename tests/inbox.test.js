@@ -109,6 +109,31 @@ test("urgente resuelto baja prioridad sin apagar futuras urgencias", () => {
   assert.equal(getConversationStatus(newUrgent, now).key, "urgent");
 });
 
+test("conversacion resuelta baja prioridad pero revive si paciente vuelve a escribir", () => {
+  const resolved = conversation({
+    tags: ["Resuelto", "Promo $1200"],
+    messages: [
+      { sender: "patient", body: "gracias", timestamp: "2030-06-17T17:45:00.000Z" },
+      { sender: "admin", body: "Caso marcado como resuelto desde el inbox.", timestamp: "2030-06-17T17:50:00.000Z" }
+    ]
+  });
+  const status = getConversationStatus(resolved, now);
+  assert.equal(status.key, "resolved");
+  assert.equal(status.priority, 10);
+  assert.equal(filterInboxConversations([resolved], "", "resolved", now).length, 1);
+  assert.equal(buildCrmNextAction(resolved, now).key, "resolved");
+
+  const revived = conversation({
+    tags: ["Resuelto"],
+    messages: [
+      { sender: "patient", body: "gracias", timestamp: "2030-06-17T17:45:00.000Z" },
+      { sender: "admin", body: "Caso marcado como resuelto desde el inbox.", timestamp: "2030-06-17T17:50:00.000Z" },
+      { sender: "patient", body: "hola de nuevo", timestamp: "2030-06-17T17:59:00.000Z" }
+    ]
+  });
+  assert.equal(getConversationStatus(revived, now).key, "followup");
+});
+
 test("orden de recepcion pone arriba el ultimo mensaje entrante de paciente", () => {
   const olderPriority = conversation({
     phoneNumber: "5214770000010",
@@ -326,6 +351,13 @@ test("calcula metricas del inbox", () => {
   assert.equal(stats.human, 1);
   assert.equal(stats.confirmed, 1);
   assert.equal(stats.noReply, 2);
+  assert.equal(buildInboxStats([conversation({
+    tags: ["Resuelto"],
+    messages: [
+      { sender: "patient", body: "gracias", timestamp: "2030-06-17T17:30:00.000Z" },
+      { sender: "admin", body: "Caso marcado como resuelto desde el inbox.", timestamp: "2030-06-17T17:40:00.000Z" }
+    ]
+  })], now).resolved, 1);
 });
 
 test("construye perfil CRM de paciente con historial de citas", () => {

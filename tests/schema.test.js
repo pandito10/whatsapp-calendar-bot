@@ -26,6 +26,7 @@ test("render y README documentan plantillas Meta operativas", () => {
     "WHATSAPP_REMINDER_TEMPLATE_24H",
     "WHATSAPP_REMINDER_TEMPLATE_2H",
     "WHATSAPP_CANCELLATION_TEMPLATE",
+    "WHATSAPP_RESCHEDULE_TEMPLATE",
     "WHATSAPP_TEMPLATE_LANGUAGE"
   ]) {
     assert.match(renderYaml, new RegExp(key));
@@ -34,6 +35,7 @@ test("render y README documentan plantillas Meta operativas", () => {
 
   assert.match(readme, /scripts\/create-whatsapp-templates\.js/);
   assert.match(readme, /cancelacion_cita/);
+  assert.match(readme, /reagenda_cita/);
 });
 
 test("schema incluye CRM persistente de pacientes", () => {

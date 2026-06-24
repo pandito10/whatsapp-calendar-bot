@@ -122,6 +122,27 @@ const TEMPLATES = [
         ]
       }
     ]
+  },
+  {
+    name: "reagenda_cita",
+    language: "es_MX",
+    category: "UTILITY",
+    components: [
+      {
+        type: "BODY",
+        text: "Hola {{1}}, podemos ayudarte a reagendar tu cita con el consultorio. Responde este mensaje para revisar nuevos horarios disponibles.",
+        example: {
+          body_text: [["Maria"]]
+        }
+      },
+      {
+        type: "BUTTONS",
+        buttons: [
+          { type: "QUICK_REPLY", text: "Ver horarios" },
+          { type: "QUICK_REPLY", text: "Hablar con persona" }
+        ]
+      }
+    ]
   }
 ];
 

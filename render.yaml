@@ -84,6 +84,8 @@ services:
         sync: false
       - key: WHATSAPP_RESULTS_EMAIL_TEMPLATE
         sync: false
+      - key: WHATSAPP_RESCHEDULE_TEMPLATE
+        sync: false
       - key: WHATSAPP_TEMPLATE_LANGUAGE
         value: es_MX
       - key: REQUIRE_DB_FOR_APPOINTMENTS
@@ -181,6 +183,8 @@ services:
       - key: WHATSAPP_REMINDER_TEMPLATE_2H
         sync: false
       - key: WHATSAPP_CANCELLATION_TEMPLATE
+        sync: false
+      - key: WHATSAPP_RESCHEDULE_TEMPLATE
         sync: false
       - key: WHATSAPP_TEMPLATE_LANGUAGE
         value: "es_MX"

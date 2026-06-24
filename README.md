@@ -362,6 +362,7 @@ WHATSAPP_REMINDER_TEMPLATE_2H=
 WHATSAPP_REENGAGEMENT_TEMPLATE=
 WHATSAPP_RESULTS_EMAIL_TEMPLATE=
 WHATSAPP_CANCELLATION_TEMPLATE=
+WHATSAPP_RESCHEDULE_TEMPLATE=
 WHATSAPP_TEMPLATE_LANGUAGE=es_MX
 ```
 
@@ -375,6 +376,7 @@ WHATSAPP_REMINDER_TEMPLATE_2H=nombre_template_2h
 WHATSAPP_REENGAGEMENT_TEMPLATE=retomar_conversacion
 WHATSAPP_RESULTS_EMAIL_TEMPLATE=resultados_enviados_correo
 WHATSAPP_CANCELLATION_TEMPLATE=cancelacion_cita
+WHATSAPP_RESCHEDULE_TEMPLATE=reagenda_cita
 WHATSAPP_TEMPLATE_LANGUAGE=es_MX
 ```
 
@@ -389,6 +391,7 @@ Plantillas sugeridas para crear en Meta Business Manager:
 - `recordatorio_cita_24h` (Utility): `Hola {{1}}, te recordamos tu cita: {{2}}. Si necesitas cambiarla o cancelarla, responde este mensaje.`
 - `recordatorio_cita_2h` (Utility): `Hola {{1}}, te esperamos hoy a las {{2}} para tu cita. Si no puedes asistir, responde este mensaje.`
 - `cancelacion_cita` (Utility): `Hola {{1}}, necesitamos avisarte que tu cita fue cancelada por el consultorio. Responde este mensaje para ayudarte a reagendar.`
+- `reagenda_cita` (Utility): `Hola {{1}}, podemos ayudarte a reagendar tu cita con el consultorio. Responde este mensaje para revisar nuevos horarios disponibles.` Botones: `Ver horarios`, `Hablar con persona`.
 
 Desde el inbox aparece una seccion "Plantillas Meta". Si la ventana de 24 horas ya cerro, usa esos botones en lugar de texto libre. Si una plantilla aparece como "Falta ...", primero crea y aprueba la plantilla en Meta y luego coloca el nombre exacto en Render.
 
@@ -408,6 +411,7 @@ WHATSAPP_RESULTS_EMAIL_TEMPLATE=resultados_enviados_correo
 WHATSAPP_REMINDER_TEMPLATE_24H=recordatorio_cita_24h
 WHATSAPP_REMINDER_TEMPLATE_2H=recordatorio_cita_2h
 WHATSAPP_CANCELLATION_TEMPLATE=cancelacion_cita
+WHATSAPP_RESCHEDULE_TEMPLATE=reagenda_cita
 WHATSAPP_TEMPLATE_LANGUAGE=es_MX
 ```
 
@@ -575,6 +579,7 @@ WHATSAPP_REMINDER_TEMPLATE_24H=
 WHATSAPP_REMINDER_TEMPLATE_2H=
 WHATSAPP_REENGAGEMENT_TEMPLATE=
 WHATSAPP_RESULTS_EMAIL_TEMPLATE=
+WHATSAPP_RESCHEDULE_TEMPLATE=
 WHATSAPP_TEMPLATE_LANGUAGE=es_MX
 ```
 
