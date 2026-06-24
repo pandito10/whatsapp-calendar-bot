@@ -28,6 +28,8 @@ import {
   buildInboxStats as buildInboxMetrics,
   buildCrmNextAction,
   buildManualDailyReportEntry,
+  buildReceptionChecklist,
+  buildReceptionQueueSummary,
   getConversationActivityISO,
   buildLocalConversationSummary,
   buildPatientCrmProfile,
@@ -2594,6 +2596,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
   const sidebarTabs = renderInboxTabs(sideTab, { phone: selectedPhone, q: url.searchParams.get("q"), filter });
   const doctorImageSrc = config.inboxDoctorImageUrl || "/public/dra_carranza_banner.png";
   const crmDashboard = renderCrmDashboard(list);
+  const receptionDesk = renderReceptionDesk(list, { currentFilter: filter, query: url.searchParams.get("q") ?? "" });
   const crmPipeline = renderCrmPipeline(list, { currentFilter: filter, query: url.searchParams.get("q") ?? "" });
   const conversationLinks =
     filteredList.length === 0
@@ -2629,6 +2632,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
           .join("");
   const patientsSidebar = `${renderInboxDiagnosticsCompact(diagnostics)}
       ${crmDashboard}
+      ${receptionDesk}
       ${crmPipeline}
       ${renderTodayMetrics(list)}
       ${renderConversionMetrics(list)}
@@ -2665,7 +2669,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     sideTab === "diagnostics"
       ? `${diagnosticsCard}${renderConversionMetrics(list)}`
       : sideTab === "reports"
-        ? renderDailyReportsSection(dailyReports, csrf)
+        ? `${renderReceptionReport(list)}${renderDailyReportsSection(dailyReports, csrf)}`
         : sideTab === "tools"
           ? `${renderTodayMetrics(list)}${renderCancelDaySection(csrf)}`
           : patientsSidebar;
@@ -3150,6 +3154,236 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       margin: 0;
       color: var(--muted);
       font-size: 12px;
+    }
+    .reception-card {
+      margin: 0 14px 14px;
+      padding: 12px;
+      border: 1px solid #bfdbfe;
+      border-radius: 16px;
+      background:
+        linear-gradient(135deg, rgba(239, 246, 255, 0.96), rgba(255, 255, 255, 0.98));
+      box-shadow: 0 10px 22px rgba(13, 61, 114, 0.07);
+    }
+    .reception-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: start;
+      margin-bottom: 10px;
+    }
+    .reception-head span {
+      display: block;
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 950;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 3px;
+    }
+    .reception-head strong {
+      color: #0d2240;
+      font-size: 14px;
+      line-height: 1.25;
+    }
+    .reception-head a {
+      flex: 0 0 auto;
+      color: #0d3d72;
+      background: #ffffff;
+      border: 1px solid #cfe1f7;
+      border-radius: 999px;
+      padding: 6px 9px;
+      text-decoration: none;
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .reception-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 7px;
+      margin-bottom: 10px;
+    }
+    .reception-metric {
+      display: grid;
+      gap: 4px;
+      padding: 9px 8px;
+      border: 1px solid #dbeafe;
+      border-radius: 13px;
+      background: #ffffff;
+      color: inherit;
+      text-align: center;
+      text-decoration: none;
+    }
+    .reception-metric.active {
+      border-color: #1a5fa8;
+      background: #e0f2fe;
+      box-shadow: 0 8px 18px rgba(26, 95, 168, 0.1);
+    }
+    .reception-metric strong {
+      display: block;
+      color: #0d3d72;
+      font-size: 17px;
+      line-height: 1;
+    }
+    .reception-metric span {
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 850;
+    }
+    .reception-next {
+      display: grid;
+      gap: 6px;
+    }
+    .reception-next > span {
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 950;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .reception-next a {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 4px 8px;
+      padding: 8px 9px;
+      border: 1px solid #e5edf7;
+      border-radius: 12px;
+      background: #ffffff;
+      color: inherit;
+      text-decoration: none;
+    }
+    .reception-next strong {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+    }
+    .reception-next em {
+      color: #0d3d72;
+      background: #eef6ff;
+      border-radius: 999px;
+      padding: 4px 7px;
+      font-size: 10px;
+      font-style: normal;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+    .reception-next small {
+      grid-column: 1 / -1;
+      color: #64748b;
+      font-size: 10px;
+    }
+    .reception-next p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .reception-report textarea {
+      width: 100%;
+      border: 1px solid #bfd6f0;
+      border-radius: 12px;
+      padding: 10px 11px;
+      color: #0d2240;
+      background: #ffffff;
+      font: inherit;
+      font-size: 12px;
+      line-height: 1.5;
+      resize: vertical;
+    }
+    .checklist-head {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .checklist-head h2 {
+      margin: 0;
+    }
+    .checklist-head span {
+      display: block;
+      color: #64748b;
+      font-size: 11px;
+      margin-top: 3px;
+    }
+    .checklist-head strong {
+      color: #0d3d72;
+      background: #eef6ff;
+      border: 1px solid #cfe1f7;
+      border-radius: 999px;
+      padding: 5px 8px;
+      font-size: 12px;
+    }
+    .checklist-progress {
+      height: 7px;
+      border-radius: 999px;
+      background: #e5edf7;
+      overflow: hidden;
+      margin-bottom: 9px;
+    }
+    .checklist-progress span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #1a5fa8, #60a5fa);
+    }
+    .next-missing {
+      margin-bottom: 9px;
+      padding: 8px 9px;
+      border: 1px solid #fde68a;
+      border-radius: 12px;
+      background: #fef3c7;
+      color: #78350f;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .next-missing.done {
+      color: #166534;
+      background: #dcfce7;
+      border-color: #bbf7d0;
+    }
+    .checklist-list {
+      display: grid;
+      gap: 7px;
+    }
+    .checklist-row {
+      display: grid;
+      grid-template-columns: 54px minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
+      padding: 8px;
+      border: 1px solid #e5edf7;
+      border-radius: 12px;
+      background: #ffffff;
+    }
+    .checklist-row > span {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 950;
+    }
+    .checklist-row.done > span {
+      color: #166534;
+      background: #dcfce7;
+    }
+    .checklist-row.pending > span {
+      color: #92400e;
+      background: #fef3c7;
+    }
+    .checklist-row strong {
+      display: block;
+      color: #0d2240;
+      font-size: 12px;
+      line-height: 1.2;
+    }
+    .checklist-row small {
+      display: block;
+      color: #64748b;
+      font-size: 11px;
+      line-height: 1.35;
+      margin-top: 2px;
     }
     .pipeline-card {
       margin: 0 14px 14px;
@@ -5138,6 +5372,101 @@ function renderCrmDashboard(list) {
   </section>`;
 }
 
+function renderReceptionDesk(list, { currentFilter = "all", query = "" } = {}) {
+  const queue = buildReceptionQueueSummary(list);
+  const cards = [
+    ["needsReply", "Por contestar", "followup"],
+    ["missingEmail", "Falta correo", "waiting"],
+    ["readyToConfirm", "Por confirmar", "awaiting_confirmation"],
+    ["resultsPending", "Resultados", "results"],
+    ["stuck", "Atoradas", "stuck"],
+    ["resolved", "Resueltas", "resolved"]
+  ];
+
+  return `<section class="reception-card" aria-label="Mesa de recepcion">
+    <div class="reception-head">
+      <div>
+        <span>Recepcion</span>
+        <strong>Cola diaria de trabajo</strong>
+      </div>
+      <a href="/inbox?${buildInboxQuery({ q: query, filter: "followup" })}">Sin responder</a>
+    </div>
+    <div class="reception-grid">
+      ${cards
+        .map(([key, label, targetFilter]) => `<a class="reception-metric${currentFilter === targetFilter ? " active" : ""}" href="/inbox?${buildInboxQuery({ q: query, filter: targetFilter })}">
+          <strong>${escapeHtml(queue[key] ?? 0)}</strong>
+          <span>${escapeHtml(label)}</span>
+        </a>`)
+        .join("")}
+    </div>
+    <div class="reception-next">
+      <span>Siguiente tarea</span>
+      ${
+        queue.nextTasks.length
+          ? queue.nextTasks.map((task) => `<a href="/inbox?${buildInboxQuery({ phone: task.phoneNumber, q: query, filter: currentFilter })}">
+              <strong>${escapeHtml(task.name)}</strong>
+              <em>${escapeHtml(task.nextLabel)}</em>
+              <small>${escapeHtml(task.status)} · ${escapeHtml(formatPhoneForInbox(task.phoneNumber))}</small>
+            </a>`).join("")
+          : `<p>Sin tareas abiertas de recepcion.</p>`
+      }
+    </div>
+  </section>`;
+}
+
+function renderReceptionReport(list) {
+  const queue = buildReceptionQueueSummary(list);
+  const lines = [
+    "Reporte de recepcion",
+    `Por contestar: ${queue.needsReply}`,
+    `Falta correo: ${queue.missingEmail}`,
+    `Por confirmar: ${queue.readyToConfirm}`,
+    `Resultados pendientes: ${queue.resultsPending}`,
+    `Pacientes atoradas: ${queue.stuck}`,
+    `Resueltas: ${queue.resolved}`,
+    "",
+    "Siguientes tareas:",
+    ...(queue.nextTasks.length
+      ? queue.nextTasks.map((task, index) => `${index + 1}. ${task.name} (${formatPhoneForInbox(task.phoneNumber)}): ${task.nextLabel} - ${task.status}`)
+      : ["Sin tareas abiertas."])
+  ].join("\n");
+
+  return `<div class="diagnostics-card reception-report" style="margin-top:0">
+    <div class="diagnostics-head"><strong>Reporte de recepcion</strong><span class="tag confirmed">${queue.total} pacientes</span></div>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 8px">Resumen rapido para copiar al cierre de turno.</p>
+    <textarea readonly rows="9">${escapeHtml(lines)}</textarea>
+  </div>`;
+}
+
+function renderReceptionChecklist(checklist) {
+  if (!checklist) return "";
+  const percent = checklist.total > 0 ? Math.round((checklist.completeCount / checklist.total) * 100) : 0;
+  return `<div class="panel-section reception-checklist-panel">
+    <div class="checklist-head">
+      <div>
+        <h2>Checklist recepcion</h2>
+        <span>${checklist.completeCount}/${checklist.total} completo</span>
+      </div>
+      <strong>${percent}%</strong>
+    </div>
+    <div class="checklist-progress"><span style="width:${percent}%"></span></div>
+    ${
+      checklist.nextMissing
+        ? `<div class="next-missing"><strong>Siguiente:</strong> ${escapeHtml(checklist.nextMissing.label)} · ${escapeHtml(checklist.nextMissing.detail)}</div>`
+        : `<div class="next-missing done"><strong>Todo listo:</strong> esta conversacion no tiene pendientes operativos claros.</div>`
+    }
+    <div class="checklist-list">
+      ${checklist.items.map((item) => `<div class="checklist-row ${item.done ? "done" : "pending"}">
+        <span>${item.done ? "OK" : "Falta"}</span>
+        <div>
+          <strong>${escapeHtml(item.label)}</strong>
+          <small>${escapeHtml(item.detail)}</small>
+        </div>
+      </div>`).join("")}
+    </div>
+  </div>`;
+}
+
 function buildDashboardPriorityList(list) {
   return sortInboxConversations(list, Date.now())
     .filter((conversation) => getInboxConversationStatus(conversation).priority <= 5 || conversation.messages?.at(-1)?.sender === "patient")
@@ -5744,6 +6073,7 @@ function renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, win
 
   const summary = buildLocalConversationSummary(selected);
   const crmProfile = buildPatientCrmProfile(selected);
+  const receptionChecklist = buildReceptionChecklist(selected);
   const offeredSlots = getOfferedSlots(selected);
   const appointment = selected.appointment;
   const notes = selected.notes ?? [];
@@ -5780,6 +6110,8 @@ function renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, win
     </div>
 
     ${renderPatientCrmProfile(crmProfile)}
+
+    ${renderReceptionChecklist(receptionChecklist)}
 
     ${renderLeadOriginSection(selected)}
 

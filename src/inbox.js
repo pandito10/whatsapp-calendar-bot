@@ -226,6 +226,166 @@ export function buildInboxStats(list, nowMs = Date.now()) {
   );
 }
 
+export function buildReceptionChecklist(conversation, nowMs = Date.now()) {
+  const status = getConversationStatus(conversation, nowMs);
+  const profile = buildPatientCrmProfile(conversation, nowMs);
+  const tags = normalizedTags(conversation);
+  const messages = conversation?.messages ?? [];
+  const appointment = conversation?.appointment;
+  const sessionData = conversation?.session?.data ?? {};
+  const offeredSlots = getOfferedSlots(conversation);
+  const last = messages.at(-1);
+  const lastPatientMessage = getLastPatientMessage(conversation);
+  const patientName = profile.name ?? sessionData.name;
+  const detectedEmail = profile.email ?? extractEmailFromMessages(messages) ?? sessionData.email;
+  const requestedResults = tags.has("resultados") || tags.has("resultados pendientes") || /resultado|estudio|examen|papanicolaou|ultrasonido|colposcopia/i.test(lastPatientMessage?.body ?? "");
+  const resultsSent = tags.has("resultados enviados") || tags.has("resultados resueltos") || tags.has("resuelto");
+  const hasService =
+    Boolean(profile.latestReason ?? appointment?.reason ?? sessionData.reason ?? sessionData.service) ||
+    [...tags].some((tag) => /promo|consulta|ultrasonido|papanicolau|papanicolaou|colposcopia|control prenatal|revision/.test(tag));
+  const hasDate =
+    Boolean(appointment?.slotStart ?? sessionData.dateISO ?? sessionData.preferredDateText) ||
+    offeredSlots.length > 0 ||
+    Boolean(extractDateMention(lastPatientMessage?.body ?? ""));
+  const isResponded = last?.sender !== "patient" || status.key === "resolved";
+  const hasOutcome = Boolean(
+    appointment?.status === "confirmed" ||
+    status.key === "resolved" ||
+    status.key === "results" ||
+    conversation?.botPaused ||
+    tags.has("humano requerido")
+  );
+
+  const items = [
+    {
+      key: "name",
+      label: "Nombre",
+      done: Boolean(patientName),
+      detail: patientName ? `Detectado: ${patientName}` : "Pedir nombre completo."
+    },
+    {
+      key: "phone",
+      label: "Telefono",
+      done: Boolean(profile.phoneNumber ?? conversation?.phoneNumber),
+      detail: profile.phoneNumber ?? conversation?.phoneNumber ? "Listo para seguimiento." : "No hay telefono registrado."
+    },
+    {
+      key: "email",
+      label: "Correo",
+      done: Boolean(detectedEmail),
+      detail: detectedEmail ? `Confirmar si es necesario: ${maskEmailForReception(detectedEmail)}` : "Pedir correo confirmado para citas y archivos."
+    },
+    {
+      key: "service",
+      label: "Servicio",
+      done: hasService,
+      detail: hasService ? profile.latestReason ?? appointment?.reason ?? sessionData.reason ?? "Interes detectado." : "Aclarar si quiere promo, consulta, ultrasonido u otro motivo."
+    },
+    {
+      key: "date",
+      label: "Fecha/horario",
+      done: hasDate,
+      detail: appointment?.slotStart
+        ? "Ya tiene cita registrada."
+        : offeredSlots.length
+          ? `${offeredSlots.length} horarios ofrecidos.`
+          : hasDate
+            ? "Fecha mencionada o flujo en progreso."
+            : "Pedir dia u horario deseado."
+    },
+    {
+      key: "reply",
+      label: "Respuesta",
+      done: isResponded,
+      detail: isResponded ? "No hay mensaje entrante sin responder." : "La paciente escribio de ultimo; responder primero."
+    },
+    {
+      key: "outcome",
+      label: "Cierre",
+      done: hasOutcome,
+      detail: appointment?.status === "confirmed"
+        ? "Cita confirmada."
+        : status.key === "resolved"
+          ? "Caso marcado como resuelto."
+          : status.key === "results"
+            ? "Solicitud de resultados en modo humano."
+            : conversation?.botPaused
+              ? "Modo humano activo."
+              : "Aun falta agendar, resolver o pasar a humano."
+    }
+  ];
+
+  if (requestedResults) {
+    items.push({
+      key: "results",
+      label: "Resultados",
+      done: Boolean(detectedEmail) && resultsSent,
+      detail: !detectedEmail
+        ? "Pedir correo confirmado antes de enviar archivos."
+        : resultsSent
+          ? "Solicitud de resultados atendida o cerrada."
+          : "Enviar solo por correo confirmado o cerrar con humano."
+    });
+  }
+
+  const completeCount = items.filter((item) => item.done).length;
+  const nextMissing = items.find((item) => !item.done);
+  return {
+    items,
+    completeCount,
+    total: items.length,
+    nextMissing,
+    readyForReception: completeCount === items.length,
+    status
+  };
+}
+
+export function buildReceptionQueueSummary(list, nowMs = Date.now()) {
+  const summary = {
+    total: list.length,
+    needsReply: 0,
+    missingEmail: 0,
+    readyToConfirm: 0,
+    resultsPending: 0,
+    stuck: 0,
+    resolved: 0,
+    nextTasks: []
+  };
+
+  const tasks = [];
+  for (const conversation of list) {
+    const status = getConversationStatus(conversation, nowMs);
+    const checklist = buildReceptionChecklist(conversation, nowMs);
+    const tags = normalizedTags(conversation);
+    const emailItem = checklist.items.find((item) => item.key === "email");
+
+    if (conversation?.messages?.at(-1)?.sender === "patient" && status.key !== "resolved") summary.needsReply += 1;
+    if (emailItem && !emailItem.done && status.key !== "resolved") summary.missingEmail += 1;
+    if (status.key === "awaiting_confirmation") summary.readyToConfirm += 1;
+    if (status.key === "results" || tags.has("resultados") || tags.has("resultados pendientes")) summary.resultsPending += 1;
+    if (status.key === "stuck") summary.stuck += 1;
+    if (status.key === "resolved") summary.resolved += 1;
+
+    if (checklist.nextMissing && status.key !== "resolved") {
+      tasks.push({
+        phoneNumber: conversation.phoneNumber,
+        name: buildPatientCrmProfile(conversation, nowMs).name ?? extractNameFromMessages(conversation?.messages ?? []) ?? conversation.phoneNumber,
+        status: status.label,
+        nextLabel: checklist.nextMissing.label,
+        nextDetail: checklist.nextMissing.detail,
+        priority: status.priority,
+        activity: getConversationActivityTime(conversation)
+      });
+    }
+  }
+
+  summary.nextTasks = tasks
+    .sort((a, b) => a.priority - b.priority || b.activity - a.activity)
+    .slice(0, 5);
+
+  return summary;
+}
+
 export function buildLocalConversationSummary(conversation, nowMs = Date.now()) {
   const status = getConversationStatus(conversation, nowMs);
   const lastPatientMessage = getLastPatientMessage(conversation);
@@ -558,6 +718,21 @@ function extractDateMention(text) {
   const normalized = normalizeText(text);
   const match = normalized.match(/\b(?:hoy|manana|pasado manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|\d{1,2}\s+de\s+[a-z]+)\b/);
   return match?.[0];
+}
+
+function extractEmailFromMessages(messages) {
+  for (const message of [...(messages ?? [])].reverse()) {
+    const match = String(message?.body ?? "").match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    if (match) return match[0];
+  }
+  return undefined;
+}
+
+function maskEmailForReception(email) {
+  const value = String(email ?? "");
+  const [user, domain] = value.split("@");
+  if (!user || !domain) return value;
+  return `${user.slice(0, 1)}***@${domain}`;
 }
 
 function extractNameFromMessages(messages) {

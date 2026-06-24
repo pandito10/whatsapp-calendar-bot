@@ -83,6 +83,9 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxHtml, /Contactos/);
     assert.match(inboxHtml, /CRM operativo/);
     assert.match(inboxHtml, /Panel operativo/);
+    assert.match(inboxHtml, /Recepcion/);
+    assert.match(inboxHtml, /Cola diaria de trabajo/);
+    assert.match(inboxHtml, /Siguiente tarea/);
     assert.match(inboxHtml, /Pipeline CRM/);
     assert.match(inboxHtml, /Flujo de pacientes/);
     assert.match(inboxHtml, /contacts-table-head/);
@@ -95,6 +98,8 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.doesNotMatch(inboxHtml, /http-equiv="refresh"/);
 
     const reportsHtml = await (await fetch("http://127.0.0.1:32131/inbox?tab=reports", { headers: { Cookie: inboxCookie } })).text();
+    assert.match(reportsHtml, /Reporte de recepcion/);
+    assert.match(reportsHtml, /Siguientes tareas/);
     assert.match(reportsHtml, /Escribir reporte manual/);
     assert.match(reportsHtml, /name="mode" type="hidden" value="manual"/);
     assert.match(reportsHtml, /Guardar reporte escrito/);
@@ -367,6 +372,8 @@ test("inbox/send bloquea cualquier adjunto por WhatsApp", async () => {
     assert.match(loginHtml, /Falta WHATSAPP_REENGAGEMENT_TEMPLATE/);
     assert.match(loginHtml, /Respuestas sugeridas/);
     assert.match(loginHtml, /Senales rapidas del paciente/);
+    assert.match(loginHtml, /Checklist recepcion/);
+    assert.match(loginHtml, /Siguiente:/);
     assert.match(loginHtml, /Marcar resuelto/);
     assert.match(loginHtml, /Venta estimada/);
     assert.match(loginHtml, /Reagendar cita/);

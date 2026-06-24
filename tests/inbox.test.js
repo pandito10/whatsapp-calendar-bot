@@ -9,6 +9,8 @@ const {
   buildLocalConversationSummary,
   buildManualDailyReportEntry,
   buildPatientCrmProfile,
+  buildReceptionChecklist,
+  buildReceptionQueueSummary,
   filterInboxConversations,
   getConversationActivityISO,
   getConversationStatus,
@@ -358,6 +360,73 @@ test("calcula metricas del inbox", () => {
       { sender: "admin", body: "Caso marcado como resuelto desde el inbox.", timestamp: "2030-06-17T17:40:00.000Z" }
     ]
   })], now).resolved, 1);
+});
+
+test("construye checklist de recepcion con datos faltantes", () => {
+  const checklist = buildReceptionChecklist(conversation({
+    session: { step: "collectingEmail", data: { name: "Ana Lopez", reason: "Promo" } },
+    messages: [
+      { sender: "patient", body: "Quiero la promo el viernes", timestamp: "2030-06-17T17:40:00.000Z" }
+    ]
+  }), now);
+
+  assert.equal(checklist.items.find((item) => item.key === "name").done, true);
+  assert.equal(checklist.items.find((item) => item.key === "email").done, false);
+  assert.equal(checklist.items.find((item) => item.key === "service").done, true);
+  assert.equal(checklist.items.find((item) => item.key === "reply").done, false);
+  assert.equal(checklist.nextMissing.key, "email");
+});
+
+test("checklist de recepcion queda completo con cita confirmada y correo", () => {
+  const checklist = buildReceptionChecklist(conversation({
+    appointment: {
+      status: "confirmed",
+      patientName: "Ana Lopez",
+      patientEmail: "ana@example.com",
+      slotStart: "2030-06-20T22:40:00.000Z",
+      reason: "Promo"
+    },
+    messages: [
+      { sender: "patient", body: "Gracias", timestamp: "2030-06-17T17:40:00.000Z" },
+      { sender: "bot", body: "Tu cita quedo confirmada", timestamp: "2030-06-17T17:41:00.000Z" }
+    ]
+  }), now);
+
+  assert.equal(checklist.completeCount, checklist.total);
+  assert.equal(checklist.nextMissing, undefined);
+});
+
+test("resumen de recepcion cuenta pendientes operativos", () => {
+  const summary = buildReceptionQueueSummary([
+    conversation({
+      phoneNumber: "5214770000101",
+      messages: [{ sender: "patient", body: "Hola, quiero cita", timestamp: "2030-06-17T17:59:00.000Z" }]
+    }),
+    conversation({
+      phoneNumber: "5214770000102",
+      tags: ["Resultados"],
+      messages: [{ sender: "patient", body: "Quiero mis resultados", timestamp: "2030-06-17T17:50:00.000Z" }]
+    }),
+    conversation({
+      phoneNumber: "5214770000103",
+      session: { step: "confirmingAppointment", data: { name: "Sofia", email: "sofia@example.com", reason: "Consulta" } },
+      messages: [{ sender: "bot", body: "Confirmas?", timestamp: "2030-06-17T17:45:00.000Z" }]
+    }),
+    conversation({
+      phoneNumber: "5214770000104",
+      tags: ["Resuelto"],
+      messages: [
+        { sender: "patient", body: "gracias", timestamp: "2030-06-17T17:30:00.000Z" },
+        { sender: "admin", body: "Caso marcado como resuelto desde el inbox.", timestamp: "2030-06-17T17:40:00.000Z" }
+      ]
+    })
+  ], now);
+
+  assert.equal(summary.needsReply, 2);
+  assert.equal(summary.resultsPending, 1);
+  assert.equal(summary.readyToConfirm, 1);
+  assert.equal(summary.resolved, 1);
+  assert.ok(summary.nextTasks.length > 0);
 });
 
 test("construye perfil CRM de paciente con historial de citas", () => {
