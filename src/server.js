@@ -2568,6 +2568,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
         </div>
       </form>
       ${filterOptions}
+      <div class="contacts-table-head"><span>Paciente</span><span>Estado</span></div>
       ${conversationLinks}`;
   const sidebarContent =
     sideTab === "diagnostics"
@@ -2612,17 +2613,17 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     :root {
       color-scheme: light;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f0f6ff;
+      background: #f6f8fb;
       color: #0d2240;
-      --line: #bfd6f0;
+      --line: #d9e4f2;
       --muted: #4a6a8a;
       --brand: #1a5fa8;
       --brand-dark: #0d3d72;
       --brand-soft: #ddeeff;
       --brand-pale: #f0f7ff;
       --surface: #ffffff;
-      --soft: #f5f9ff;
-      --shadow: rgba(13, 61, 114, 0.12);
+      --soft: #f7faff;
+      --shadow: rgba(15, 23, 42, 0.08);
     }
     * { box-sizing: border-box; }
     body {
@@ -2630,17 +2631,84 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       min-height: 100vh;
       overflow-x: hidden;
       background:
-        radial-gradient(circle at top left, rgba(96, 165, 250, 0.18), transparent 32rem),
-        radial-gradient(circle at 88% 12%, rgba(191, 214, 240, 0.5), transparent 24rem),
-        linear-gradient(135deg, #f5f9ff 0%, #ddeeff 48%, #f5f9ff 100%);
+        radial-gradient(circle at top left, rgba(96, 165, 250, 0.12), transparent 30rem),
+        linear-gradient(180deg, #ffffff 0%, #f6f8fb 44%, #eef4fb 100%);
+    }
+    .crm-rail {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 20;
+      width: 84px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 10px;
+      border-right: 1px solid #d9e4f2;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 10px 0 34px rgba(15, 23, 42, 0.05);
+    }
+    .rail-logo {
+      display: grid;
+      place-items: center;
+      width: 46px;
+      height: 46px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #1a5fa8, #60a5fa);
+      color: #ffffff;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      box-shadow: 0 12px 24px rgba(26, 95, 168, 0.2);
+      margin-bottom: 8px;
+    }
+    .rail-item {
+      display: grid;
+      place-items: center;
+      gap: 5px;
+      width: 64px;
+      min-height: 62px;
+      padding: 7px 4px;
+      border-radius: 16px;
+      color: #54708c;
+      text-decoration: none;
+      font-size: 10px;
+      font-weight: 850;
+      text-align: center;
+      transition: background .15s ease, color .15s ease, transform .15s ease;
+    }
+    .rail-item span {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 10px;
+      background: #eef4fb;
+      color: #0d3d72;
+      font-size: 13px;
+      font-weight: 900;
+    }
+    .rail-item:hover {
+      background: #f0f7ff;
+      color: #0d3d72;
+      transform: translateY(-1px);
+    }
+    .rail-item.active {
+      background: #e8f1ff;
+      color: #0d3d72;
+      box-shadow: inset 0 0 0 1px #cfe1f7;
+    }
+    .rail-item.active span {
+      background: #1a5fa8;
+      color: #ffffff;
     }
     header {
-      height: 72px;
+      height: 66px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 28px;
-      border-bottom: 1px solid rgba(191, 214, 240, 0.86);
+      margin-left: 84px;
+      padding: 0 24px;
+      border-bottom: 1px solid rgba(217, 228, 242, 0.95);
       background: rgba(255, 255, 255, 0.92);
       backdrop-filter: blur(14px);
       position: sticky;
@@ -2673,15 +2741,17 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       border-radius: 50%;
     }
     .inbox-banner {
-      width: 100%;
-      max-height: 220px;
+      width: auto;
+      height: 92px;
+      max-height: 92px;
+      margin-left: 84px;
       overflow: hidden;
       display: block;
       line-height: 0;
     }
     .inbox-banner img {
       width: 100%;
-      height: 220px;
+      height: 92px;
       object-fit: cover;
       object-position: center top;
       display: block;
@@ -2724,7 +2794,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       display: flex;
       gap: 8px;
       overflow-x: auto;
-      padding: 12px 18px 0;
+      margin-left: 84px;
+      padding: 10px 18px 0;
     }
     .metric-pill {
       flex: 0 0 auto;
@@ -2737,19 +2808,58 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
     .metric-pill strong { display: block; font-size: 18px; line-height: 1; }
     .metric-pill span { color: var(--muted); display: block; font-size: 11px; margin-top: 5px; }
+    .crm-top-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      min-height: 58px;
+      margin: 12px 18px 0 102px;
+      padding: 12px 16px;
+      border-radius: 16px;
+      background:
+        radial-gradient(circle at 84% 50%, rgba(34, 197, 94, 0.18), transparent 10rem),
+        linear-gradient(135deg, #0f172a, #173b66);
+      color: #ffffff;
+      box-shadow: 0 18px 38px rgba(15, 23, 42, 0.16);
+    }
+    .crm-top-banner strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.2;
+    }
+    .crm-top-banner span {
+      display: block;
+      margin-top: 3px;
+      color: rgba(255, 255, 255, 0.74);
+      font-size: 12px;
+    }
+    .crm-top-banner .banner-pill {
+      flex: 0 0 auto;
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: #22c55e;
+      color: #052e16;
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
     main {
       display: grid;
-      grid-template-columns: minmax(280px, 340px) minmax(0, 1fr) minmax(280px, 340px);
-      height: calc(100vh - 124px);
-      padding: 18px;
-      gap: 18px;
+      grid-template-columns: minmax(320px, 390px) minmax(0, 1.15fr) minmax(300px, 360px);
+      height: calc(100vh - 250px);
+      min-height: 560px;
+      margin-left: 84px;
+      padding: 14px 18px 18px;
+      gap: 14px;
     }
     aside {
       border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.9);
+      background: rgba(255, 255, 255, 0.96);
       overflow: auto;
-      border-radius: 18px;
-      box-shadow: 0 18px 44px var(--shadow);
+      border-radius: 16px;
+      box-shadow: 0 12px 30px var(--shadow);
     }
     .sidebar-head {
       padding: 18px 18px 12px;
@@ -2949,6 +3059,19 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       font-size: 12px;
       color: #244a73;
     }
+    .contacts-table-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      padding: 10px 16px;
+      border-bottom: 1px solid #e5edf7;
+      background: #f8fbff;
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
     .dot {
       width: 8px;
       height: 8px;
@@ -2961,19 +3084,24 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       display: flex;
       gap: 12px;
       align-items: center;
-      padding: 14px 16px;
+      margin: 0 10px 8px;
+      padding: 12px;
       color: inherit;
       text-decoration: none;
-      border-bottom: 1px solid #dbeafe;
-      transition: background 0.15s ease, transform 0.15s ease;
+      border: 1px solid #e5edf7;
+      border-radius: 15px;
+      background: #ffffff;
+      transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
     }
     .thread:hover {
-      background: #eef6ff;
+      background: #f8fbff;
+      border-color: #cfe1f7;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
     }
     .thread.active {
-      background: #ddeeff;
-      border-left: 4px solid var(--brand);
-      padding-left: 12px;
+      background: #edf6ff;
+      border-color: #9fc5ef;
+      box-shadow: 0 12px 28px rgba(26, 95, 168, 0.14);
     }
     .avatar {
       flex: 0 0 auto;
@@ -3127,16 +3255,16 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       flex-direction: column;
       overflow: hidden;
       border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.86);
-      border-radius: 18px;
-      box-shadow: 0 18px 48px var(--shadow);
+      background: rgba(255, 255, 255, 0.96);
+      border-radius: 16px;
+      box-shadow: 0 12px 32px var(--shadow);
     }
     .patient-panel {
       border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.92);
+      background: rgba(255, 255, 255, 0.96);
       overflow: auto;
-      border-radius: 18px;
-      box-shadow: 0 18px 44px var(--shadow);
+      border-radius: 16px;
+      box-shadow: 0 12px 30px var(--shadow);
     }
     .panel-section {
       padding: 16px;
@@ -3622,7 +3750,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       justify-content: space-between;
       gap: 16px;
       padding: 18px 22px;
-      background: rgba(245, 249, 255, 0.96);
+      background: linear-gradient(180deg, #ffffff, #f8fbff);
       border-bottom: 1px solid var(--line);
     }
     .chat-title strong { display: block; font-size: 16px; }
@@ -4128,13 +4256,15 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
     @media (max-width: 780px) {
       body { min-height: 100dvh; overflow: hidden; }
+      .crm-rail { display: none; }
       .inbox-banner { display: none; }
-      header { padding: 0 14px; height: 58px; min-height: 58px; gap: 12px; }
+      header { margin-left: 0; padding: 0 14px; height: 58px; min-height: 58px; gap: 12px; }
       .brand-mark { width: 34px; height: 34px; border-radius: 10px; }
       h1 { font-size: 16px; }
       .status { display: none; }
       .metric-strip {
         display: flex;
+        margin-left: 0;
         position: sticky;
         top: 58px;
         z-index: 3;
@@ -4154,7 +4284,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       }
       .metric-pill strong { font-size: 17px; }
       .metric-pill span { font-size: 10px; margin-top: 4px; }
-      main { display: block; height: calc(100dvh - 111px); min-height: 0; padding: 0; }
+      .crm-top-banner { display: none; }
+      main { display: block; height: calc(100dvh - 111px); min-height: 0; margin-left: 0; padding: 0; }
       body.has-selection aside { display: none; }
       body.no-selection .chat { display: none; }
       .patient-panel { display: none; }
@@ -4402,7 +4533,30 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
   </style>
 </head>
-<body class="${selected ? "has-selection" : "no-selection"}">
+<body class="${selected ? "has-selection" : "no-selection"} crm-pro">
+  <nav class="crm-rail" aria-label="Navegacion CRM">
+    <div class="rail-logo">DC</div>
+    <a class="rail-item ${sideTab === "patients" ? "active" : ""}" href="/inbox?${buildInboxQuery({ tab: "patients", phone: selectedPhone, q: url.searchParams.get("q"), filter })}">
+      <span>C</span>
+      Contactos
+    </a>
+    <a class="rail-item ${sideTab === "diagnostics" ? "active" : ""}" href="/inbox?${buildInboxQuery({ tab: "diagnostics", phone: selectedPhone, q: url.searchParams.get("q"), filter })}">
+      <span>E</span>
+      Estado
+    </a>
+    <a class="rail-item ${sideTab === "reports" ? "active" : ""}" href="/inbox?${buildInboxQuery({ tab: "reports", phone: selectedPhone, q: url.searchParams.get("q"), filter })}">
+      <span>R</span>
+      Reportes
+    </a>
+    <a class="rail-item ${sideTab === "tools" ? "active" : ""}" href="/inbox?${buildInboxQuery({ tab: "tools", phone: selectedPhone, q: url.searchParams.get("q"), filter })}">
+      <span>H</span>
+      Herram.
+    </a>
+    <a class="rail-item" href="/privacy">
+      <span>P</span>
+      Privacidad
+    </a>
+  </nav>
   <div class="inbox-banner">
     <img src="/public/dra_carranza_banner.png" alt="Dra. Carranza - Bienvenida a su consultorio virtual">
   </div>
@@ -4431,6 +4585,13 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     <div class="metric-pill"><strong>${stats.human}</strong><span>Humano</span></div>
     <div class="metric-pill"><strong>${stats.urgent}</strong><span>Urgentes</span></div>
     <div class="metric-pill"><strong>${stats.noReply}</strong><span>Sin responder</span></div>
+  </div>
+  <div class="crm-top-banner">
+    <div>
+      <strong>Consultorio virtual activo</strong>
+      <span>Contactos, agenda, resultados por correo y modo humano en un solo panel.</span>
+    </div>
+    <div class="banner-pill">CRM operativo</div>
   </div>
   <main>
     <aside>

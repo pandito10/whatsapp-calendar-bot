@@ -78,7 +78,11 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxHtml, /Herramientas/);
     assert.match(inboxHtml, /Firma Meta/);
     assert.match(inboxHtml, /Locks/);
-    assert.match(inboxHtml, /class="no-selection"/);
+    assert.match(inboxHtml, /class="no-selection crm-pro"/);
+    assert.match(inboxHtml, /class="crm-rail"/);
+    assert.match(inboxHtml, /Contactos/);
+    assert.match(inboxHtml, /CRM operativo/);
+    assert.match(inboxHtml, /contacts-table-head/);
     assert.match(inboxHtml, /data-refresh-status/);
     assert.match(inboxHtml, /<div class="metric-strip">/);
     assert.match(inboxHtml, /<span>Pendientes<\/span>/);
