@@ -325,7 +325,9 @@ create index if not exists knowledge_suggestions_status_created_idx
 create index if not exists knowledge_suggestions_active_status_idx
   on public.knowledge_suggestions (active, status, created_at desc);
 
-create or replace view public.appointments as
+drop view if exists public.appointments;
+
+create view public.appointments as
 select
   id,
   phone_number,

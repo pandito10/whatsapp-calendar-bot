@@ -199,7 +199,9 @@ begin
 end;
 $$;
 
-create or replace view public.appointments as
+drop view if exists public.appointments;
+
+create view public.appointments as
 select
   id,
   phone_number,
