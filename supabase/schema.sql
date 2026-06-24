@@ -62,6 +62,76 @@ alter table public.conversation_notes
 create index if not exists conversation_notes_phone_created_idx
   on public.conversation_notes (phone_number, created_at desc);
 
+create table if not exists public.patients (
+  phone_number text primary key,
+  name text,
+  email text,
+  first_seen_at timestamptz,
+  last_seen_at timestamptz,
+  last_patient_message_at timestamptz,
+  next_appointment_at timestamptz,
+  last_appointment_at timestamptz,
+  appointment_count integer not null default 0,
+  cancelled_count integer not null default 0,
+  failed_count integer not null default 0,
+  no_show_count integer not null default 0,
+  last_service text,
+  last_payment_type text,
+  first_visit text,
+  status text not null default 'lead' check (status in ('lead', 'active', 'returning', 'human', 'inactive')),
+  tags jsonb not null default '[]',
+  notes_count integer not null default 0,
+  internal_notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.patients
+  add column if not exists name text,
+  add column if not exists email text,
+  add column if not exists first_seen_at timestamptz,
+  add column if not exists last_seen_at timestamptz,
+  add column if not exists last_patient_message_at timestamptz,
+  add column if not exists next_appointment_at timestamptz,
+  add column if not exists last_appointment_at timestamptz,
+  add column if not exists appointment_count integer not null default 0,
+  add column if not exists cancelled_count integer not null default 0,
+  add column if not exists failed_count integer not null default 0,
+  add column if not exists no_show_count integer not null default 0,
+  add column if not exists last_service text,
+  add column if not exists last_payment_type text,
+  add column if not exists first_visit text,
+  add column if not exists status text not null default 'lead',
+  add column if not exists tags jsonb not null default '[]',
+  add column if not exists notes_count integer not null default 0,
+  add column if not exists internal_notes text,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'patients_status_check'
+      and conrelid = 'public.patients'::regclass
+  ) then
+    alter table public.patients drop constraint patients_status_check;
+  end if;
+end $$;
+
+alter table public.patients
+  add constraint patients_status_check check (status in ('lead', 'active', 'returning', 'human', 'inactive'));
+
+create index if not exists patients_updated_idx
+  on public.patients (updated_at desc);
+
+create index if not exists patients_next_appointment_idx
+  on public.patients (next_appointment_at);
+
+create index if not exists patients_status_idx
+  on public.patients (status);
+
 create table if not exists public.sessions (
   phone_number text primary key,
   step text not null default 'collecting',
@@ -277,6 +347,7 @@ grant usage on schema public to service_role;
 grant select, insert, update, delete on table
   public.conversations,
   public.conversation_notes,
+  public.patients,
   public.messages,
   public.sessions,
   public.citas,

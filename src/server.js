@@ -28,6 +28,7 @@ import {
   buildInboxStats as buildInboxMetrics,
   getConversationActivityISO,
   buildLocalConversationSummary,
+  buildPatientCrmProfile,
   filterInboxConversations as filterInboxConversationList,
   getConversationStatus as getInboxConversationStatus,
   getOfferedSlots,
@@ -2923,6 +2924,191 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       gap: 9px;
       font-size: 13px;
     }
+    .crm-kpis {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .crm-kpis div {
+      padding: 10px;
+      border-radius: 12px;
+      background: #eef6ff;
+      border: 1px solid #cfe1f7;
+      text-align: center;
+    }
+    .crm-kpis strong {
+      display: block;
+      color: #0d3d72;
+      font-size: 20px;
+      line-height: 1;
+    }
+    .crm-kpis span {
+      display: block;
+      margin-top: 5px;
+      color: #4a6a8a;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .crm-flags {
+      margin-top: 10px;
+    }
+    .crm-hero {
+      position: relative;
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      margin: -2px 0 12px;
+      border: 1px solid #9fc5ef;
+      border-radius: 18px;
+      background:
+        radial-gradient(circle at top right, rgba(96, 165, 250, 0.34), transparent 9rem),
+        linear-gradient(135deg, #ffffff, #eef6ff);
+      box-shadow: 0 16px 34px rgba(13, 61, 114, 0.1);
+      overflow: hidden;
+    }
+    .crm-hero-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .crm-eyebrow {
+      display: block;
+      color: #4a6a8a;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+    .crm-name {
+      display: block;
+      color: #0d2240;
+      font-size: 18px;
+      line-height: 1.15;
+      overflow-wrap: anywhere;
+    }
+    .crm-subtitle {
+      color: #4a6a8a;
+      margin-top: 5px;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .crm-stage {
+      flex: 0 0 auto;
+      border-radius: 999px;
+      padding: 7px 10px;
+      border: 1px solid #cfe1f7;
+      background: #ffffff;
+      color: #0d3d72;
+      font-size: 11px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+    .crm-stage.active { color: #166534; background: #dcfce7; border-color: #86efac; }
+    .crm-stage.returning { color: #1d4ed8; background: #dbeafe; border-color: #bfdbfe; }
+    .crm-stage.attention { color: #92400e; background: #fef3c7; border-color: #fde68a; }
+    .crm-stage.lead { color: #6d28d9; background: #ede9fe; border-color: #ddd6fe; }
+    .crm-next-card {
+      display: grid;
+      gap: 4px;
+      padding: 11px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(159, 197, 239, 0.9);
+      background: rgba(255, 255, 255, 0.74);
+    }
+    .crm-next-card span {
+      color: #4a6a8a;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .crm-next-card strong {
+      color: #0d3d72;
+      font-size: 13px;
+      line-height: 1.3;
+    }
+    .crm-mini-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .crm-mini {
+      display: grid;
+      gap: 4px;
+      padding: 9px 10px;
+      border-radius: 13px;
+      border: 1px solid #cfe1f7;
+      background: #f8fbff;
+      min-width: 0;
+    }
+    .crm-mini span {
+      color: #4a6a8a;
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .crm-mini strong {
+      color: #0d2240;
+      font-size: 12px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    .crm-timeline {
+      position: relative;
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+      padding-left: 14px;
+    }
+    .crm-timeline::before {
+      content: "";
+      position: absolute;
+      left: 4px;
+      top: 8px;
+      bottom: 8px;
+      width: 2px;
+      border-radius: 999px;
+      background: #cfe1f7;
+    }
+    .crm-step {
+      position: relative;
+      display: grid;
+      gap: 2px;
+      padding: 9px 10px;
+      border-radius: 12px;
+      background: #ffffff;
+      border: 1px solid #dbeafe;
+      box-shadow: 0 8px 18px rgba(13, 61, 114, 0.05);
+    }
+    .crm-step::before {
+      content: "";
+      position: absolute;
+      left: -14px;
+      top: 14px;
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: #1a5fa8;
+      box-shadow: 0 0 0 3px #eef6ff;
+    }
+    .crm-step span {
+      color: #4a6a8a;
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .crm-step strong {
+      color: #0d2240;
+      font-size: 12px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
     .info-row {
       display: grid;
       gap: 3px;
@@ -3590,6 +3776,31 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       text-transform: uppercase;
       margin-bottom: 3px;
     }
+    .mobile-crm-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+    .mobile-crm-strip div {
+      border: 1px solid #cfe1f7;
+      border-radius: 12px;
+      background: #ffffff;
+      padding: 8px 6px;
+      text-align: center;
+    }
+    .mobile-crm-strip strong {
+      display: block;
+      color: #0d3d72;
+      font-size: 16px;
+      line-height: 1;
+    }
+    .mobile-crm-strip span {
+      display: block;
+      color: #4a6a8a;
+      font-size: 10px;
+      font-weight: 800;
+      margin-top: 4px;
+    }
     @media (max-width: 780px) {
       body { min-height: 100dvh; overflow: hidden; }
       .inbox-banner { display: none; }
@@ -4233,6 +4444,65 @@ function renderLeadOriginSection(conv) {
   </div>`;
 }
 
+function renderPatientCrmProfile(profile) {
+  if (!profile) return "";
+  const nextAppointment = profile.nextAppointment?.slotStart ? formatAppointmentFull(profile.nextAppointment.slotStart) : "Sin proxima cita";
+  const lastAppointment = profile.lastAppointment?.slotStart ? formatAppointmentFull(profile.lastAppointment.slotStart) : "Sin cita previa";
+  const firstTouch = profile.firstTouch ? formatInboxDate(profile.firstTouch) : "Sin dato";
+  const flags = profile.riskFlags ?? [];
+  const stageClass = getCrmStageClass(profile);
+  const displayName = profile.name ?? "Paciente sin nombre";
+  const contactLine = [profile.phoneNumber ? formatPhoneForInbox(profile.phoneNumber) : "", profile.email ? maskEmail(profile.email) : ""]
+    .filter(Boolean)
+    .join(" · ");
+
+  return `<div class="panel-section crm-profile">
+    <div class="crm-hero">
+      <div class="crm-hero-top">
+        <div>
+          <span class="crm-eyebrow">CRM del paciente</span>
+          <strong class="crm-name">${escapeHtml(displayName)}</strong>
+          <div class="crm-subtitle">${escapeHtml(contactLine || "Sin contacto completo")}</div>
+        </div>
+        <span class="crm-stage ${stageClass}">${escapeHtml(profile.patientStage ?? "Lead")}</span>
+      </div>
+      <div class="crm-next-card">
+        <span>Proxima accion</span>
+        <strong>${escapeHtml(profile.nextAppointment?.slotStart ? `Cita: ${nextAppointment}` : flags.length ? `Revisar: ${flags[0]}` : "Dar seguimiento cuando vuelva a escribir")}</strong>
+      </div>
+    </div>
+    <div class="crm-kpis">
+      <div><strong>${escapeHtml(profile.appointmentCount ?? 0)}</strong><span>Citas</span></div>
+      <div><strong>${escapeHtml(profile.cancelledCount ?? 0)}</strong><span>Canceladas</span></div>
+      <div><strong>${escapeHtml(profile.notesCount ?? 0)}</strong><span>Notas</span></div>
+    </div>
+    <div class="crm-mini-grid">
+      <div class="crm-mini"><span>Servicio</span><strong>${escapeHtml(profile.latestReason ?? "Sin servicio")}</strong></div>
+      <div class="crm-mini"><span>Tipo</span><strong>${escapeHtml(profile.latestPaymentType ?? "Sin dato")}</strong></div>
+      <div class="crm-mini"><span>Primera vez</span><strong>${escapeHtml(profile.firstVisit ?? "Sin dato")}</strong></div>
+      <div class="crm-mini"><span>No asistio</span><strong>${escapeHtml(profile.noShowCount ?? 0)}</strong></div>
+    </div>
+    <div class="crm-timeline">
+      <div class="crm-step"><span>Primera actividad</span><strong>${escapeHtml(firstTouch)}</strong></div>
+      <div class="crm-step"><span>Ultima cita</span><strong>${escapeHtml(lastAppointment)}</strong></div>
+      <div class="crm-step"><span>Proxima cita</span><strong>${escapeHtml(nextAppointment)}</strong></div>
+    </div>
+    ${
+      flags.length
+        ? `<div class="thread-tags crm-flags">${flags.map((flag) => `<span class="tag">${escapeHtml(flag)}</span>`).join("")}</div>`
+        : `<div class="empty-state">Sin alertas operativas.</div>`
+    }
+  </div>`;
+}
+
+function getCrmStageClass(profile) {
+  const stage = normalizeText(profile?.patientStage ?? "");
+  if (stage.includes("proxima")) return "active";
+  if (stage.includes("recurrente") || stage.includes("1 cita")) return "returning";
+  if (stage.includes("sin cita")) return "attention";
+  return "lead";
+}
+
 function renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, windowState, knowledgeSuggestions }) {
   if (!selected) {
     return `<aside class="patient-panel">
@@ -4245,6 +4515,7 @@ function renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, win
   }
 
   const summary = buildLocalConversationSummary(selected);
+  const crmProfile = buildPatientCrmProfile(selected);
   const offeredSlots = getOfferedSlots(selected);
   const appointment = selected.appointment;
   const notes = selected.notes ?? [];
@@ -4279,6 +4550,8 @@ function renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, win
         <div class="info-row"><span>Flujo actual</span>${escapeHtml(formatSessionStep(selected.session?.step))}</div>
       </div>
     </div>
+
+    ${renderPatientCrmProfile(crmProfile)}
 
     ${renderLeadOriginSection(selected)}
 
@@ -4516,6 +4789,7 @@ function renderMobilePatientSheet(selected, { selectedStatus, windowState }) {
   if (!selected) return "";
 
   const summary = buildLocalConversationSummary(selected);
+  const crmProfile = buildPatientCrmProfile(selected);
   const offeredSlots = getOfferedSlots(selected);
   const appointment = selected.appointment;
   const slotLabels = offeredSlots
@@ -4536,6 +4810,15 @@ function renderMobilePatientSheet(selected, { selectedStatus, windowState }) {
       </div>
       <div class="mobile-info-row"><span>Nombre</span>${escapeHtml(summary.name)}</div>
       <div class="mobile-info-row"><span>Telefono</span>${escapeHtml(formatPhoneForInbox(selected.phoneNumber))}</div>
+      <div class="mobile-info-row">
+        <span>CRM</span>
+        <strong>${escapeHtml(crmProfile.patientStage)}</strong>
+        <div class="mobile-crm-strip">
+          <div><strong>${escapeHtml(crmProfile.appointmentCount)}</strong><span>Citas</span></div>
+          <div><strong>${escapeHtml(crmProfile.cancelledCount)}</strong><span>Canceladas</span></div>
+          <div><strong>${escapeHtml(crmProfile.notesCount)}</strong><span>Notas</span></div>
+        </div>
+      </div>
       <div class="mobile-info-row"><span>Flujo</span>${escapeHtml(formatSessionStep(selected.session?.step))}</div>
       <div class="mobile-info-row"><span>Cita</span>${appointment?.slotStart ? escapeHtml(formatAppointmentFull(appointment.slotStart)) : "Sin cita confirmada"}</div>
       <div class="mobile-info-row"><span>Horarios ofrecidos</span>${slotLabels.length ? escapeHtml(`${slotLabels.join(" · ")}${extraSlots}`) : "Sin horarios activos"}</div>

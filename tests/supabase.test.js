@@ -19,6 +19,8 @@ const {
   saveCita,
   saveConversationNote,
   saveKnowledgeSuggestion,
+  syncPatientCrmProfiles,
+  upsertPatientProfile,
   saveWaitlistEntry,
   setConversationTags
 } = await import("../src/db.js");
@@ -192,7 +194,7 @@ test("saveCita reintenta con payload legacy si falta una columna nueva", async (
     });
 
     assert.equal(cita.id, 7);
-    assert.equal(calls.length, 3);
+    assert.equal(calls.length, 4);
     assert.equal(calls[0].method, "PATCH");
     assert.equal(calls[0].body.status, "failed");
     assert.equal(calls[1].body.error_message, "test");
@@ -200,6 +202,10 @@ test("saveCita reintenta con payload legacy si falta una columna nueva", async (
     assert.equal(calls[2].body.first_visit, undefined);
     assert.equal(calls[2].body.payment_type, undefined);
     assert.equal(calls[2].body.reason, undefined);
+    assert.match(calls[3].url, /patients\?on_conflict=phone_number/);
+    assert.equal(calls[3].body.name, "Ana Lopez");
+    assert.equal(calls[3].body.email, "ana@example.com");
+    assert.equal(calls[3].body.next_appointment_at, "2030-06-17T22:40:00.000Z");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -460,6 +466,101 @@ test("guarda etiquetas de conversacion", async () => {
     await setConversationTags("5214771234567", ["Urgente", "Humano requerido"]);
     const body = JSON.parse(calls[0].body);
     assert.deepEqual(body.tags, ["Urgente", "Humano requerido"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("guarda ficha CRM persistente de paciente", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), method: options?.method, body: options?.body ? JSON.parse(options.body) : undefined });
+    return new Response(JSON.stringify([]), { status: 201 });
+  };
+
+  try {
+    await upsertPatientProfile({
+      phoneNumber: "5214771234567",
+      name: "Ana Lopez",
+      email: "ana@example.com",
+      firstSeenAt: "2030-06-17T17:00:00.000Z",
+      lastSeenAt: "2030-06-17T18:00:00.000Z",
+      status: "active",
+      tags: ["Promo $1200", "Lead caliente"],
+      notesCount: 2
+    });
+
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /patients\?on_conflict=phone_number/);
+    assert.equal(calls[0].method, "POST");
+    assert.equal(calls[0].body.phone_number, "5214771234567");
+    assert.equal(calls[0].body.name, "Ana Lopez");
+    assert.equal(calls[0].body.email, "ana@example.com");
+    assert.deepEqual(calls[0].body.tags, ["Promo $1200", "Lead caliente"]);
+    assert.equal(calls[0].body.notes_count, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("sincroniza CRM de paciente desde historial de conversacion", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), method: options?.method, body: options?.body ? JSON.parse(options.body) : undefined });
+    return new Response(JSON.stringify([]), { status: 201 });
+  };
+
+  try {
+    await syncPatientCrmProfiles(
+      [
+        {
+          phoneNumber: "5214771234567",
+          updatedAt: "2030-06-17T18:00:00.000Z",
+          tags: ["Promo $1200"],
+          messages: [
+            { sender: "patient", body: "Hola", timestamp: "2030-06-17T17:00:00.000Z" },
+            { sender: "bot", body: "Claro", timestamp: "2030-06-17T17:01:00.000Z" }
+          ],
+          notes: [{ body: "Prefiere tarde" }],
+          appointments: [
+            {
+              patientName: "Ana Lopez",
+              patientEmail: "ana@example.com",
+              status: "confirmed",
+              slotStart: "2030-06-18T22:40:00.000Z",
+              createdAt: "2030-06-17T17:30:00.000Z",
+              reason: "Promo",
+              paymentType: "Particular",
+              firstVisit: "Si"
+            },
+            {
+              patientName: "Ana Lopez",
+              status: "cancelled",
+              slotStart: "2030-06-16T22:40:00.000Z",
+              createdAt: "2030-06-15T17:30:00.000Z"
+            }
+          ]
+        }
+      ],
+      new Date("2030-06-17T18:00:00.000Z").getTime()
+    );
+
+    assert.equal(calls.length, 1);
+    const row = calls[0].body[0];
+    assert.match(calls[0].url, /patients\?on_conflict=phone_number/);
+    assert.equal(row.phone_number, "5214771234567");
+    assert.equal(row.name, "Ana Lopez");
+    assert.equal(row.email, "ana@example.com");
+    assert.equal(row.appointment_count, 1);
+    assert.equal(row.cancelled_count, 1);
+    assert.equal(row.next_appointment_at, "2030-06-18T22:40:00.000Z");
+    assert.equal(row.last_service, "Promo");
+    assert.equal(row.last_payment_type, "Particular");
+    assert.equal(row.status, "active");
+    assert.deepEqual(row.tags, ["Promo $1200"]);
+    assert.equal(row.notes_count, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

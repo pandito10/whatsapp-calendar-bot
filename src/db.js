@@ -47,6 +47,12 @@ export async function saveConversationMessage(phoneNumber, sender, body, metadat
     }
     throw error;
   }
+
+  await upsertPatientProfile({
+    phoneNumber,
+    lastSeenAt: timestamp,
+    lastPatientMessageAt: sender === "patient" ? timestamp : undefined
+  });
 }
 
 export async function loadConversations() {
@@ -111,6 +117,7 @@ export async function loadConversations() {
       { silentSchemaMismatch: true }
     )) ??
     [];
+  const patients = await loadPatientsByPhones(phoneNumbers);
   const byPhone = new Map();
   for (const conversation of conversations) {
     byPhone.set(conversation.phone_number, {
@@ -124,7 +131,9 @@ export async function loadConversations() {
       messages: [],
       notes: [],
       session: undefined,
-      appointment: undefined
+      appointment: undefined,
+      appointments: [],
+      patient: patients.get(conversation.phone_number)
     });
   }
 
@@ -142,8 +151,8 @@ export async function loadConversations() {
 
   for (const cita of citas) {
     const conversation = byPhone.get(cita.phone_number);
-    if (!conversation || conversation.appointment) continue;
-    conversation.appointment = {
+    if (!conversation) continue;
+    const appointment = {
       patientName: cita.patient_name,
       patientEmail: cita.patient_email,
       googleEventId: cita.google_event_id,
@@ -155,6 +164,8 @@ export async function loadConversations() {
       reason: cita.reason,
       createdAt: cita.created_at
     };
+    conversation.appointments.push(appointment);
+    if (!conversation.appointment) conversation.appointment = appointment;
   }
 
   for (const session of sessions) {
@@ -178,7 +189,175 @@ export async function loadConversations() {
     });
   }
 
-  return [...byPhone.values()];
+  const loaded = [...byPhone.values()];
+  await syncPatientCrmProfiles(loaded);
+  return loaded;
+}
+
+async function loadPatientsByPhones(phoneNumbers) {
+  if (!isDatabaseEnabled() || !phoneNumbers?.length) return new Map();
+
+  const rows =
+    (await safeSupabaseFetch(
+      `/rest/v1/patients?select=phone_number,name,email,first_seen_at,last_seen_at,last_patient_message_at,next_appointment_at,last_appointment_at,appointment_count,cancelled_count,failed_count,no_show_count,last_service,last_payment_type,first_visit,status,tags,notes_count,internal_notes,updated_at&phone_number=in.(${phoneNumbers
+        .map(encodeURIComponent)
+        .join(",")})`,
+      { silentSchemaMismatch: true }
+    )) ?? [];
+
+  return new Map((rows ?? []).map((row) => [row.phone_number, mapPatientRow(row)]));
+}
+
+function mapPatientRow(row) {
+  return {
+    phoneNumber: row.phone_number,
+    name: row.name,
+    email: row.email,
+    firstSeenAt: row.first_seen_at,
+    lastSeenAt: row.last_seen_at,
+    lastPatientMessageAt: row.last_patient_message_at,
+    nextAppointmentAt: row.next_appointment_at,
+    lastAppointmentAt: row.last_appointment_at,
+    appointmentCount: row.appointment_count ?? 0,
+    cancelledCount: row.cancelled_count ?? 0,
+    failedCount: row.failed_count ?? 0,
+    noShowCount: row.no_show_count ?? 0,
+    lastService: row.last_service,
+    lastPaymentType: row.last_payment_type,
+    firstVisit: row.first_visit,
+    status: row.status ?? "lead",
+    tags: Array.isArray(row.tags) ? row.tags : [],
+    notesCount: row.notes_count ?? 0,
+    internalNotes: row.internal_notes,
+    updatedAt: row.updated_at
+  };
+}
+
+export async function upsertPatientProfile(profile) {
+  if (!isDatabaseEnabled() || !profile?.phoneNumber) return;
+
+  const payload = buildPatientPayload(profile);
+  if (!payload.phone_number) return;
+
+  await safeSupabaseFetch("/rest/v1/patients?on_conflict=phone_number", {
+    method: "POST",
+    headers: {
+      Prefer: "resolution=merge-duplicates"
+    },
+    body: JSON.stringify(payload),
+    silentSchemaMismatch: true
+  });
+}
+
+export async function syncPatientCrmProfiles(conversations = [], nowMs = Date.now()) {
+  if (!isDatabaseEnabled() || !conversations.length) return;
+
+  const payload = conversations
+    .map((conversation) => buildPatientPayload(derivePatientProfileFromConversation(conversation, nowMs)))
+    .filter((row) => row.phone_number);
+  if (!payload.length) return;
+
+  await safeSupabaseFetch("/rest/v1/patients?on_conflict=phone_number", {
+    method: "POST",
+    headers: {
+      Prefer: "resolution=merge-duplicates"
+    },
+    body: JSON.stringify(payload),
+    silentSchemaMismatch: true
+  });
+}
+
+function derivePatientProfileFromConversation(conversation, nowMs = Date.now()) {
+  const appointments = normalizeConversationAppointments(conversation);
+  const confirmed = appointments.filter((appointment) => appointment.status === "confirmed");
+  const cancelled = appointments.filter((appointment) => appointment.status === "cancelled");
+  const failed = appointments.filter((appointment) => appointment.status === "failed");
+  const noShows = appointments.filter((appointment) => appointment.status === "no_show");
+  const futureConfirmed = confirmed
+    .filter((appointment) => toDbTime(appointment.slotStart) >= nowMs)
+    .sort((a, b) => toDbTime(a.slotStart) - toDbTime(b.slotStart));
+  const pastConfirmed = confirmed
+    .filter((appointment) => toDbTime(appointment.slotStart) < nowMs)
+    .sort((a, b) => toDbTime(b.slotStart) - toDbTime(a.slotStart));
+  const nextAppointment = futureConfirmed[0];
+  const lastAppointment = pastConfirmed[0] ?? [...confirmed].sort((a, b) => toDbTime(b.slotStart) - toDbTime(a.slotStart))[0];
+  const timestamps = [
+    conversation?.updatedAt,
+    ...(conversation?.messages ?? []).map((message) => message.timestamp),
+    ...appointments.map((appointment) => appointment.createdAt ?? appointment.slotStart)
+  ]
+    .map(toDbTime)
+    .filter(Boolean);
+  const patientMessages = (conversation?.messages ?? []).filter((message) => message.sender === "patient" && message.timestamp);
+  const lastPatientMessage = patientMessages.sort((a, b) => toDbTime(b.timestamp) - toDbTime(a.timestamp))[0];
+  const appointmentCount = confirmed.length;
+
+  return {
+    phoneNumber: conversation?.phoneNumber,
+    name: nextAppointment?.patientName ?? lastAppointment?.patientName ?? conversation?.appointment?.patientName ?? conversation?.patient?.name,
+    email: nextAppointment?.patientEmail ?? lastAppointment?.patientEmail ?? conversation?.appointment?.patientEmail ?? conversation?.patient?.email,
+    firstSeenAt: timestamps.length ? new Date(Math.min(...timestamps)).toISOString() : conversation?.patient?.firstSeenAt,
+    lastSeenAt: timestamps.length ? new Date(Math.max(...timestamps)).toISOString() : conversation?.patient?.lastSeenAt,
+    lastPatientMessageAt: lastPatientMessage?.timestamp ?? conversation?.patient?.lastPatientMessageAt,
+    nextAppointmentAt: nextAppointment?.slotStart ?? null,
+    lastAppointmentAt: lastAppointment?.slotStart ?? null,
+    appointmentCount,
+    cancelledCount: cancelled.length,
+    failedCount: failed.length,
+    noShowCount: noShows.length,
+    lastService: nextAppointment?.reason ?? lastAppointment?.reason ?? conversation?.appointment?.reason,
+    lastPaymentType: nextAppointment?.paymentType ?? lastAppointment?.paymentType ?? conversation?.appointment?.paymentType,
+    firstVisit: nextAppointment?.firstVisit ?? lastAppointment?.firstVisit ?? conversation?.appointment?.firstVisit,
+    status: buildPatientDbStatus({ appointmentCount, nextAppointment, botPaused: conversation?.botPaused }),
+    tags: conversation?.tags ?? conversation?.patient?.tags ?? [],
+    notesCount: conversation?.notes?.length ?? conversation?.patient?.notesCount ?? 0,
+    updatedAt: new Date(nowMs).toISOString()
+  };
+}
+
+function buildPatientPayload(profile) {
+  const payload = {
+    phone_number: profile?.phoneNumber,
+    last_seen_at: profile?.lastSeenAt,
+    last_patient_message_at: profile?.lastPatientMessageAt,
+    next_appointment_at: profile?.nextAppointmentAt,
+    last_appointment_at: profile?.lastAppointmentAt,
+    appointment_count: profile?.appointmentCount,
+    cancelled_count: profile?.cancelledCount,
+    failed_count: profile?.failedCount,
+    no_show_count: profile?.noShowCount,
+    last_service: profile?.lastService,
+    last_payment_type: profile?.lastPaymentType,
+    first_visit: profile?.firstVisit,
+    status: profile?.status,
+    tags: Array.isArray(profile?.tags) ? [...new Set(profile.tags)].slice(0, 20) : undefined,
+    notes_count: profile?.notesCount,
+    updated_at: profile?.updatedAt ?? new Date().toISOString()
+  };
+
+  if (profile?.name) payload.name = profile.name;
+  if (profile?.email) payload.email = profile.email;
+  if (profile?.firstSeenAt) payload.first_seen_at = profile.firstSeenAt;
+  return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
+}
+
+function normalizeConversationAppointments(conversation) {
+  const appointments = Array.isArray(conversation?.appointments) ? conversation.appointments : [];
+  if (appointments.length > 0) return appointments.filter(Boolean);
+  return conversation?.appointment ? [conversation.appointment] : [];
+}
+
+function buildPatientDbStatus({ appointmentCount, nextAppointment, botPaused }) {
+  if (botPaused) return "human";
+  if (nextAppointment) return "active";
+  if (appointmentCount > 0) return "returning";
+  return "lead";
+}
+
+function toDbTime(value) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
 }
 
 export async function getConversationState(phoneNumber) {
@@ -652,7 +831,7 @@ export async function saveCita(citaData) {
 
   const row = rows?.[0];
   if (!row) return null;
-  return {
+  const cita = {
     id: row.id,
     phoneNumber: row.phone_number,
     googleEventId: row.google_event_id,
@@ -660,6 +839,20 @@ export async function saveCita(citaData) {
     slotEnd: row.slot_end,
     status: row.status
   };
+  await upsertPatientProfile({
+    phoneNumber: citaData.phoneNumber,
+    name: citaData.patientName,
+    email: citaData.patientEmail,
+    lastSeenAt: new Date().toISOString(),
+    nextAppointmentAt: citaData.status === "confirmed" ? citaData.slotStart : undefined,
+    lastAppointmentAt: citaData.slotStart,
+    lastService: citaData.reason,
+    lastPaymentType: citaData.paymentType,
+    firstVisit: citaData.firstVisit,
+    status: citaData.status === "confirmed" ? "active" : "lead",
+    updatedAt: new Date().toISOString()
+  });
+  return cita;
 }
 
 export async function failUnlinkedConfirmedCitasBetween(startISO, endISO, errorMessage) {

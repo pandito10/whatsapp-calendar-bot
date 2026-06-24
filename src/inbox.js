@@ -200,13 +200,100 @@ export function buildLocalConversationSummary(conversation, nowMs = Date.now()) 
   };
 }
 
+export function buildPatientCrmProfile(conversation, nowMs = Date.now()) {
+  const persisted = conversation?.patient ?? {};
+  const appointments = normalizeAppointments(conversation);
+  const confirmed = appointments.filter((appointment) => appointment.status === "confirmed");
+  const cancelled = appointments.filter((appointment) => appointment.status === "cancelled");
+  const failed = appointments.filter((appointment) => appointment.status === "failed");
+  const noShows = appointments.filter((appointment) => appointment.status === "no_show");
+  const futureConfirmed = confirmed
+    .filter((appointment) => toTime(appointment.slotStart) >= nowMs)
+    .sort((a, b) => toTime(a.slotStart) - toTime(b.slotStart));
+  const pastConfirmed = confirmed
+    .filter((appointment) => toTime(appointment.slotStart) < nowMs)
+    .sort((a, b) => toTime(b.slotStart) - toTime(a.slotStart));
+  const lastConfirmed = pastConfirmed[0] ?? [...confirmed].sort((a, b) => toTime(b.slotStart) - toTime(a.slotStart))[0];
+  const nextAppointment = futureConfirmed[0];
+  const firstTouch = findFirstTouch(conversation, appointments);
+  const lastPatientMessage = getLastPatientMessage(conversation);
+  const appointmentCount = confirmed.length;
+  const effectiveAppointmentCount = Math.max(appointmentCount, persisted.appointmentCount ?? 0);
+  const effectiveCancelledCount = Math.max(cancelled.length, persisted.cancelledCount ?? 0);
+  const effectiveFailedCount = Math.max(failed.length, persisted.failedCount ?? 0);
+  const effectiveNoShowCount = Math.max(noShows.length, persisted.noShowCount ?? 0);
+  const effectiveNextAppointment = nextAppointment ?? (persisted.nextAppointmentAt ? { slotStart: persisted.nextAppointmentAt } : undefined);
+  const effectiveLastAppointment = lastConfirmed ?? (persisted.lastAppointmentAt ? { slotStart: persisted.lastAppointmentAt } : undefined);
+
+  return {
+    name: conversation?.appointment?.patientName ?? lastConfirmed?.patientName ?? persisted.name ?? extractNameFromMessages(conversation?.messages ?? []) ?? undefined,
+    email: conversation?.appointment?.patientEmail ?? lastConfirmed?.patientEmail ?? persisted.email ?? undefined,
+    phoneNumber: conversation?.phoneNumber ?? persisted.phoneNumber,
+    firstTouch: firstTouch ?? persisted.firstSeenAt,
+    lastPatientMessageAt: lastPatientMessage?.timestamp,
+    messageCount: conversation?.messages?.length ?? 0,
+    notesCount: Math.max(conversation?.notes?.length ?? 0, persisted.notesCount ?? 0),
+    appointmentCount: effectiveAppointmentCount,
+    cancelledCount: effectiveCancelledCount,
+    failedCount: effectiveFailedCount,
+    noShowCount: effectiveNoShowCount,
+    nextAppointment: effectiveNextAppointment,
+    lastAppointment: effectiveLastAppointment,
+    latestReason: nextAppointment?.reason ?? lastConfirmed?.reason ?? conversation?.appointment?.reason ?? persisted.lastService,
+    latestPaymentType: nextAppointment?.paymentType ?? lastConfirmed?.paymentType ?? conversation?.appointment?.paymentType ?? persisted.lastPaymentType,
+    firstVisit: conversation?.appointment?.firstVisit ?? lastConfirmed?.firstVisit ?? persisted.firstVisit,
+    patientStage: buildPatientStage({ appointmentCount: effectiveAppointmentCount, nextAppointment: effectiveNextAppointment, cancelledCount: effectiveCancelledCount, noShowCount: effectiveNoShowCount }),
+    riskFlags: buildPatientRiskFlags(conversation, { appointmentCount: effectiveAppointmentCount, cancelledCount: effectiveCancelledCount, failedCount: effectiveFailedCount, noShowCount: effectiveNoShowCount })
+  };
+}
+
 export function getOfferedSlots(conversation) {
   const slots = conversation?.session?.data?.offeredSlots ?? [];
   return Array.isArray(slots) ? slots.slice(0, 6) : [];
 }
 
+function normalizeAppointments(conversation) {
+  const list = Array.isArray(conversation?.appointments) ? conversation.appointments : [];
+  if (list.length > 0) return list.filter(Boolean);
+  return conversation?.appointment ? [conversation.appointment] : [];
+}
+
+function findFirstTouch(conversation, appointments) {
+  const times = [
+    conversation?.updatedAt,
+    ...(conversation?.messages ?? []).map((message) => message.timestamp),
+    ...appointments.map((appointment) => appointment.createdAt ?? appointment.slotStart)
+  ]
+    .map(toTime)
+    .filter(Boolean);
+  if (times.length === 0) return undefined;
+  return new Date(Math.min(...times)).toISOString();
+}
+
+function buildPatientStage({ appointmentCount, nextAppointment, cancelledCount, noShowCount }) {
+  if (nextAppointment) return "Con proxima cita";
+  if (appointmentCount >= 2) return `Paciente recurrente (${appointmentCount} citas)`;
+  if (appointmentCount === 1) return "Paciente con 1 cita";
+  if (cancelledCount > 0 || noShowCount > 0) return "Paciente sin cita activa";
+  return "Lead sin cita confirmada";
+}
+
+function buildPatientRiskFlags(conversation, counts) {
+  const flags = [];
+  const tags = normalizedTags(conversation);
+  if (conversation?.botPaused) flags.push("Modo humano");
+  if (tags.has("resultados")) flags.push("Resultados pendientes");
+  if (tags.has("urgente")) flags.push("Urgente");
+  if (tags.has("bot no entendio")) flags.push("Bot no entendio");
+  if (counts.cancelledCount >= 2) flags.push("Varias cancelaciones");
+  if (counts.failedCount > 0) flags.push("Citas fallidas para revisar");
+  if (counts.noShowCount > 0) flags.push("No asistio antes");
+  if (counts.appointmentCount === 0) flags.push("Sin cita confirmada");
+  return flags;
+}
+
 function normalizedTags(conversation) {
-  return new Set((conversation?.tags ?? []).map((tag) => normalizeText(tag)));
+  return new Set([...(conversation?.tags ?? []), ...(conversation?.patient?.tags ?? [])].map((tag) => normalizeText(tag)));
 }
 
 function getAppointmentFlowStatus(sessionStep, sessionData = {}) {

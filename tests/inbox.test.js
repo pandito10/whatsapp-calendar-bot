@@ -6,6 +6,7 @@ process.env.NODE_ENV = "test";
 const {
   buildInboxStats,
   buildLocalConversationSummary,
+  buildPatientCrmProfile,
   filterInboxConversations,
   getConversationActivityISO,
   getConversationStatus,
@@ -247,4 +248,92 @@ test("calcula metricas del inbox", () => {
   assert.equal(stats.human, 1);
   assert.equal(stats.confirmed, 1);
   assert.equal(stats.noReply, 2);
+});
+
+test("construye perfil CRM de paciente con historial de citas", () => {
+  const profile = buildPatientCrmProfile(
+    conversation({
+      appointment: {
+        status: "confirmed",
+        patientName: "Ana Lopez",
+        patientEmail: "ana@example.com",
+        slotStart: "2030-06-20T22:40:00.000Z",
+        reason: "Promo",
+        paymentType: "Particular",
+        createdAt: "2030-06-10T18:00:00.000Z"
+      },
+      appointments: [
+        {
+          status: "confirmed",
+          patientName: "Ana Lopez",
+          patientEmail: "ana@example.com",
+          slotStart: "2030-06-10T22:40:00.000Z",
+          reason: "Consulta",
+          paymentType: "Particular",
+          createdAt: "2030-06-01T18:00:00.000Z"
+        },
+        {
+          status: "cancelled",
+          patientName: "Ana Lopez",
+          slotStart: "2030-06-12T22:40:00.000Z",
+          createdAt: "2030-06-02T18:00:00.000Z"
+        },
+        {
+          status: "confirmed",
+          patientName: "Ana Lopez",
+          patientEmail: "ana@example.com",
+          slotStart: "2030-06-20T22:40:00.000Z",
+          reason: "Promo",
+          paymentType: "Particular",
+          createdAt: "2030-06-10T18:00:00.000Z"
+        }
+      ],
+      notes: [
+        { body: "Pidio resultados", createdAt: "2030-06-12T18:00:00.000Z" }
+      ]
+    }),
+    now
+  );
+
+  assert.equal(profile.name, "Ana Lopez");
+  assert.equal(profile.appointmentCount, 2);
+  assert.equal(profile.cancelledCount, 1);
+  assert.equal(profile.notesCount, 1);
+  assert.equal(profile.patientStage, "Con proxima cita");
+  assert.equal(profile.nextAppointment.slotStart, "2030-06-20T22:40:00.000Z");
+  assert.equal(profile.lastAppointment.slotStart, "2030-06-10T22:40:00.000Z");
+  assert.equal(profile.latestReason, "Promo");
+});
+
+test("usa ficha CRM persistente cuando no hay historial completo cargado", () => {
+  const profile = buildPatientCrmProfile(
+    conversation({
+      patient: {
+        name: "Marisol Rocha",
+        email: "marisol@example.com",
+        firstSeenAt: "2030-06-01T17:00:00.000Z",
+        appointmentCount: 3,
+        cancelledCount: 1,
+        notesCount: 4,
+        nextAppointmentAt: "2030-06-20T22:40:00.000Z",
+        lastAppointmentAt: "2030-06-10T22:40:00.000Z",
+        lastService: "Promocion",
+        lastPaymentType: "Particular",
+        tags: ["Promo $1200"]
+      },
+      appointment: undefined,
+      appointments: [],
+      notes: []
+    }),
+    now
+  );
+
+  assert.equal(profile.name, "Marisol Rocha");
+  assert.equal(profile.email, "marisol@example.com");
+  assert.equal(profile.appointmentCount, 3);
+  assert.equal(profile.cancelledCount, 1);
+  assert.equal(profile.notesCount, 4);
+  assert.equal(profile.patientStage, "Con proxima cita");
+  assert.equal(profile.nextAppointment.slotStart, "2030-06-20T22:40:00.000Z");
+  assert.equal(profile.latestReason, "Promocion");
 });

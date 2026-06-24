@@ -35,3 +35,19 @@ test("render y README documentan plantillas Meta operativas", () => {
   assert.match(readme, /scripts\/create-whatsapp-templates\.js/);
   assert.match(readme, /cancelacion_cita/);
 });
+
+test("schema incluye CRM persistente de pacientes", () => {
+  const sqlFiles = [
+    readFileSync(`${repoRoot}/supabase/schema.sql`, "utf8"),
+    readFileSync(`${repoRoot}/supabase/migration-existing.sql`, "utf8")
+  ];
+
+  for (const sql of sqlFiles) {
+    assert.match(sql, /create table if not exists public\.patients/i);
+    assert.match(sql, /phone_number text primary key/i);
+    assert.match(sql, /next_appointment_at timestamptz/i);
+    assert.match(sql, /appointment_count integer not null default 0/i);
+    assert.match(sql, /patients_status_check/i);
+    assert.match(sql, /public\.patients/i);
+  }
+});
