@@ -26,12 +26,14 @@ import { buildOperationalHealth, isOperationallyUnhealthy } from "./health.js";
 import { detectIntent, hasAny, isAppointmentLikeQuestion, looksLikeDateRequest, meaningfulWords, normalizeText } from "./intents.js";
 import {
   buildInboxStats as buildInboxMetrics,
+  buildCrmNextAction,
   getConversationActivityISO,
   buildLocalConversationSummary,
   buildPatientCrmProfile,
   filterInboxConversations as filterInboxConversationList,
   getConversationStatus as getInboxConversationStatus,
   getOfferedSlots,
+  getPatientTemperature,
   getWhatsAppWindowState,
   sortInboxConversations
 } from "./inbox.js";
@@ -950,6 +952,21 @@ function handleInboxScript(res) {
         messages.scrollIntoView({ block: "center", behavior: "smooth" });
         scrollMessagesToBottom();
         if (typeof messages.focus === "function") messages.focus({ preventScroll: true });
+      });
+    });
+    document.querySelectorAll("[data-open-template-actions]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const panel = document.querySelector(".template-actions");
+        if (!panel) return;
+        panel.open = true;
+        panel.scrollIntoView({ block: "center", behavior: "smooth" });
+      });
+    });
+    document.querySelectorAll("[data-open-knowledge-panel]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const panel = document.querySelector(".knowledge");
+        if (!panel) return;
+        panel.scrollIntoView({ block: "center", behavior: "smooth" });
       });
     });
   }
@@ -3416,6 +3433,104 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       justify-content: flex-end;
       gap: 8px;
     }
+    .crm-command {
+      flex: 0 0 auto;
+      margin: 12px 20px 0;
+      padding: 13px 14px;
+      border-radius: 18px;
+      border: 1px solid #9fc5ef;
+      background:
+        radial-gradient(circle at top right, rgba(96, 165, 250, 0.22), transparent 10rem),
+        linear-gradient(135deg, #ffffff, #eef6ff);
+      box-shadow: 0 14px 34px rgba(13, 61, 114, 0.1);
+    }
+    .crm-command.danger {
+      border-color: #fecaca;
+      background:
+        radial-gradient(circle at top right, rgba(248, 113, 113, 0.18), transparent 10rem),
+        linear-gradient(135deg, #ffffff, #fff1f2);
+    }
+    .crm-command.warning {
+      border-color: #fde68a;
+      background:
+        radial-gradient(circle at top right, rgba(251, 191, 36, 0.2), transparent 10rem),
+        linear-gradient(135deg, #ffffff, #fffbeb);
+    }
+    .crm-command.success {
+      border-color: #bbf7d0;
+      background:
+        radial-gradient(circle at top right, rgba(74, 222, 128, 0.18), transparent 10rem),
+        linear-gradient(135deg, #ffffff, #f0fdf4);
+    }
+    .crm-command-top {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: start;
+    }
+    .crm-command-eyebrow {
+      display: block;
+      color: #4a6a8a;
+      font-size: 10px;
+      font-weight: 950;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .crm-command strong {
+      display: block;
+      color: #0d2240;
+      font-size: 15px;
+      line-height: 1.2;
+    }
+    .crm-command p {
+      margin: 5px 0 0;
+      color: #4a6a8a;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .temperature-pill {
+      border-radius: 999px;
+      padding: 7px 10px;
+      border: 1px solid #cfe1f7;
+      background: #ffffff;
+      color: #0d3d72;
+      font-size: 11px;
+      font-weight: 950;
+      white-space: nowrap;
+    }
+    .temperature-pill.hot { color: #991b1b; background: #fee2e2; border-color: #fecaca; }
+    .temperature-pill.warm { color: #92400e; background: #fef3c7; border-color: #fde68a; }
+    .temperature-pill.cold { color: #075985; background: #e0f2fe; border-color: #bae6fd; }
+    .crm-command-footer {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .crm-command-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-width: 0;
+    }
+    .crm-command-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .crm-command-actions form {
+      display: inline-flex;
+      margin: 0;
+    }
+    .crm-command-actions button,
+    .crm-command-actions .button-link {
+      padding: 8px 11px;
+      font-size: 12px;
+    }
     .appointment-card {
       margin: 18px 24px 0;
       border-radius: 14px;
@@ -3940,16 +4055,55 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
         padding-right: 2px;
       }
       .chat-title { order: 0; flex: 0 0 auto; }
-      .messages {
+      .crm-command {
         order: 1;
+        margin: 8px 10px 0;
         padding: 10px;
-        flex: 1 1 48dvh;
-        min-height: min(320px, 48dvh);
+        border-radius: 16px;
+      }
+      .crm-command-top {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 6px;
+      }
+      .crm-command strong { font-size: 14px; }
+      .crm-command p { display: none; }
+      .temperature-pill {
+        width: fit-content;
+        padding: 5px 8px;
+      }
+      .crm-command-footer {
+        margin-top: 8px;
+        display: grid;
+        gap: 8px;
+      }
+      .crm-command-tags {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 2px;
+        scrollbar-width: none;
+      }
+      .crm-command-tags::-webkit-scrollbar { display: none; }
+      .crm-command-actions {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+        scrollbar-width: none;
+      }
+      .crm-command-actions::-webkit-scrollbar { display: none; }
+      .crm-command-actions button,
+      .crm-command-actions .button-link {
+        white-space: nowrap;
+      }
+      .messages {
+        order: 2;
+        padding: 10px;
+        flex: 1 1 58dvh;
+        min-height: min(430px, 58dvh);
         scroll-margin-top: 150px;
       }
       .mobile-patient-sheet,
       .conversation-panels {
-        order: 2;
+        order: 3;
         flex: 0 0 auto;
       }
       .appointment-card { margin: 6px 10px 0; }
@@ -3985,7 +4139,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       .appointment-grid { grid-template-columns: 1fr; }
       .bubble { max-width: 92%; }
       .composer {
-        order: 3;
+        order: 4;
         padding: 10px;
         padding-bottom: max(10px, env(safe-area-inset-bottom));
       }
@@ -4173,6 +4327,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
             : ""
         }
       </div>
+      ${renderCrmCommandCenter(selected, { csrf, selectedPhone, selectedStatus, windowState })}
       ${renderMobilePatientSheet(selected, { selectedStatus, windowState })}
       ${inboxError ? `<div class="mobile-toast error" role="alert">${escapeHtml(inboxError)}</div>` : ""}
       ${inboxSuccess ? `<div class="mobile-toast success" role="status">${escapeHtml(inboxSuccess)}</div>` : ""}
@@ -4425,6 +4580,76 @@ function renderInboxQuickFilters(current, query = "") {
   </div>`;
 }
 
+function renderCrmCommandCenter(selected, { csrf, selectedPhone, selectedStatus, windowState }) {
+  if (!selected) return "";
+  const action = buildCrmNextAction(selected);
+  const temperature = getPatientTemperature(selected);
+  const profile = buildPatientCrmProfile(selected);
+  const stageClass = getCrmStageClass(profile);
+
+  return `<section class="crm-command ${escapeHtml(action.level)}" aria-label="Siguiente accion del CRM">
+    <div class="crm-command-top">
+      <div>
+        <span class="crm-command-eyebrow">Siguiente accion</span>
+        <strong>${escapeHtml(action.title)}</strong>
+        <p>${escapeHtml(action.detail)}</p>
+      </div>
+      <span class="temperature-pill ${escapeHtml(temperature.className)}">${escapeHtml(temperature.label)}</span>
+    </div>
+    <div class="crm-command-footer">
+      <div class="crm-command-tags">
+        <span class="tag ${selectedStatus.className}">${escapeHtml(selectedStatus.label)}</span>
+        <span class="tag ${windowState.className}">${escapeHtml(windowState.label)}</span>
+        <span class="crm-stage ${stageClass}">${escapeHtml(profile.patientStage ?? "Lead")}</span>
+      </div>
+      <div class="crm-command-actions">
+        ${renderCrmPrimaryAction(action, selected, selectedPhone, csrf)}
+        <button type="button" class="button-secondary" data-scroll-chat>Leer chat</button>
+      </div>
+    </div>
+  </section>`;
+}
+
+function renderCrmPrimaryAction(action, selected, selectedPhone, csrf) {
+  if (action.key === "results_email") {
+    return `<a class="button-link" href="#send-file-email" data-open-results-email>📤 Archivo al correo</a>`;
+  }
+
+  if (action.key === "template") {
+    return `<button type="button" data-open-template-actions>Abrir plantillas</button>`;
+  }
+
+  if (action.key === "urgent") {
+    return `<form method="post" action="/inbox/resolve-urgent">
+      <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+      <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+      <button type="submit">Marcar urgente resuelto</button>
+    </form>`;
+  }
+
+  if (action.key === "waiting" || action.key === "reschedule") {
+    return `<form method="post" action="/inbox/reprompt">
+      <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+      <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+      <button type="submit">Reenviar paso</button>
+    </form>`;
+  }
+
+  if (action.key === "human" && selected?.botPaused) {
+    return `<form method="post" action="/inbox/release">
+      <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+      <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+      <button type="submit">Devolver al bot</button>
+    </form>`;
+  }
+
+  if (action.key === "misunderstood") {
+    return `<button type="button" data-open-knowledge-panel>Revisar FAQ</button>`;
+  }
+
+  return `<button type="button" data-scroll-chat>${escapeHtml(action.cta ?? "Leer chat")}</button>`;
+}
+
 function renderLeadOriginSection(conv) {
   if (!conv) return "";
   const tags = conv.tags ?? [];
@@ -4666,7 +4891,7 @@ function renderInboxMetaTemplateActions(conversation, selectedPhone, csrf) {
 
   if (!actions.length) return "";
 
-  return `<details class="template-actions">
+  return `<details id="template-actions" class="template-actions">
     <summary>
       <div>
         <h2>Plantillas Meta</h2>
@@ -4939,9 +5164,13 @@ function renderKnowledgePanel(suggestions, csrf, selectedPhone) {
 
 function renderQuickReplies() {
   const replies = [
+    ["Menu", "Hola 😊 Soy el asistente virtual del consultorio.\n\nPuedo ayudarte con:\n1. Agendar cita\n2. Ver horarios disponibles\n3. Ubicacion\n4. Costos y promocion\n5. Formas de pago\n6. Servicios\n7. Hablar con una persona\n\n¿Que necesitas?"],
     ["Info promo $1200", "Claro 😊 La promocion es el chequeo ginecologico completo por $1,200.\n\nIncluye:\n✅ Consulta ginecologica\n✅ Papanicolaou\n✅ Ultrasonido pelvico\n✅ Ultrasonido endovaginal\n✅ Revision de mamas\n✅ Apoyo para deteccion oportuna de cancer cervico uterino\n✅ Apoyo para deteccion oportuna de cancer ovarico\n\nEstamos en Plaza de la Paz #20, consultorio 14, segundo piso.\n\n¿Quieres agendar?"],
     ["Que incluye", "El chequeo ginecologico completo de $1,200 incluye: consulta ginecologica, Papanicolaou, ultrasonido pelvico, ultrasonido endovaginal, revision de mamas y apoyo para deteccion oportuna de cancer cervico uterino y ovarico.\n\nTodo con la Dra. Blanca Carranza 😊"],
     ["Preparacion", getIntentResponse("appointment_preparation")],
+    ["Duracion", "La cita dura aproximadamente 40 minutos 😊"],
+    ["Solo tardes", "Por el momento atendemos de lunes a viernes por la tarde, de 4:40 p.m. a 8:00 p.m."],
+    ["No sabados", "Por el momento no atendemos sabados ni domingos. Te puedo ayudar a revisar horarios de lunes a viernes 😊"],
     ["Agendar promo", "Perfecto 😊 Te ayudo a agendar el chequeo ginecologico completo de $1,200. ¿Me puedes decir tu nombre completo?"],
     ["Pedir datos", "Para ayudarte a agendar, ¿me compartes por favor?\n\n1. Nombre completo\n2. Correo confirmado\n3. Si es primera vez con nosotros\n4. Si vienes particular o por red medica"],
     ["Pedir correo", "¿Me compartes tu correo electronico confirmado? Lo usamos para confirmaciones y, si aplica, para enviar archivos de forma segura."],

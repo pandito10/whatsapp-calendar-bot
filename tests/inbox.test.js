@@ -4,12 +4,14 @@ import assert from "node:assert/strict";
 process.env.NODE_ENV = "test";
 
 const {
+  buildCrmNextAction,
   buildInboxStats,
   buildLocalConversationSummary,
   buildPatientCrmProfile,
   filterInboxConversations,
   getConversationActivityISO,
   getConversationStatus,
+  getPatientTemperature,
   getWhatsAppWindowState,
   sortInboxConversations
 } = await import("../src/inbox.js");
@@ -197,6 +199,55 @@ test("detecta modo humano, cita agendada y ventana de 24 horas", () => {
       now
     ).label,
     "Fuera de 24h"
+  );
+});
+
+test("sugiere acciones CRM seguras segun estado de la conversacion", () => {
+  const results = conversation({
+    tags: ["Resultados", "Humano requerido"],
+    messages: [
+      { sender: "patient", body: "Quiero mis resultados", timestamp: "2030-06-17T17:45:00.000Z" }
+    ]
+  });
+  const resultAction = buildCrmNextAction(results, now);
+  assert.equal(resultAction.key, "results_email");
+  assert.match(resultAction.detail, /correo/i);
+
+  const expired = conversation({
+    messages: [{ sender: "patient", body: "Hola", timestamp: "2030-06-16T17:00:00.000Z" }]
+  });
+  assert.equal(buildCrmNextAction(expired, now).key, "template");
+
+  const stuck = conversation({
+    session: { step: "collectingEmail", data: { name: "Ana" } },
+    messages: [{ sender: "bot", body: "Me compartes tu correo?", timestamp: "2030-06-17T17:00:00.000Z" }]
+  });
+  assert.equal(buildCrmNextAction(stuck, now).key, "waiting");
+});
+
+test("calcula temperatura del paciente para priorizar CRM", () => {
+  assert.equal(
+    getPatientTemperature(
+      conversation({ messages: [{ sender: "patient", body: "Sigo aqui", timestamp: "2030-06-17T17:59:00.000Z" }] }),
+      now
+    ).key,
+    "hot"
+  );
+
+  assert.equal(
+    getPatientTemperature(
+      conversation({
+        messages: [{ sender: "bot", body: "Cita registrada", timestamp: "2030-06-17T17:00:00.000Z" }],
+        appointment: { status: "confirmed", patientName: "Ana", slotStart: "2030-06-18T22:40:00.000Z" }
+      }),
+      now
+    ).key,
+    "cold"
+  );
+
+  assert.equal(
+    getPatientTemperature(conversation({ messages: [{ sender: "bot", body: "Te paso info", timestamp: "2030-06-17T17:20:00.000Z" }] }), now).key,
+    "warm"
   );
 });
 

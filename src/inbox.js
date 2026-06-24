@@ -200,6 +200,165 @@ export function buildLocalConversationSummary(conversation, nowMs = Date.now()) 
   };
 }
 
+export function buildCrmNextAction(conversation, nowMs = Date.now()) {
+  if (!conversation) {
+    return {
+      key: "select",
+      level: "info",
+      title: "Selecciona una conversacion",
+      detail: "Abre una paciente para ver mensajes, cita, notas y acciones sugeridas.",
+      cta: "Ver pacientes"
+    };
+  }
+
+  const status = getConversationStatus(conversation, nowMs);
+  const windowState = getWhatsAppWindowState(conversation, nowMs);
+  const profile = buildPatientCrmProfile(conversation, nowMs);
+  const last = conversation?.messages?.at(-1);
+  const tags = normalizedTags(conversation);
+
+  if (status.key === "urgent") {
+    return {
+      key: "urgent",
+      level: "danger",
+      title: "Atender posible urgencia",
+      detail: "Usa respuesta segura, no diagnostiques y marca como resuelto solo cuando una persona ya reviso el caso.",
+      cta: "Marcar urgente resuelto"
+    };
+  }
+
+  if (status.key === "results" || tags.has("resultados pendientes")) {
+    return {
+      key: "results_email",
+      level: "danger",
+      title: "Resultados: solo correo confirmado",
+      detail: "Verifica identidad y correo. El archivo se envia por correo desde el inbox; no por WhatsApp.",
+      cta: "Archivo al correo"
+    };
+  }
+
+  if (windowState.key === "expired") {
+    return {
+      key: "template",
+      level: "warning",
+      title: "Fuera de 24h: usa plantilla Meta",
+      detail: "No mandes texto libre si la paciente no ha escrito en las ultimas 24 horas.",
+      cta: "Abrir plantillas"
+    };
+  }
+
+  if (status.key === "misunderstood") {
+    return {
+      key: "misunderstood",
+      level: "warning",
+      title: "Bot no entendio",
+      detail: "Responde con una plantilla rapida o convierte la pregunta en FAQ si aplica. Si toca tema medico sensible, pasalo a humano.",
+      cta: "Revisar FAQ"
+    };
+  }
+
+  if (status.key === "awaiting_confirmation") {
+    return {
+      key: "awaiting_confirmation",
+      level: "info",
+      title: "Falta confirmar la cita",
+      detail: "La paciente debe confirmar antes de crear o modificar la cita. Si confirma por otro canal, revisa Calendar/Supabase antes de cerrar.",
+      cta: "Leer chat"
+    };
+  }
+
+  if (status.key === "reschedule") {
+    return {
+      key: "reschedule",
+      level: "info",
+      title: "Reagenda en proceso",
+      detail: "Ofrece nuevos horarios y confirma antes de mover la cita. No dupliques la cita anterior.",
+      cta: "Reenviar paso"
+    };
+  }
+
+  if (status.key === "cancel") {
+    return {
+      key: "cancel",
+      level: "warning",
+      title: "Cancelacion pendiente",
+      detail: "Cancela solo con confirmacion clara de la paciente y deja nota si requiere seguimiento.",
+      cta: "Leer chat"
+    };
+  }
+
+  if (status.className === "waiting") {
+    return {
+      key: "waiting",
+      level: "info",
+      title: `Pedir ${status.shortLabel ?? "dato faltante"}`,
+      detail: "El flujo esta esperando una respuesta especifica. Reenvia el paso actual si la paciente se atoró.",
+      cta: "Reenviar paso"
+    };
+  }
+
+  if (last?.sender === "patient") {
+    return {
+      key: "reply",
+      level: "info",
+      title: "Responder mensaje nuevo",
+      detail: "Lee el ultimo mensaje y usa una respuesta rapida si encaja. Si pide archivos/resultados, usa correo confirmado.",
+      cta: "Leer chat"
+    };
+  }
+
+  if (conversation?.botPaused) {
+    return {
+      key: "human",
+      level: "warning",
+      title: "Modo humano activo",
+      detail: "El bot esta pausado para esta paciente. Devuelvelo al bot cuando ya no necesite atencion manual.",
+      cta: "Devolver al bot"
+    };
+  }
+
+  if (conversation?.appointment?.status === "confirmed" || profile.nextAppointment) {
+    return {
+      key: "confirmed",
+      level: "success",
+      title: "Cita lista",
+      detail: "La paciente ya tiene cita. Solo da seguimiento si escribe, necesita cambiar horario o pide resultados.",
+      cta: "Ver cita"
+    };
+  }
+
+  return {
+    key: "followup",
+    level: "info",
+    title: "Dar seguimiento",
+    detail: "Mantén la conversacion simple: agendar, costos, ubicacion, formas de pago o pasar a humano si es sensible.",
+    cta: "Leer chat"
+  };
+}
+
+export function getPatientTemperature(conversation, nowMs = Date.now()) {
+  if (!conversation) return { key: "unknown", label: "Sin paciente", className: "muted" };
+
+  const status = getConversationStatus(conversation, nowMs);
+  const tags = normalizedTags(conversation);
+  const last = conversation?.messages?.at(-1);
+
+  if (
+    status.priority <= 3 ||
+    tags.has("lead caliente") ||
+    tags.has("humano requerido") ||
+    last?.sender === "patient"
+  ) {
+    return { key: "hot", label: "Lead caliente", className: "hot" };
+  }
+
+  if (tags.has("lead frio") || (conversation?.appointment?.status === "confirmed" && last?.sender !== "patient")) {
+    return { key: "cold", label: "Lead frio", className: "cold" };
+  }
+
+  return { key: "warm", label: "Lead tibio", className: "warm" };
+}
+
 export function buildPatientCrmProfile(conversation, nowMs = Date.now()) {
   const persisted = conversation?.patient ?? {};
   const appointments = normalizeAppointments(conversation);
