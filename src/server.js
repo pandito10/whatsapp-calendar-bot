@@ -27,6 +27,7 @@ import { detectIntent, hasAny, isAppointmentLikeQuestion, looksLikeDateRequest, 
 import {
   buildInboxStats as buildInboxMetrics,
   buildCrmNextAction,
+  buildManualDailyReportEntry,
   getConversationActivityISO,
   buildLocalConversationSummary,
   buildPatientCrmProfile,
@@ -52,6 +53,7 @@ import {
   isDatabaseEnabled,
   loadActiveAppointmentLocks,
   loadDueReminders,
+  loadDailyReports,
   loadConversations,
   loadConfirmedCitasBetween,
   loadConfirmedCitasByDay,
@@ -69,6 +71,7 @@ import {
   saveCita,
   saveConversationMessage,
   saveConversationNote,
+  saveDailyReport,
   saveKnowledgeSuggestion,
   saveWaitlistEntry,
   scheduleReminder,
@@ -129,6 +132,45 @@ let appSecretWarningShown = false;
 let isShuttingDown = false;
 const dailyReportsLog = [];
 const maxDailyReports = 30;
+
+function rememberDailyReport(entry) {
+  if (!entry?.date || !entry?.text) return entry;
+  const duplicateIndex = dailyReportsLog.findIndex((item) =>
+    (entry.id && item.id === entry.id) ||
+    (item.generatedAt && item.generatedAt === entry.generatedAt && item.text === entry.text)
+  );
+  if (duplicateIndex >= 0) {
+    dailyReportsLog.splice(duplicateIndex, 1);
+  }
+  dailyReportsLog.unshift(entry);
+  if (dailyReportsLog.length > maxDailyReports) dailyReportsLog.length = maxDailyReports;
+  return entry;
+}
+
+async function persistDailyReport(entry) {
+  rememberDailyReport(entry);
+  try {
+    const saved = await saveDailyReport(entry);
+    if (saved) rememberDailyReport(saved);
+  } catch (error) {
+    logSafeError("Could not persist daily report", error);
+  }
+  return entry;
+}
+
+function mergeDailyReports(persisted = [], memory = []) {
+  const seen = new Set();
+  return [...persisted, ...memory]
+    .filter((entry) => entry?.date && entry?.text)
+    .sort((a, b) => new Date(b.generatedAt ?? 0) - new Date(a.generatedAt ?? 0))
+    .filter((entry) => {
+      const key = entry.id ?? `${entry.generatedAt ?? ""}:${entry.text}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, maxDailyReports);
+}
 
 const mainMenuRows = [
   { id: "main_schedule", title: "Agendar cita", description: "Iniciar registro y elegir horario" },
@@ -810,8 +852,10 @@ async function handleInbox(req, url, res) {
     approved: await loadKnowledgeSuggestions("approved", 20)
   };
   const diagnostics = await buildInboxDiagnostics();
+  const persistedReports = await loadDailyReports(maxDailyReports);
+  const dailyReports = mergeDailyReports(persistedReports, dailyReportsLog);
 
-  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderInboxPage(list, selected, req, url, knowledgeSuggestions, diagnostics));
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(renderInboxPage(list, selected, req, url, knowledgeSuggestions, diagnostics, dailyReports));
 }
 
 async function buildInboxDiagnostics() {
@@ -1751,12 +1795,15 @@ async function handleInboxQuickCheck(req, url, res) {
     `Locks activos: ${diagnostics.activeLocksCount}`
   ].join("\n");
 
-  dailyReportsLog.unshift({
+  await persistDailyReport({
     date: new Intl.DateTimeFormat("en-CA", { timeZone: config.clinicTimezone }).format(new Date()),
     text: lines,
+    body: lines,
+    title: "Revision rapida",
+    source: "quick_check",
+    author: "inbox",
     generatedAt: new Date().toISOString()
   });
-  if (dailyReportsLog.length > maxDailyReports) dailyReportsLog.length = maxDailyReports;
 
   await redirectInbox(
     res,
@@ -1782,12 +1829,34 @@ async function handleInboxDailyReport(req, url, res) {
   }
 
   const todayISO = new Intl.DateTimeFormat("en-CA", { timeZone: config.clinicTimezone }).format(new Date());
+  const mode = String(form.get("mode") ?? "generate");
+  if (mode === "manual") {
+    try {
+      const entry = buildManualDailyReportEntry({
+        dateISO: form.get("date") || todayISO,
+        title: form.get("title"),
+        body: form.get("body"),
+        author: "inbox"
+      });
+      await persistDailyReport(entry);
+      await redirectInbox(res, "", "Reporte escrito guardado.", "success", { tab: "reports" });
+    } catch (error) {
+      if (error?.message === "daily_report_body_required") {
+        await redirectInbox(res, "", "Escribe el reporte antes de guardarlo.", "error", { tab: "reports" });
+        return;
+      }
+      logSafeError("Could not save manual daily report from inbox", error);
+      await redirectInbox(res, "", "No se pudo guardar el reporte escrito. Revisa Supabase o intenta de nuevo.", "error", { tab: "reports" });
+    }
+    return;
+  }
+
   try {
     await sendDailyReport(todayISO);
-    await redirectInbox(res, "", "Reporte generado. Si ENABLE_DAILY_REPORT=true tambien se envio al numero admin.", "success");
+    await redirectInbox(res, "", "Reporte generado. Si ENABLE_DAILY_REPORT=true tambien se envio al numero admin.", "success", { tab: "reports" });
   } catch (error) {
     logSafeError("Could not generate daily report from inbox", error);
-    await redirectInbox(res, "", "No se pudo generar el reporte diario. Revisa logs de Render.");
+    await redirectInbox(res, "", "No se pudo generar el reporte diario. Revisa logs de Render.", "error", { tab: "reports" });
   }
 }
 
@@ -2002,8 +2071,15 @@ async function handleInboxCancelDay(req, url, res) {
     summary += ` ⚠️ ${needManualContact.length} requieren llamada (fuera de ventana 24h, sin correo): ${needManualContact.join(", ")}.`;
   }
   if (errors > 0) summary += ` Errores: ${errors}.`;
-  dailyReportsLog.unshift({ date: dateISO, text: `[Cancelacion masiva] ${summary}`, generatedAt: new Date().toISOString() });
-  if (dailyReportsLog.length > 30) dailyReportsLog.length = 30;
+  await persistDailyReport({
+    date: dateISO,
+    title: "Cancelacion masiva",
+    text: `[Cancelacion masiva] ${summary}`,
+    body: `[Cancelacion masiva] ${summary}`,
+    source: "bulk_cancel",
+    author: "inbox",
+    generatedAt: new Date().toISOString()
+  });
   await redirectInbox(res, "", summary);
 }
 
@@ -2404,10 +2480,11 @@ async function getInboxConversations() {
   return [...conversations.values()].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
 
-function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], diagnostics) {
+function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], diagnostics, dailyReports = dailyReportsLog) {
   const csrf = createSessionCsrfToken(req);
   const q = normalizeText(url.searchParams.get("q") ?? "");
   const filter = url.searchParams.get("filter") ?? "all";
+  const sideTab = normalizeInboxTab(url.searchParams.get("tab"));
   const newestPatientFirst = ["all", "pending", "followup"].includes(filter);
   const filteredList = sortInboxConversations(filterInboxConversationList(list, q, filter), Date.now(), { newestPatientFirst });
   if (selected && !filteredList.some((conversation) => conversation.phoneNumber === selected.phoneNumber)) {
@@ -2428,6 +2505,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
   const rightPanel = renderPatientPanel(selected, { csrf, selectedPhone, selectedStatus, windowState, knowledgeSuggestions });
   const filterOptions = renderInboxQuickFilters(filter, url.searchParams.get("q") ?? "");
   const diagnosticsCard = renderInboxDiagnostics(diagnostics, csrf);
+  const sidebarTabs = renderInboxTabs(sideTab, { phone: selectedPhone, q: url.searchParams.get("q"), filter });
   const doctorImageSrc = config.inboxDoctorImageUrl || "/public/dra_carranza_banner.png";
   const conversationLinks =
     filteredList.length === 0
@@ -2461,6 +2539,44 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
             </a>`;
           })
           .join("");
+  const patientsSidebar = `${renderInboxDiagnosticsCompact(diagnostics)}
+      ${renderTodayMetrics(list)}
+      ${renderConversionMetrics(list)}
+      <form class="tools" method="get" action="/inbox">
+        <input name="tab" type="hidden" value="patients">
+        <input name="q" value="${escapeHtml(url.searchParams.get("q") ?? "")}" placeholder="Buscar nombre, telefono, etiqueta o estado">
+        <div class="tool-row">
+          <select name="filter">
+            ${renderFilterOption("all", "Todas", filter)}
+            ${renderFilterOption("priority", "Prioridad", filter)}
+            ${renderFilterOption("urgent", "Urgente", filter)}
+            ${renderFilterOption("misunderstood", "Bot no entendio", filter)}
+            ${renderFilterOption("awaiting_confirmation", "Esperando confirmacion", filter)}
+            ${renderFilterOption("reschedule", "Reagendar", filter)}
+            ${renderFilterOption("cancel", "Cancelar", filter)}
+            ${renderFilterOption("closing_window", "Ventana 24h", filter)}
+            ${renderFilterOption("pending", "Pendientes", filter)}
+            ${renderFilterOption("stuck", "Atoradas", filter)}
+            ${renderFilterOption("waiting", "Esperando datos", filter)}
+            ${renderFilterOption("confirmed", "Cita agendada", filter)}
+            ${renderFilterOption("no_appointment", "Sin cita", filter)}
+            ${renderFilterOption("new_patient", "Primera vez", filter)}
+            ${renderFilterOption("returning_patient", "Recurrentes", filter)}
+            ${renderFilterOption("human", "Modo humano", filter)}
+          </select>
+          <button type="submit">Filtrar</button>
+        </div>
+      </form>
+      ${filterOptions}
+      ${conversationLinks}`;
+  const sidebarContent =
+    sideTab === "diagnostics"
+      ? `${diagnosticsCard}${renderConversionMetrics(list)}`
+      : sideTab === "reports"
+        ? renderDailyReportsSection(dailyReports, csrf)
+        : sideTab === "tools"
+          ? `${renderTodayMetrics(list)}${renderCancelDaySection(csrf)}`
+          : patientsSidebar;
 
   const messages = selected
     ? selected.messages
@@ -2665,6 +2781,36 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
     .stat strong { display: block; font-size: 18px; line-height: 1; }
     .stat span { display: block; color: var(--muted); font-size: 11px; margin-top: 5px; }
+    .inbox-tabs {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      padding: 12px 14px;
+      border-bottom: 1px solid #dbeafe;
+      background: rgba(255, 255, 255, 0.74);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    .inbox-tabs a {
+      display: grid;
+      place-items: center;
+      min-height: 34px;
+      padding: 7px 8px;
+      border-radius: 999px;
+      border: 1px solid #cfe1f7;
+      background: #ffffff;
+      color: #0d3d72;
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: 800;
+      box-shadow: 0 6px 14px rgba(13, 61, 114, 0.06);
+    }
+    .inbox-tabs a.active {
+      background: linear-gradient(135deg, #1a5fa8, #60a5fa);
+      border-color: #1a5fa8;
+      color: #ffffff;
+    }
     .metrics-card {
       margin: 0 14px 14px;
       padding: 12px;
@@ -2688,6 +2834,9 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     .metric-cell strong { font-size: 17px; color: #0d3d72; }
     .metric-cell span { font-size: 10px; color: #4a6a8a; text-align: center; }
     .report-entry summary {
+      display: flex;
+      align-items: center;
+      gap: 6px;
       cursor: pointer;
       padding: 6px 0;
       font-size: 12px;
@@ -2701,6 +2850,55 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       color: #244a73;
       border-top: 1px solid #dbeafe;
       margin-top: 4px;
+    }
+    .report-compose {
+      margin: 10px 0;
+      border: 1px solid #cfe1f7;
+      border-radius: 14px;
+      background: #ffffff;
+      overflow: hidden;
+    }
+    .report-compose summary {
+      cursor: pointer;
+      padding: 10px 12px;
+      font-size: 13px;
+      font-weight: 800;
+      color: #0d3d72;
+      list-style: none;
+      background: #eef6ff;
+    }
+    .report-compose summary::-webkit-details-marker { display: none; }
+    .report-form {
+      display: grid;
+      gap: 9px;
+      padding: 12px;
+    }
+    .report-form label {
+      display: grid;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 800;
+      color: #244a73;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+    }
+    .report-form input,
+    .report-form textarea {
+      width: 100%;
+      border: 1px solid #bfd6f0;
+      border-radius: 12px;
+      padding: 10px 11px;
+      color: #0d2240;
+      background: #ffffff;
+      font: inherit;
+      font-size: 13px;
+      text-transform: none;
+      letter-spacing: 0;
+      resize: vertical;
+    }
+    .report-form button {
+      min-height: 40px;
+      border-radius: 12px;
     }
     .diagnostics-card {
       margin: 0 14px 14px;
@@ -2717,6 +2915,18 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       margin-bottom: 10px;
     }
     .diagnostics-head strong { font-size: 13px; }
+    .diagnostics-compact summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      cursor: pointer;
+      list-style: none;
+    }
+    .diagnostics-compact summary::-webkit-details-marker { display: none; }
+    .diagnostics-compact .diagnostics-grid {
+      margin-top: 10px;
+    }
     .diagnostics-grid {
       display: grid;
       gap: 7px;
@@ -4236,37 +4446,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
         <div class="stat"><strong>${stats.urgent}</strong><span>Urgentes</span></div>
         <div class="stat"><strong>${stats.noReply}</strong><span>No respondio</span></div>
       </div>
-      ${renderTodayMetrics(list)}
-      ${renderConversionMetrics(list)}
-      ${diagnosticsCard}
-      ${renderDailyReportsSection(dailyReportsLog, csrf)}
-      ${renderCancelDaySection(csrf)}
-      <form class="tools" method="get" action="/inbox">
-        <input name="q" value="${escapeHtml(url.searchParams.get("q") ?? "")}" placeholder="Buscar nombre, telefono, etiqueta o estado">
-        <div class="tool-row">
-          <select name="filter">
-            ${renderFilterOption("all", "Todas", filter)}
-            ${renderFilterOption("priority", "Prioridad", filter)}
-            ${renderFilterOption("urgent", "Urgente", filter)}
-            ${renderFilterOption("misunderstood", "Bot no entendio", filter)}
-            ${renderFilterOption("awaiting_confirmation", "Esperando confirmacion", filter)}
-            ${renderFilterOption("reschedule", "Reagendar", filter)}
-            ${renderFilterOption("cancel", "Cancelar", filter)}
-            ${renderFilterOption("closing_window", "Ventana 24h", filter)}
-            ${renderFilterOption("pending", "Pendientes", filter)}
-            ${renderFilterOption("stuck", "Atoradas", filter)}
-            ${renderFilterOption("waiting", "Esperando datos", filter)}
-            ${renderFilterOption("confirmed", "Cita agendada", filter)}
-            ${renderFilterOption("no_appointment", "Sin cita", filter)}
-            ${renderFilterOption("new_patient", "Primera vez", filter)}
-            ${renderFilterOption("returning_patient", "Recurrentes", filter)}
-            ${renderFilterOption("human", "Modo humano", filter)}
-          </select>
-          <button type="submit">Filtrar</button>
-        </div>
-      </form>
-      ${filterOptions}
-      ${conversationLinks}
+      ${sidebarTabs}
+      ${sidebarContent}
     </aside>
     <section class="chat">
       <div class="chat-title">
@@ -4504,11 +4685,60 @@ function renderInboxDiagnostics(diagnostics, csrf) {
   </div>`;
 }
 
+function renderInboxDiagnosticsCompact(diagnostics) {
+  if (!diagnostics) return "";
+  const rows = diagnostics.items
+    .slice(0, 5)
+    .map((item) => {
+      const dotClass = item.ok ? "ok" : "err";
+      return `<div class="diagnostic-row">
+        <span class="dot ${dotClass}"></span>
+        <strong>${escapeHtml(item.label)}</strong>
+        <span>${escapeHtml(item.detail)}</span>
+      </div>`;
+    })
+    .join("");
+
+  return `<details class="diagnostics-card diagnostics-compact">
+    <summary>
+      <strong>Diagnostico rapido</strong>
+      <span class="tag ${diagnostics.ready ? "confirmed" : "urgent"}">${diagnostics.ready ? "Listo" : "Revisar"}</span>
+    </summary>
+    <div class="diagnostics-grid">
+      ${rows}
+      <div class="diagnostic-row">
+        <span class="dot ${diagnostics.activeLocksCount > 0 ? "warn" : "ok"}"></span>
+        <strong>Locks</strong>
+        <span>${diagnostics.activeLocksCount} horarios apartados temporalmente</span>
+      </div>
+    </div>
+  </details>`;
+}
+
 function renderDailyReportsSection(log, csrf) {
-  const manualForm = `<form class="quick-check-form" method="post" action="/inbox/daily-report">
+  const todayISO = new Intl.DateTimeFormat("en-CA", { timeZone: config.clinicTimezone }).format(new Date());
+  const generateForm = `<form class="quick-check-form" method="post" action="/inbox/daily-report">
     <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+    <input name="mode" type="hidden" value="generate">
     <button type="submit">Generar reporte ahora</button>
   </form>`;
+  const writeForm = `<details class="report-compose" open>
+    <summary>Escribir reporte manual</summary>
+    <form class="report-form" method="post" action="/inbox/daily-report">
+      <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+      <input name="mode" type="hidden" value="manual">
+      <label>Fecha
+        <input name="date" type="date" value="${escapeHtml(todayISO)}" required>
+      </label>
+      <label>Titulo opcional
+        <input name="title" maxlength="120" placeholder="Ej. Pendientes de hoy, llamadas, incidencias">
+      </label>
+      <label>Reporte
+        <textarea name="body" rows="6" maxlength="4000" placeholder="Escribe aqui lo que paso hoy: pacientes pendientes, pagos, llamadas, cosas por revisar..." required></textarea>
+      </label>
+      <button type="submit">Guardar reporte escrito</button>
+    </form>
+  </details>`;
   if (!log || log.length === 0) {
     return `<div class="diagnostics-card" style="margin-top:0">
       <div class="diagnostics-head"><strong>Reportes diarios</strong></div>
@@ -4517,7 +4747,8 @@ function renderDailyReportsSection(log, csrf) {
           ? `El primer reporte se genera a las ${config.dailyReportHour}:00 h.`
           : "El reporte automatico esta apagado; puedes generarlo manualmente aqui."
       }</p>
-      ${manualForm}
+      ${writeForm}
+      ${generateForm}
     </div>`;
   }
   const items = log.map((entry) => {
@@ -4525,14 +4756,16 @@ function renderDailyReportsSection(log, csrf) {
       ? new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: config.clinicTimezone }).format(new Date(entry.generatedAt))
       : "";
     const lines = escapeHtml(String(entry.text ?? "")).replace(/\n/g, "<br>");
+    const sourceLabel = entry.source === "manual" ? "Escrito" : entry.source === "quick_check" ? "Revision" : "Automatico";
     return `<details class="report-entry">
-      <summary><strong>${escapeHtml(entry.date)}</strong>${timeLabel ? ` <span style="color:var(--muted);font-size:11px">${timeLabel}</span>` : ""}</summary>
+      <summary><strong>${escapeHtml(entry.date)}</strong><span class="tag">${escapeHtml(sourceLabel)}</span>${timeLabel ? ` <span style="color:var(--muted);font-size:11px">${timeLabel}</span>` : ""}</summary>
       <div class="report-body">${lines}</div>
     </details>`;
   }).join("");
   return `<div class="diagnostics-card" style="margin-top:0">
     <div class="diagnostics-head"><strong>Reportes diarios</strong><span class="tag confirmed">${log.length}</span></div>
-    ${manualForm}
+    ${writeForm}
+    ${generateForm}
     ${items}
   </div>`;
 }
@@ -4553,6 +4786,27 @@ function renderCancelDaySection(csrf) {
       </form>
     </details>
   </div>`;
+}
+
+function normalizeInboxTab(value) {
+  return ["patients", "diagnostics", "reports", "tools"].includes(value) ? value : "patients";
+}
+
+function renderInboxTabs(active, { phone, q, filter } = {}) {
+  const tabs = [
+    ["patients", "Pacientes"],
+    ["diagnostics", "Estado"],
+    ["reports", "Reportes"],
+    ["tools", "Herramientas"]
+  ];
+  return `<nav class="inbox-tabs" aria-label="Secciones del inbox">
+    ${tabs
+      .map(([key, label]) => {
+        const href = `/inbox?${buildInboxQuery({ phone, q, filter, tab: key })}`;
+        return `<a class="${active === key ? "active" : ""}" href="${href}">${escapeHtml(label)}</a>`;
+      })
+      .join("")}
+  </nav>`;
 }
 
 function renderInboxQuickFilters(current, query = "") {
@@ -7895,8 +8149,15 @@ async function sendDailyReport(todayISO) {
     citas.length === 0 ? "Sin citas confirmadas para hoy." : undefined
   ].filter(Boolean).join("\n");
 
-  dailyReportsLog.unshift({ date: todayISO, text: lines, generatedAt: new Date().toISOString() });
-  if (dailyReportsLog.length > maxDailyReports) dailyReportsLog.length = maxDailyReports;
+  await persistDailyReport({
+    date: todayISO,
+    title: "Reporte diario",
+    text: lines,
+    body: lines,
+    source: "daily",
+    author: "bot",
+    generatedAt: new Date().toISOString()
+  });
 
   if (config.enableDailyReport) {
     await safeSendWhatsAppText(config.doctorWhatsappNumber, lines);
@@ -8438,9 +8699,12 @@ function isUnsignedWebhookExpired() {
   return Number.isFinite(expiresAt) && Date.now() > expiresAt;
 }
 
-function redirectInbox(res, phone, message, kind = "error") {
+function redirectInbox(res, phone, message, kind = "error", extraParams = {}) {
   const params = new URLSearchParams();
   if (phone) params.set("phone", phone);
+  for (const [key, value] of Object.entries(extraParams)) {
+    if (value) params.set(key, value);
+  }
   if (message) params.set(kind === "success" ? "success" : "error", message);
   res.writeHead(303, { Location: `/inbox${params.toString() ? `?${params}` : ""}` }).end();
 }

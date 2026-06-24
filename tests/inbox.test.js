@@ -7,11 +7,13 @@ const {
   buildCrmNextAction,
   buildInboxStats,
   buildLocalConversationSummary,
+  buildManualDailyReportEntry,
   buildPatientCrmProfile,
   filterInboxConversations,
   getConversationActivityISO,
   getConversationStatus,
   getPatientTemperature,
+  sanitizeInboxReportText,
   getWhatsAppWindowState,
   sortInboxConversations
 } = await import("../src/inbox.js");
@@ -30,6 +32,31 @@ function conversation(overrides = {}) {
     ...overrides
   };
 }
+
+test("limpia y arma reportes escritos desde el inbox", () => {
+  const entry = buildManualDailyReportEntry({
+    dateISO: "2030-06-17",
+    title: "Pendientes del dia",
+    body: "  Llamar a Ana.\r\n\nRevisar pago.\u0000  ",
+    author: "recepcion",
+    generatedAt: "2030-06-18T01:20:00.000Z"
+  });
+
+  assert.equal(entry.date, "2030-06-17");
+  assert.equal(entry.source, "manual");
+  assert.equal(entry.title, "Pendientes del dia");
+  assert.equal(entry.body, "Llamar a Ana.\n\nRevisar pago.");
+  assert.match(entry.text, /Reporte manual - Pendientes del dia/);
+  assert.match(entry.text, /Llamar a Ana/);
+});
+
+test("no permite guardar reporte manual vacio", () => {
+  assert.throws(
+    () => buildManualDailyReportEntry({ dateISO: "2030-06-17", body: "   \n\t " }),
+    /daily_report_body_required/
+  );
+  assert.equal(sanitizeInboxReportText("  hola\r\nmundo  "), "hola\nmundo");
+});
 
 test("prioriza conversaciones urgentes, no entendidas y por confirmar", () => {
   const confirmed = conversation({

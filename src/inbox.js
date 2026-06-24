@@ -4,6 +4,41 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const CLOSING_WINDOW_MS = 22.5 * 60 * 60 * 1000;
 const STUCK_FLOW_MS = 30 * 60 * 1000;
 
+export function sanitizeInboxReportText(value, maxLength = 4000) {
+  return String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/g, ""))
+    .join("\n")
+    .trim()
+    .slice(0, maxLength);
+}
+
+export function buildManualDailyReportEntry({ dateISO, title, body, author = "consultorio", generatedAt = new Date().toISOString() } = {}) {
+  const fallbackDate = Number.isNaN(new Date(generatedAt).getTime())
+    ? new Date().toISOString().slice(0, 10)
+    : new Date(generatedAt).toISOString().slice(0, 10);
+  const safeDate = /^\d{4}-\d{2}-\d{2}$/.test(String(dateISO ?? "")) ? String(dateISO) : fallbackDate;
+  const safeTitle = sanitizeInboxReportText(title, 120);
+  const safeBody = sanitizeInboxReportText(body, 4000);
+  if (!safeBody) {
+    throw new Error("daily_report_body_required");
+  }
+
+  const header = safeTitle ? `Reporte manual - ${safeTitle}` : "Reporte manual";
+  return {
+    date: safeDate,
+    title: safeTitle || "Reporte manual",
+    text: `${header}\n\n${safeBody}`,
+    body: safeBody,
+    source: "manual",
+    author: sanitizeInboxReportText(author, 80) || "consultorio",
+    generatedAt
+  };
+}
+
 export function getWhatsAppWindowState(conversation, nowMs = Date.now()) {
   const lastPatientMessage = getLastPatientMessage(conversation);
   if (!lastPatientMessage?.timestamp) {

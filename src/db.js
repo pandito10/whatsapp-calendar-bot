@@ -525,6 +525,60 @@ export async function loadKnowledgeSuggestions(status = "pending", limit = 20) {
   }));
 }
 
+export async function saveDailyReport(entry) {
+  if (!isDatabaseEnabled() || !entry?.date || !(entry.body || entry.text)) return undefined;
+
+  const payload = {
+    date: entry.date,
+    title: entry.title ?? null,
+    body: entry.body ?? entry.text,
+    source: entry.source ?? "manual",
+    author: entry.author ?? "consultorio",
+    metadata: entry.metadata ?? {},
+    created_at: entry.generatedAt ?? new Date().toISOString()
+  };
+
+  const rows = await safeSupabaseFetch("/rest/v1/daily_reports?select=id,date,title,body,source,author,metadata,created_at", {
+    method: "POST",
+    headers: {
+      Prefer: "return=representation"
+    },
+    body: JSON.stringify(payload),
+    silentSchemaMismatch: true
+  });
+
+  return rows?.[0] ? mapDailyReportRow(rows[0]) : undefined;
+}
+
+export async function loadDailyReports(limit = 30) {
+  if (!isDatabaseEnabled()) return [];
+
+  const rows = await safeSupabaseFetch(
+    `/rest/v1/daily_reports?select=id,date,title,body,source,author,metadata,created_at&order=created_at.desc&limit=${Math.max(1, Math.min(100, Number(limit) || 30))}`,
+    { silentSchemaMismatch: true }
+  );
+
+  return (rows ?? []).map(mapDailyReportRow);
+}
+
+function mapDailyReportRow(row) {
+  const source = row.source ?? "manual";
+  const body = row.body ?? "";
+  const title = row.title ?? (source === "manual" ? "Reporte manual" : "Reporte generado");
+  const text = source === "manual" && row.title ? `Reporte manual - ${row.title}\n\n${body}` : body;
+  return {
+    id: row.id,
+    date: row.date,
+    title,
+    text,
+    body,
+    source,
+    author: row.author,
+    metadata: row.metadata ?? {},
+    generatedAt: row.created_at
+  };
+}
+
 export async function reviewKnowledgeSuggestion(id, status, updates = {}) {
   if (!isDatabaseEnabled() || !id || !["approved", "rejected", "ignored"].includes(status)) return;
 
@@ -1144,7 +1198,7 @@ async function safeSupabaseFetch(path, options = {}) {
 }
 
 function isSchemaMismatchError(error) {
-  return /42703|PGRST204|column .* does not exist|Could not find .* column/i.test(error?.message ?? "");
+  return /42703|PGRST204|PGRST205|column .* does not exist|relation .* does not exist|Could not find .* column|Could not find .* table/i.test(error?.message ?? "");
 }
 
 async function supabaseFetch(path, options = {}) {
