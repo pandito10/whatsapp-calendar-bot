@@ -72,6 +72,10 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxHtml, /Atoradas/);
     assert.match(inboxHtml, /Esperando datos/);
     assert.match(inboxHtml, /Diagnostico rapido/);
+    assert.match(inboxHtml, /Pacientes/);
+    assert.match(inboxHtml, /Estado/);
+    assert.match(inboxHtml, /Reportes/);
+    assert.match(inboxHtml, /Herramientas/);
     assert.match(inboxHtml, /Firma Meta/);
     assert.match(inboxHtml, /Locks/);
     assert.match(inboxHtml, /class="no-selection"/);
@@ -82,6 +86,12 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxHtml, /@media \(max-width: 780px\)[\s\S]*\.metric-strip \{[\s\S]*display: flex;/);
     assert.match(inboxHtml, /\.results-email-modal:target/);
     assert.doesNotMatch(inboxHtml, /http-equiv="refresh"/);
+
+    const reportsHtml = await (await fetch("http://127.0.0.1:32131/inbox?tab=reports", { headers: { Cookie: inboxCookie } })).text();
+    assert.match(reportsHtml, /Escribir reporte manual/);
+    assert.match(reportsHtml, /name="mode" type="hidden" value="manual"/);
+    assert.match(reportsHtml, /Guardar reporte escrito/);
+    assert.match(reportsHtml, /Generar reporte ahora/);
 
     const inboxScript = await fetch("http://127.0.0.1:32131/inbox.js");
     assert.equal(inboxScript.status, 200);
