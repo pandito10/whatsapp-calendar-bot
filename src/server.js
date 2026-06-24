@@ -2507,6 +2507,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
   const diagnosticsCard = renderInboxDiagnostics(diagnostics, csrf);
   const sidebarTabs = renderInboxTabs(sideTab, { phone: selectedPhone, q: url.searchParams.get("q"), filter });
   const doctorImageSrc = config.inboxDoctorImageUrl || "/public/dra_carranza_banner.png";
+  const crmDashboard = renderCrmDashboard(list);
+  const crmPipeline = renderCrmPipeline(list, { currentFilter: filter, query: url.searchParams.get("q") ?? "" });
   const conversationLinks =
     filteredList.length === 0
       ? `<div class="empty-state">Todavia no hay conversaciones.</div>`
@@ -2540,6 +2542,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
           })
           .join("");
   const patientsSidebar = `${renderInboxDiagnosticsCompact(diagnostics)}
+      ${crmDashboard}
+      ${crmPipeline}
       ${renderTodayMetrics(list)}
       ${renderConversionMetrics(list)}
       <form class="tools" method="get" action="/inbox">
@@ -2943,6 +2947,198 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
     .metric-cell strong { font-size: 17px; color: #0d3d72; }
     .metric-cell span { font-size: 10px; color: #4a6a8a; text-align: center; }
+    .crm-dashboard {
+      margin: 12px 14px 14px;
+      padding: 12px;
+      border: 1px solid #cfe1f7;
+      border-radius: 16px;
+      background:
+        radial-gradient(circle at top right, rgba(96, 165, 250, 0.18), transparent 9rem),
+        #ffffff;
+      box-shadow: 0 10px 24px rgba(13, 61, 114, 0.07);
+    }
+    .crm-dashboard-head,
+    .pipeline-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .crm-dashboard-head span,
+    .pipeline-head span {
+      display: block;
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 950;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 3px;
+    }
+    .crm-dashboard-head strong,
+    .pipeline-head strong {
+      display: block;
+      color: #0d2240;
+      font-size: 14px;
+      line-height: 1.25;
+    }
+    .crm-dashboard-head a,
+    .pipeline-head a {
+      flex: 0 0 auto;
+      color: #0d3d72;
+      background: #eef6ff;
+      border: 1px solid #cfe1f7;
+      border-radius: 999px;
+      padding: 6px 9px;
+      text-decoration: none;
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .crm-dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 7px;
+      margin-bottom: 10px;
+    }
+    .crm-dashboard-grid div {
+      padding: 9px 8px;
+      border: 1px solid #e5edf7;
+      border-radius: 13px;
+      background: #f8fbff;
+      text-align: center;
+    }
+    .crm-dashboard-grid strong {
+      display: block;
+      color: #0d3d72;
+      font-size: 17px;
+      line-height: 1;
+    }
+    .crm-dashboard-grid span {
+      display: block;
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 800;
+      margin-top: 4px;
+    }
+    .crm-dashboard-next {
+      display: grid;
+      gap: 6px;
+    }
+    .crm-dashboard-next > span {
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 950;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .crm-dashboard-next a {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 9px;
+      border-radius: 12px;
+      border: 1px solid #e5edf7;
+      background: #ffffff;
+      color: inherit;
+      text-decoration: none;
+    }
+    .crm-dashboard-next strong {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+    }
+    .crm-dashboard-next em {
+      color: #0d3d72;
+      background: #eef6ff;
+      border-radius: 999px;
+      padding: 4px 7px;
+      font-size: 10px;
+      font-style: normal;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+    .crm-dashboard-next p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .pipeline-card {
+      margin: 0 14px 14px;
+      padding: 12px;
+      border: 1px solid #cfe1f7;
+      border-radius: 16px;
+      background: #ffffff;
+      box-shadow: 0 10px 22px rgba(13, 61, 114, 0.06);
+    }
+    .pipeline-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .pipeline-stage {
+      display: grid;
+      gap: 5px;
+      min-height: 92px;
+      padding: 10px;
+      color: inherit;
+      text-decoration: none;
+      border: 1px solid #e5edf7;
+      border-radius: 14px;
+      background: #f8fbff;
+      transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+    }
+    .pipeline-stage:hover,
+    .pipeline-stage.active {
+      transform: translateY(-1px);
+      border-color: #9fc5ef;
+      box-shadow: 0 10px 20px rgba(26, 95, 168, 0.1);
+      background: #edf6ff;
+    }
+    .pipeline-stage-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+    }
+    .pipeline-stage-top strong {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+    }
+    .pipeline-stage-top span {
+      display: grid;
+      place-items: center;
+      min-width: 26px;
+      height: 24px;
+      border-radius: 999px;
+      color: #ffffff;
+      background: #1a5fa8;
+      font-size: 12px;
+      font-weight: 950;
+    }
+    .pipeline-stage em {
+      color: #64748b;
+      font-size: 10px;
+      font-style: normal;
+      font-weight: 800;
+      line-height: 1.25;
+    }
+    .pipeline-sample {
+      display: grid;
+      gap: 3px;
+      margin-top: 2px;
+    }
+    .pipeline-sample small {
+      color: #475569;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 10px;
+    }
     .report-entry summary {
       display: flex;
       align-items: center;
@@ -3869,6 +4065,79 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       padding: 8px 11px;
       font-size: 12px;
     }
+    .crm-smart-actions {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(159, 197, 239, 0.62);
+    }
+    .crm-smart-actions > span {
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 950;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .crm-smart-actions > div {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+    .crm-smart-actions button {
+      border: 1px solid #cfe1f7;
+      box-shadow: none;
+      color: #0d3d72;
+      background: rgba(255, 255, 255, 0.82);
+      padding: 7px 10px;
+      font-size: 11px;
+      border-radius: 999px;
+    }
+    .crm-smart-actions button:hover {
+      background: #ffffff;
+      box-shadow: 0 8px 18px rgba(13, 61, 114, 0.1);
+    }
+    .patient-signal-strip {
+      flex: 0 0 auto;
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 8px;
+      margin: 10px 20px 0;
+    }
+    .patient-signal {
+      min-width: 0;
+      padding: 9px 10px;
+      border-radius: 14px;
+      border: 1px solid #dbeafe;
+      background: #ffffff;
+      box-shadow: 0 8px 18px rgba(13, 61, 114, 0.05);
+    }
+    .patient-signal span {
+      display: block;
+      color: #64748b;
+      font-size: 9px;
+      font-weight: 950;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .patient-signal strong {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #0d2240;
+      font-size: 11px;
+      line-height: 1.2;
+    }
+    .patient-signal.success { background: #f0fdf4; border-color: #bbf7d0; }
+    .patient-signal.warning,
+    .patient-signal.closing { background: #fffbeb; border-color: #fde68a; }
+    .patient-signal.danger,
+    .patient-signal.expired { background: #fff1f2; border-color: #fecaca; }
+    .patient-signal.open,
+    .patient-signal.info,
+    .patient-signal.stage { background: #f8fbff; border-color: #cfe1f7; }
     .appointment-card {
       margin: 18px 24px 0;
       border-radius: 14px;
@@ -4435,8 +4704,22 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       .crm-command-actions .button-link {
         white-space: nowrap;
       }
-      .messages {
+      .patient-signal-strip {
         order: 2;
+        display: flex;
+        overflow-x: auto;
+        gap: 7px;
+        margin: 8px 10px 0;
+        padding-bottom: 2px;
+        scrollbar-width: none;
+      }
+      .patient-signal-strip::-webkit-scrollbar { display: none; }
+      .patient-signal {
+        flex: 0 0 132px;
+        padding: 8px 9px;
+      }
+      .messages {
+        order: 3;
         padding: 10px;
         flex: 1 1 58dvh;
         min-height: min(430px, 58dvh);
@@ -4444,7 +4727,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       }
       .mobile-patient-sheet,
       .conversation-panels {
-        order: 3;
+        order: 4;
         flex: 0 0 auto;
       }
       .appointment-card { margin: 6px 10px 0; }
@@ -4480,7 +4763,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       .appointment-grid { grid-template-columns: 1fr; }
       .bubble { max-width: 92%; }
       .composer {
-        order: 4;
+        order: 5;
         padding: 10px;
         padding-bottom: max(10px, env(safe-area-inset-bottom));
       }
@@ -4670,6 +4953,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
         }
       </div>
       ${renderCrmCommandCenter(selected, { csrf, selectedPhone, selectedStatus, windowState })}
+      ${renderPatientSignalStrip(selected)}
       ${renderMobilePatientSheet(selected, { selectedStatus, windowState })}
       ${inboxError ? `<div class="mobile-toast error" role="alert">${escapeHtml(inboxError)}</div>` : ""}
       ${inboxSuccess ? `<div class="mobile-toast success" role="status">${escapeHtml(inboxSuccess)}</div>` : ""}
@@ -4724,6 +5008,91 @@ function renderOperationalStatusBadges() {
   ];
 
   return badges.map((badge) => `<span class="health-pill ${badge.className}">${escapeHtml(badge.label)}</span>`).join("");
+}
+
+function renderCrmDashboard(list) {
+  const stats = buildInboxMetrics(list);
+  const total = Math.max(1, stats.total);
+  const scheduledPct = Math.round((stats.confirmed / total) * 100);
+  const attentionCount = stats.urgent + stats.misunderstood + stats.stuck + stats.windowRisk;
+  const next = buildDashboardPriorityList(list);
+
+  return `<section class="crm-dashboard" aria-label="Resumen premium del CRM">
+    <div class="crm-dashboard-head">
+      <div>
+        <span>Panel operativo</span>
+        <strong>Hoy hay ${stats.followup} pacientes por atender</strong>
+      </div>
+      <a href="/inbox?filter=priority">Ver prioridad</a>
+    </div>
+    <div class="crm-dashboard-grid">
+      <div><strong>${scheduledPct}%</strong><span>Conversion a cita</span></div>
+      <div><strong>${attentionCount}</strong><span>Alertas reales</span></div>
+      <div><strong>${stats.noReply}</strong><span>Sin responder</span></div>
+    </div>
+    <div class="crm-dashboard-next">
+      <span>Atender primero</span>
+      ${next.length
+        ? next.map((item) => `<a href="/inbox?${buildInboxQuery({ phone: item.phoneNumber, filter: "priority" })}"><strong>${escapeHtml(item.name)}</strong><em>${escapeHtml(item.status)}</em></a>`).join("")
+        : `<p>Sin pendientes criticos ahora.</p>`
+      }
+    </div>
+  </section>`;
+}
+
+function buildDashboardPriorityList(list) {
+  return sortInboxConversations(list, Date.now())
+    .filter((conversation) => getInboxConversationStatus(conversation).priority <= 5 || conversation.messages?.at(-1)?.sender === "patient")
+    .slice(0, 3)
+    .map((conversation) => ({
+      phoneNumber: conversation.phoneNumber,
+      name: getConversationDisplayName(conversation),
+      status: getInboxConversationStatus(conversation).label
+    }));
+}
+
+function renderCrmPipeline(list, { currentFilter = "all", query = "" } = {}) {
+  const stages = [
+    { key: "followup", label: "Nuevo", filter: "followup", hint: "Mensaje entrante" },
+    { key: "waiting", label: "Esperando datos", filter: "waiting", hint: "Nombre, correo, fecha" },
+    { key: "awaiting_confirmation", label: "Por confirmar", filter: "awaiting_confirmation", hint: "Falta SI/NO" },
+    { key: "results", label: "Resultados", filter: "results", hint: "Correo confirmado" },
+    { key: "human", label: "Humano", filter: "human", hint: "Bot pausado" },
+    { key: "confirmed", label: "Agendada", filter: "confirmed", hint: "Cita lista" }
+  ];
+
+  return `<section class="pipeline-card" aria-label="Pipeline del consultorio">
+    <div class="pipeline-head">
+      <div>
+        <span>Pipeline CRM</span>
+        <strong>Flujo de pacientes</strong>
+      </div>
+      <a href="/inbox?${buildInboxQuery({ q: query, filter: "all" })}">Todos</a>
+    </div>
+    <div class="pipeline-grid">
+      ${stages.map((stage) => renderPipelineStage(stage, list, { currentFilter, query })).join("")}
+    </div>
+  </section>`;
+}
+
+function renderPipelineStage(stage, list, { currentFilter, query }) {
+  const matching = filterInboxConversationList(list, query, stage.filter);
+  const sample = sortInboxConversations(matching, Date.now(), { newestPatientFirst: stage.filter === "followup" }).slice(0, 2);
+  const active = currentFilter === stage.filter ? " active" : "";
+
+  return `<a class="pipeline-stage${active}" href="/inbox?${buildInboxQuery({ q: query, filter: stage.filter })}">
+    <div class="pipeline-stage-top">
+      <strong>${escapeHtml(stage.label)}</strong>
+      <span>${matching.length}</span>
+    </div>
+    <em>${escapeHtml(stage.hint)}</em>
+    <div class="pipeline-sample">
+      ${sample.length
+        ? sample.map((conversation) => `<small>${escapeHtml(getConversationDisplayName(conversation))}</small>`).join("")
+        : `<small>Sin pacientes</small>`
+      }
+    </div>
+  </a>`;
 }
 
 function renderTodayMetrics(list) {
@@ -5022,6 +5391,99 @@ function renderCrmCommandCenter(selected, { csrf, selectedPhone, selectedStatus,
         <button type="button" class="button-secondary" data-scroll-chat>Leer chat</button>
       </div>
     </div>
+    ${renderCrmSmartShortcuts(selected, action)}
+  </section>`;
+}
+
+function renderCrmSmartShortcuts(selected, action) {
+  const status = getInboxConversationStatus(selected);
+  const shortcuts = [];
+
+  if (action.key === "results_email" || status.key === "results") {
+    shortcuts.push({
+      label: "Aviso resultados",
+      text: "Por privacidad, los resultados o estudios se entregan unicamente por el correo confirmado de la paciente o de forma presencial. Por WhatsApp solo podemos registrar tu solicitud y pasarla a revision humana."
+    });
+  }
+
+  if (status.className === "waiting") {
+    const step = status.shortLabel ?? "dato";
+    shortcuts.push({
+      label: `Pedir ${step}`,
+      text: `Claro 😊 Para continuar, ¿me compartes tu ${step}?`
+    });
+  }
+
+  if (status.key === "awaiting_confirmation") {
+    shortcuts.push({
+      label: "Confirmar datos",
+      text: "Antes de agendar, revisa que los datos esten correctos. Si todo esta bien responde SI, si quieres cambiar algo dime el dato correcto."
+    });
+  }
+
+  if (selected?.appointment?.slotStart) {
+    shortcuts.push({
+      label: "Cita registrada",
+      text: `Tu cita esta registrada para ${formatAppointmentFull(selected.appointment.slotStart)}. Si necesitas cambiarla, puedo ayudarte a reagendar.`
+    });
+  }
+
+  shortcuts.push(
+    {
+      label: "Promo $1200",
+      text: "La promocion del chequeo ginecologico completo es de $1,200 MXN. Si gustas, puedo ayudarte a revisar horarios disponibles para agendar."
+    },
+    {
+      label: "Ubicacion",
+      text: buildLocationMessage(config.clinicAddress)
+    }
+  );
+
+  const unique = [];
+  const seen = new Set();
+  for (const item of shortcuts) {
+    const key = normalizeText(item.label);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(item);
+  }
+
+  return `<div class="crm-smart-actions" aria-label="Respuestas inteligentes">
+    <span>Respuestas sugeridas</span>
+    <div>
+      ${unique.slice(0, 5).map((item) => `<button type="button" data-template="${escapeHtml(item.text)}">${escapeHtml(item.label)}</button>`).join("")}
+    </div>
+  </div>`;
+}
+
+function renderPatientSignalStrip(selected) {
+  if (!selected) return "";
+
+  const profile = buildPatientCrmProfile(selected);
+  const status = getInboxConversationStatus(selected);
+  const windowState = getWhatsAppWindowState(selected);
+  const action = buildCrmNextAction(selected);
+  const emailState = profile.email ? `Correo ${maskEmail(profile.email)}` : "Sin correo confirmado";
+  const appointmentState = profile.nextAppointment?.slotStart
+    ? `Proxima cita ${formatAppointmentShort(profile.nextAppointment.slotStart)}`
+    : selected.appointment?.slotStart
+      ? `Cita ${formatAppointmentShort(selected.appointment.slotStart)}`
+      : "Sin cita activa";
+  const riskFlags = profile.riskFlags?.length ? profile.riskFlags.slice(0, 2).join(", ") : "Sin alertas criticas";
+  const signals = [
+    { label: "Etapa", value: profile.patientStage ?? "Lead", className: "stage" },
+    { label: "Accion", value: action.cta ?? action.title, className: action.level },
+    { label: "Cita", value: appointmentState, className: selected.appointment?.status === "confirmed" ? "success" : "info" },
+    { label: "Correo", value: emailState, className: profile.email ? "success" : "warning" },
+    { label: "Ventana", value: windowState.label, className: windowState.className },
+    { label: "Riesgo", value: riskFlags, className: status.priority <= 3 ? "danger" : "info" }
+  ];
+
+  return `<section class="patient-signal-strip" aria-label="Senales rapidas del paciente">
+    ${signals.map((signal) => `<div class="patient-signal ${escapeHtml(signal.className)}">
+      <span>${escapeHtml(signal.label)}</span>
+      <strong>${escapeHtml(signal.value)}</strong>
+    </div>`).join("")}
   </section>`;
 }
 

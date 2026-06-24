@@ -82,6 +82,9 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxHtml, /class="crm-rail"/);
     assert.match(inboxHtml, /Contactos/);
     assert.match(inboxHtml, /CRM operativo/);
+    assert.match(inboxHtml, /Panel operativo/);
+    assert.match(inboxHtml, /Pipeline CRM/);
+    assert.match(inboxHtml, /Flujo de pacientes/);
     assert.match(inboxHtml, /contacts-table-head/);
     assert.match(inboxHtml, /data-refresh-status/);
     assert.match(inboxHtml, /<div class="metric-strip">/);
@@ -362,6 +365,10 @@ test("inbox/send bloquea cualquier adjunto por WhatsApp", async () => {
     assert.match(loginHtml, /Preparacion/);
     assert.match(loginHtml, /Plantillas Meta/);
     assert.match(loginHtml, /Falta WHATSAPP_REENGAGEMENT_TEMPLATE/);
+    assert.match(loginHtml, /Respuestas sugeridas/);
+    assert.match(loginHtml, /Senales rapidas del paciente/);
+    assert.match(loginHtml, /Correo/);
+    assert.match(loginHtml, /Riesgo/);
     assert.doesNotMatch(loginHtml, /name="attachment"/);
     const csrf = loginHtml.match(/name="csrf" type="hidden" value="([^"]+)"/)?.[1];
     assert.ok(csrf);
