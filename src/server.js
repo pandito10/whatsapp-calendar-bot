@@ -3332,11 +3332,13 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     body.hide-sidebar.hide-patient-panel:not(.chat-focus) main {
       grid-template-columns: minmax(0, 1fr);
     }
-    body.hide-sidebar main > aside:not(.patient-panel) {
-      display: none;
-    }
-    body.hide-patient-panel .patient-panel {
-      display: none;
+    @media (min-width: 781px) {
+      body.hide-sidebar main > aside:not(.patient-panel) {
+        display: none;
+      }
+      body.hide-patient-panel .patient-panel {
+        display: none;
+      }
     }
     body.chat-focus .inbox-banner,
     body.chat-focus .metric-strip,
