@@ -93,6 +93,10 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxHtml, /Flujo de pacientes/);
     assert.match(inboxHtml, /contacts-table-head/);
     assert.match(inboxHtml, /data-refresh-status/);
+    assert.match(inboxHtml, /data-sound-toggle/);
+    assert.match(inboxHtml, /Activar sonido/);
+    assert.match(inboxHtml, /data-message-total=/);
+    assert.match(inboxHtml, /data-patient-message-total=/);
     assert.match(inboxHtml, /<div class="metric-strip">/);
     assert.match(inboxHtml, /<span>Pendientes<\/span>/);
     assert.match(inboxHtml, /<span>Sin responder<\/span>/);
@@ -117,6 +121,9 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxScriptText, /data-template/);
     assert.match(inboxScriptText, /data-copy-phone/);
     assert.match(inboxScriptText, /bindSmartRefresh/);
+    assert.match(inboxScriptText, /bindInboxSoundControls/);
+    assert.match(inboxScriptText, /playInboxNotificationSound/);
+    assert.match(inboxScriptText, /Nuevo mensaje recibido/);
     assert.match(inboxScriptText, /refreshInboxContent/);
     assert.match(inboxScriptText, /bindDirtyForms/);
     assert.match(inboxScriptText, /bindChatScrollButtons/);

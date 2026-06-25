@@ -986,6 +986,78 @@ function handleInboxScript(res) {
     }
   }
 
+  let inboxSoundContext;
+
+  function inboxSoundEnabled() {
+    return getInboxStorage("inboxSoundEnabled") === "on";
+  }
+
+  function updateInboxSoundControls() {
+    const enabled = inboxSoundEnabled();
+    document.querySelectorAll("[data-sound-toggle]").forEach((button) => {
+      button.textContent = enabled ? "Sonido activo" : "Activar sonido";
+      button.classList.toggle("ok", enabled);
+      button.classList.toggle("warn", !enabled);
+      button.setAttribute("aria-pressed", enabled ? "true" : "false");
+    });
+  }
+
+  function ensureInboxSoundContext() {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return null;
+    if (!inboxSoundContext) inboxSoundContext = new AudioContext();
+    if (inboxSoundContext.state === "suspended") inboxSoundContext.resume().catch(() => {});
+    return inboxSoundContext;
+  }
+
+  function playInboxNotificationSound() {
+    if (!inboxSoundEnabled()) return;
+    const audio = ensureInboxSoundContext();
+    if (!audio) return;
+    const now = audio.currentTime;
+    const gain = audio.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.34);
+    gain.connect(audio.destination);
+
+    [740, 980].forEach((frequency, index) => {
+      const oscillator = audio.createOscillator();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(frequency, now + index * 0.12);
+      oscillator.connect(gain);
+      oscillator.start(now + index * 0.12);
+      oscillator.stop(now + index * 0.12 + 0.18);
+    });
+  }
+
+  function readInboxSignal() {
+    const main = document.querySelector("main");
+    return {
+      messages: Number(main?.dataset.messageTotal || 0),
+      patientMessages: Number(main?.dataset.patientMessageTotal || 0),
+      latestActivity: main?.dataset.latestActivity || ""
+    };
+  }
+
+  function bindInboxSoundControls() {
+    updateInboxSoundControls();
+    document.querySelectorAll("[data-sound-toggle]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const enabled = !inboxSoundEnabled();
+        setInboxStorage("inboxSoundEnabled", enabled ? "on" : "off");
+        if (enabled) {
+          ensureInboxSoundContext();
+          playInboxNotificationSound();
+          updateRefreshStatus("Sonido activado");
+        } else {
+          updateRefreshStatus("Sonido apagado");
+        }
+        updateInboxSoundControls();
+      });
+    });
+  }
+
   function bindInboxDynamicActions() {
     applyInboxViewState();
     bindQuickReplies();
@@ -994,6 +1066,7 @@ function handleInboxScript(res) {
     bindInboxViewControls();
     bindChatScrollButtons();
     bindResultsEmailActions();
+    bindInboxSoundControls();
     bindDirtyForms();
   }
 
@@ -1190,6 +1263,7 @@ function handleInboxScript(res) {
   }
 
   async function refreshInboxContent() {
+    const previousSignal = readInboxSignal();
     const url = new URL(window.location.href);
     url.searchParams.set("refresh", String(Date.now()));
 
@@ -1221,6 +1295,12 @@ function handleInboxScript(res) {
     document.body.className = nextDocument.body.className;
     applyInboxViewState();
     bindInboxDynamicActions();
+
+    const nextSignal = readInboxSignal();
+    if (nextSignal.patientMessages > previousSignal.patientMessages) {
+      playInboxNotificationSound();
+      updateRefreshStatus("Nuevo mensaje recibido");
+    }
 
     const refreshedMessages = document.querySelector(".messages");
     if (refreshedMessages) {
@@ -2651,6 +2731,13 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     filteredList.unshift(selected);
   }
   const stats = buildInboxMetrics(list);
+  const inboxMessageTotal = list.reduce((total, conversation) => total + (conversation.messages?.length ?? 0), 0);
+  const inboxPatientMessageTotal = list.reduce(
+    (total, conversation) => total + (conversation.messages ?? []).filter((message) => message.sender === "patient").length,
+    0
+  );
+  const latestConversation = sortInboxConversations(list, Date.now(), { newestPatientFirst: true })[0];
+  const inboxLatestActivity = latestConversation ? getConversationActivityISO(latestConversation) ?? latestConversation.updatedAt ?? "" : "";
   const operationalStatus = renderOperationalStatusBadges();
   const selectedStatus = selected ? getInboxConversationStatus(selected) : undefined;
   const selectedName = selected ? getConversationDisplayName(selected) : "";
@@ -5474,6 +5561,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       <span class="health-pill ${stats.followup > 0 ? "warn" : "ok"}">${stats.followup} seguimiento</span>
       <span class="health-pill" data-refresh-status>Actualizado ahora</span>
       <button class="health-pill refresh-toggle" type="button" data-refresh-toggle>Auto refresh activo</button>
+      <button class="health-pill sound-toggle warn" type="button" data-sound-toggle aria-pressed="false">Activar sonido</button>
       ${operationalStatus}
       <a class="health-pill" href="/inbox/logout">salir</a>
     </div>
@@ -5504,7 +5592,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       <a href="/inbox?tab=diagnostics">Estado</a>
     </div>
   </div>
-  <main>
+  <main data-message-total="${inboxMessageTotal}" data-patient-message-total="${inboxPatientMessageTotal}" data-latest-activity="${escapeHtml(inboxLatestActivity)}">
     <aside>
       <div class="sidebar-head">
         <strong>Pacientes</strong>
