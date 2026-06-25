@@ -1026,8 +1026,8 @@ function handleInboxScript(res) {
     document.body.classList.toggle("hide-patient-panel", states.hidePatientPanel);
 
     const labels = [
-      ["[data-toggle-chat-focus]", states.chatFocus, "Vista completa", "Expandir chat"],
-      ["[data-toggle-compact-cards]", states.compactCards, "Mostrar tarjetas", "Minimizar tarjetas"],
+      ["[data-toggle-chat-focus]", states.chatFocus, "Vista completa", "Modo lectura"],
+      ["[data-toggle-compact-cards]", states.compactCards, "Mostrar paneles", "Minimizar paneles"],
       ["[data-toggle-sidebar]", states.hideSidebar, "Mostrar pacientes", "Ocultar pacientes"],
       ["[data-toggle-patient-panel]", states.hidePatientPanel, "Mostrar ficha", "Ocultar ficha"]
     ];
@@ -1065,9 +1065,14 @@ function handleInboxScript(res) {
       button.addEventListener("click", () => {
         const messages = document.querySelector(".messages");
         if (!messages) return;
-        messages.scrollIntoView({ block: "center", behavior: "smooth" });
-        scrollMessagesToBottom();
-        if (typeof messages.focus === "function") messages.focus({ preventScroll: true });
+        setInboxStorage("inboxChatFocus", "on");
+        setInboxStorage("inboxCompactCards", "on");
+        applyInboxViewState();
+        setTimeout(() => {
+          messages.scrollIntoView({ block: "start", behavior: "smooth" });
+          scrollMessagesToBottom();
+          if (typeof messages.focus === "function") messages.focus({ preventScroll: true });
+        }, 80);
       });
     });
     document.querySelectorAll("[data-open-template-actions]").forEach((button) => {
@@ -3122,6 +3127,33 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     body.chat-focus .chat {
       min-height: 0;
     }
+    body.chat-focus .crm-command,
+    body.chat-focus .patient-signal-strip,
+    body.chat-focus .mobile-patient-sheet,
+    body.chat-focus .conversation-panels,
+    body.chat-focus .composer-email-action,
+    body.chat-focus .chat-actions {
+      display: none;
+    }
+    body.chat-focus .chat-title {
+      padding: 10px 16px;
+      min-height: auto;
+      border-bottom: 1px solid var(--line);
+    }
+    body.chat-focus .chat-title > div:first-child > span {
+      display: none;
+    }
+    body.chat-focus .conversation-tools {
+      margin-top: 8px;
+      padding-bottom: 0;
+      overflow: visible;
+    }
+    body.chat-focus .conversation-tools > * {
+      display: none !important;
+    }
+    body.chat-focus .conversation-tools [data-toggle-chat-focus] {
+      display: inline-flex !important;
+    }
     aside {
       border: 1px solid var(--line);
       background: rgba(255, 255, 255, 0.96);
@@ -4953,9 +4985,21 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     .knowledge-form button { font-size: 12px; }
     .conversation-tools {
       display: flex;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
       gap: 8px;
       margin-top: 10px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      scrollbar-width: thin;
+    }
+    .conversation-tools > * {
+      flex: 0 0 auto;
+    }
+    .conversation-tools .button-link,
+    .conversation-tools button {
+      padding: 8px 10px;
+      font-size: 12px;
+      white-space: nowrap;
     }
     .conversation-tools form { display: inline-flex; }
     .error-banner {
@@ -5476,8 +5520,8 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
               ? `<div class="conversation-tools">
                   <a class="mobile-back button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">← Pacientes</a>
                   <button type="button" class="button-secondary" data-scroll-chat>Leer chat</button>
-                  <button type="button" class="button-secondary view-toggle" data-toggle-chat-focus aria-pressed="false">Expandir chat</button>
-                  <button type="button" class="button-secondary view-toggle" data-toggle-compact-cards aria-pressed="false">Minimizar tarjetas</button>
+                  <button type="button" class="button-secondary view-toggle" data-toggle-chat-focus aria-pressed="false">Modo lectura</button>
+                  <button type="button" class="button-secondary view-toggle" data-toggle-compact-cards aria-pressed="false">Minimizar paneles</button>
                   <button type="button" class="button-secondary view-toggle" data-toggle-sidebar aria-pressed="false">Ocultar pacientes</button>
                   <button type="button" class="button-secondary view-toggle" data-toggle-patient-panel aria-pressed="false">Ocultar ficha</button>
                   <a class="button-link" href="#send-file-email" data-open-results-email>📤 Archivo al correo</a>
