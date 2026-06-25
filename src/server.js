@@ -987,12 +987,77 @@ function handleInboxScript(res) {
   }
 
   function bindInboxDynamicActions() {
+    applyInboxViewState();
     bindQuickReplies();
     bindCopyButtons();
     bindComposerEnhancements();
+    bindInboxViewControls();
     bindChatScrollButtons();
     bindResultsEmailActions();
     bindDirtyForms();
+  }
+
+  function getInboxStorage(key) {
+    try {
+      return window.localStorage?.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+
+  function setInboxStorage(key, value) {
+    try {
+      window.localStorage?.setItem(key, value);
+    } catch {
+      // If storage is unavailable, the controls still work for the current render via body classes.
+    }
+  }
+
+  function applyInboxViewState() {
+    const states = {
+      chatFocus: getInboxStorage("inboxChatFocus") === "on",
+      compactCards: getInboxStorage("inboxCompactCards") === "on",
+      hideSidebar: getInboxStorage("inboxHideSidebar") === "on",
+      hidePatientPanel: getInboxStorage("inboxHidePatientPanel") === "on"
+    };
+    document.body.classList.toggle("chat-focus", states.chatFocus);
+    document.body.classList.toggle("compact-cards", states.compactCards);
+    document.body.classList.toggle("hide-sidebar", states.hideSidebar);
+    document.body.classList.toggle("hide-patient-panel", states.hidePatientPanel);
+
+    const labels = [
+      ["[data-toggle-chat-focus]", states.chatFocus, "Vista completa", "Expandir chat"],
+      ["[data-toggle-compact-cards]", states.compactCards, "Mostrar tarjetas", "Minimizar tarjetas"],
+      ["[data-toggle-sidebar]", states.hideSidebar, "Mostrar pacientes", "Ocultar pacientes"],
+      ["[data-toggle-patient-panel]", states.hidePatientPanel, "Mostrar ficha", "Ocultar ficha"]
+    ];
+    labels.forEach(([selector, active, activeText, inactiveText]) => {
+      document.querySelectorAll(selector).forEach((button) => {
+        button.textContent = active ? activeText : inactiveText;
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    });
+  }
+
+  function bindInboxViewControls() {
+    const controls = [
+      ["[data-toggle-chat-focus]", "inboxChatFocus"],
+      ["[data-toggle-compact-cards]", "inboxCompactCards"],
+      ["[data-toggle-sidebar]", "inboxHideSidebar"],
+      ["[data-toggle-patient-panel]", "inboxHidePatientPanel"]
+    ];
+    controls.forEach(([selector, storageKey]) => {
+      document.querySelectorAll(selector).forEach((button) => {
+        button.addEventListener("click", () => {
+          const enabled = getInboxStorage(storageKey) === "on";
+          setInboxStorage(storageKey, enabled ? "off" : "on");
+          applyInboxViewState();
+          if (selector === "[data-toggle-chat-focus]" || selector === "[data-toggle-compact-cards]") {
+            setTimeout(scrollMessagesToBottom, 80);
+          }
+        });
+      });
+    });
   }
 
   function bindChatScrollButtons() {
@@ -1149,6 +1214,7 @@ function handleInboxScript(res) {
     if (nextStatus && currentStatus) currentStatus.replaceWith(nextStatus);
 
     document.body.className = nextDocument.body.className;
+    applyInboxViewState();
     bindInboxDynamicActions();
 
     const refreshedMessages = document.querySelector(".messages");
@@ -1214,6 +1280,7 @@ function handleInboxScript(res) {
   }
 
   function initInbox() {
+    applyInboxViewState();
     bindInboxDynamicActions();
     bindSmartRefresh();
     scrollMessagesToBottom();
@@ -3022,6 +3089,39 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       padding: 14px 18px 18px;
       gap: 14px;
     }
+    body.hide-sidebar:not(.hide-patient-panel):not(.chat-focus) main {
+      grid-template-columns: minmax(0, 1fr) minmax(310px, 370px);
+    }
+    body.hide-patient-panel:not(.hide-sidebar):not(.chat-focus) main {
+      grid-template-columns: minmax(330px, 400px) minmax(0, 1fr);
+    }
+    body.hide-sidebar.hide-patient-panel:not(.chat-focus) main {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    body.hide-sidebar main > aside:not(.patient-panel) {
+      display: none;
+    }
+    body.hide-patient-panel .patient-panel {
+      display: none;
+    }
+    body.chat-focus .inbox-banner,
+    body.chat-focus .metric-strip,
+    body.chat-focus .crm-top-banner,
+    body.chat-focus main > aside:not(.patient-panel),
+    body.chat-focus .patient-panel {
+      display: none;
+    }
+    body.chat-focus header {
+      margin-left: 84px;
+    }
+    body.chat-focus main {
+      grid-template-columns: minmax(0, 1fr);
+      height: calc(100vh - 84px);
+      min-height: 0;
+    }
+    body.chat-focus .chat {
+      min-height: 0;
+    }
     aside {
       border: 1px solid var(--line);
       background: rgba(255, 255, 255, 0.96);
@@ -3840,6 +3940,9 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
     .button-secondary { background: #436b93; }
     .button-danger { background: linear-gradient(135deg, #be123c, #f43f5e); }
+    .view-toggle[aria-pressed="true"] {
+      background: linear-gradient(135deg, #0f172a, #334155);
+    }
     .mobile-back { display: none; }
     .mobile-patient-sheet { display: none; }
     .chat {
@@ -4462,6 +4565,26 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     .crm-command-actions .button-link {
       padding: 8px 11px;
       font-size: 12px;
+    }
+    body.compact-cards .crm-command {
+      margin: 8px 20px 0;
+      padding: 10px 12px;
+    }
+    body.compact-cards .crm-command p,
+    body.compact-cards .crm-smart-actions,
+    body.compact-cards .patient-signal-strip {
+      display: none;
+    }
+    body.compact-cards .crm-command-footer {
+      margin-top: 8px;
+    }
+    body.compact-cards .crm-command-tags {
+      overflow-x: auto;
+      flex-wrap: nowrap;
+      padding-bottom: 2px;
+    }
+    body.compact-cards .messages {
+      padding-top: 18px;
     }
     .crm-smart-actions {
       display: grid;
@@ -5236,6 +5359,20 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       }
       .composer-actions .subtitle { font-size: 11px; }
       .composer-actions button { width: 100%; }
+      body.chat-focus .metric-strip {
+        display: none;
+      }
+      body.chat-focus main {
+        height: calc(100dvh - 58px);
+      }
+      body.chat-focus .chat {
+        height: calc(100dvh - 58px);
+      }
+      body.compact-cards .crm-command,
+      body.compact-cards .conversation-panels,
+      body.compact-cards .mobile-patient-sheet {
+        display: none;
+      }
       .knowledge { display: none; }
     }
   </style>
@@ -5339,6 +5476,10 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
               ? `<div class="conversation-tools">
                   <a class="mobile-back button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">← Pacientes</a>
                   <button type="button" class="button-secondary" data-scroll-chat>Leer chat</button>
+                  <button type="button" class="button-secondary view-toggle" data-toggle-chat-focus aria-pressed="false">Expandir chat</button>
+                  <button type="button" class="button-secondary view-toggle" data-toggle-compact-cards aria-pressed="false">Minimizar tarjetas</button>
+                  <button type="button" class="button-secondary view-toggle" data-toggle-sidebar aria-pressed="false">Ocultar pacientes</button>
+                  <button type="button" class="button-secondary view-toggle" data-toggle-patient-panel aria-pressed="false">Ocultar ficha</button>
                   <a class="button-link" href="#send-file-email" data-open-results-email>📤 Archivo al correo</a>
                   <a class="button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">Cerrar conversacion</a>
                   <a class="button-link button-secondary" href="https://wa.me/${encodeURIComponent(selectedPhone)}" target="_blank" rel="noreferrer">Abrir WhatsApp</a>

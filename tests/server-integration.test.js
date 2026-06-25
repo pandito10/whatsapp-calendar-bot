@@ -96,6 +96,8 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxHtml, /<div class="metric-strip">/);
     assert.match(inboxHtml, /<span>Pendientes<\/span>/);
     assert.match(inboxHtml, /<span>Sin responder<\/span>/);
+    assert.match(inboxHtml, /body\.chat-focus/);
+    assert.match(inboxHtml, /body\.compact-cards/);
     assert.match(inboxHtml, /@media \(max-width: 780px\)[\s\S]*\.metric-strip \{[\s\S]*display: flex;/);
     assert.match(inboxHtml, /\.results-email-modal:target/);
     assert.doesNotMatch(inboxHtml, /http-equiv="refresh"/);
@@ -118,6 +120,11 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxScriptText, /refreshInboxContent/);
     assert.match(inboxScriptText, /bindDirtyForms/);
     assert.match(inboxScriptText, /bindChatScrollButtons/);
+    assert.match(inboxScriptText, /bindInboxViewControls/);
+    assert.match(inboxScriptText, /inboxChatFocus/);
+    assert.match(inboxScriptText, /inboxCompactCards/);
+    assert.match(inboxScriptText, /inboxHideSidebar/);
+    assert.match(inboxScriptText, /inboxHidePatientPanel/);
     assert.match(inboxScriptText, /hasDirtyForm/);
     assert.match(inboxScriptText, /hasOpenWorkPanel/);
     assert.match(inboxScriptText, /Auto refresh apagado/);
