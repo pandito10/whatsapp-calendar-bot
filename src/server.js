@@ -995,7 +995,8 @@ function handleInboxScript(res) {
   function updateInboxSoundControls() {
     const enabled = inboxSoundEnabled();
     document.querySelectorAll("[data-sound-toggle]").forEach((button) => {
-      button.textContent = enabled ? "Sonido activo" : "Activar sonido";
+      const yesNoLabel = button.dataset.soundLabel === "yesno";
+      button.textContent = yesNoLabel ? (enabled ? "Sonido: Si" : "Sonido: No") : (enabled ? "Sonido activo" : "Activar sonido");
       button.classList.toggle("ok", enabled);
       button.classList.toggle("warn", !enabled);
       button.setAttribute("aria-pressed", enabled ? "true" : "false");
@@ -1010,24 +1011,24 @@ function handleInboxScript(res) {
     return inboxSoundContext;
   }
 
-  function playInboxNotificationSound() {
-    if (!inboxSoundEnabled()) return;
+  function playInboxNotificationSound(options = {}) {
+    if (!options.force && !inboxSoundEnabled()) return;
     const audio = ensureInboxSoundContext();
     if (!audio) return;
     const now = audio.currentTime;
     const gain = audio.createGain();
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.34);
+    gain.gain.exponentialRampToValueAtTime(0.42, now + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.82);
     gain.connect(audio.destination);
 
-    [740, 980].forEach((frequency, index) => {
+    [880, 1175, 880].forEach((frequency, index) => {
       const oscillator = audio.createOscillator();
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(frequency, now + index * 0.12);
+      oscillator.type = "triangle";
+      oscillator.frequency.setValueAtTime(frequency, now + index * 0.2);
       oscillator.connect(gain);
-      oscillator.start(now + index * 0.12);
-      oscillator.stop(now + index * 0.12 + 0.18);
+      oscillator.start(now + index * 0.2);
+      oscillator.stop(now + index * 0.2 + 0.22);
     });
   }
 
@@ -1054,6 +1055,15 @@ function handleInboxScript(res) {
           updateRefreshStatus("Sonido apagado");
         }
         updateInboxSoundControls();
+      });
+    });
+    document.querySelectorAll("[data-sound-test]").forEach((button) => {
+      button.addEventListener("click", () => {
+        setInboxStorage("inboxSoundEnabled", "on");
+        ensureInboxSoundContext();
+        playInboxNotificationSound({ force: true });
+        updateInboxSoundControls();
+        updateRefreshStatus("Prueba de sonido enviada");
       });
     });
   }
@@ -2885,7 +2895,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       : sideTab === "reports"
         ? `${renderReceptionReport(list)}${renderDailyReportsSection(dailyReports, csrf)}`
         : sideTab === "tools"
-          ? `${renderTodayMetrics(list)}${renderCancelDaySection(csrf)}`
+          ? `${renderTodayMetrics(list)}${renderInboxSoundSection()}${renderCancelDaySection(csrf)}`
           : patientsSidebar;
 
   const messages = selected
@@ -6218,6 +6228,18 @@ function renderCancelDaySection(csrf) {
         <button class="button-danger" type="submit" style="width:100%">Cancelar y notificar pacientes</button>
       </form>
     </details>
+  </div>`;
+}
+
+function renderInboxSoundSection() {
+  return `<div class="diagnostics-card" style="margin-top:0">
+    <h2>Sonido de nuevos mensajes</h2>
+    <p>Activalo una vez en este celular o computadora. Cuando entre un mensaje nuevo con el inbox abierto, sonara una alerta fuerte.</p>
+    <div class="template-grid">
+      <button class="button-secondary sound-toggle warn" type="button" data-sound-toggle data-sound-label="yesno" aria-pressed="false">Sonido: No</button>
+      <button type="button" data-sound-test>Probar sonido fuerte</button>
+    </div>
+    <p class="tiny-help">En iPhone y Chrome el sonido solo puede activarse despues de tocar un boton.</p>
   </div>`;
 }
 

@@ -114,6 +114,13 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(reportsHtml, /Guardar reporte escrito/);
     assert.match(reportsHtml, /Generar reporte ahora/);
 
+    const toolsHtml = await (await fetch("http://127.0.0.1:32131/inbox?tab=tools", { headers: { Cookie: inboxCookie } })).text();
+    assert.match(toolsHtml, /Sonido de nuevos mensajes/);
+    assert.match(toolsHtml, /Sonido: No/);
+    assert.match(toolsHtml, /data-sound-label="yesno"/);
+    assert.match(toolsHtml, /data-sound-test/);
+    assert.match(toolsHtml, /Probar sonido fuerte/);
+
     const inboxScript = await fetch("http://127.0.0.1:32131/inbox.js");
     assert.equal(inboxScript.status, 200);
     const inboxScriptText = await inboxScript.text();
@@ -123,6 +130,8 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxScriptText, /bindSmartRefresh/);
     assert.match(inboxScriptText, /bindInboxSoundControls/);
     assert.match(inboxScriptText, /playInboxNotificationSound/);
+    assert.match(inboxScriptText, /data-sound-test/);
+    assert.match(inboxScriptText, /Prueba de sonido enviada/);
     assert.match(inboxScriptText, /Nuevo mensaje recibido/);
     assert.match(inboxScriptText, /captureScrollState/);
     assert.match(inboxScriptText, /restoreScrollState/);
