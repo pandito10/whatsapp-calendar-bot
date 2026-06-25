@@ -126,6 +126,7 @@ export const config = {
           process.env.MASK_PATIENT_PHONE_IN_CALENDAR === "false",
     promotionPrice: process.env.PROMOTION_PRICE ?? "1200",
     promotionDetails: process.env.PROMOTION_DETAILS ?? "",
+    promotionValidityText: process.env.PROMOTION_VALIDITY_TEXT ?? "",
     appointmentMinutes: Number(process.env.APPOINTMENT_DURATION_MINUTES ?? process.env.APPOINTMENT_MINUTES ?? 40),
     appointmentBufferMinutes: Number(process.env.APPOINTMENT_BUFFER_MINUTES ?? 0),
     minAdvanceHours: Number(process.env.MIN_APPOINTMENT_ADVANCE_HOURS ?? 0),

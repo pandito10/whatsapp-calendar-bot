@@ -8299,6 +8299,19 @@ async function handleMenuOption(from, text, intent = detectIntent(text).intent) 
     return true;
   }
 
+  if (intent === "promo_validity") {
+    await replyToPatientWithButtons(
+      from,
+      getIntentResponse("promo_validity"),
+      [
+        { id: "promo_schedule", title: "Agendar" },
+        { id: "promo_includes", title: "Que incluye" },
+        { id: "talk_human", title: "Humano" }
+      ]
+    );
+    return true;
+  }
+
   if (option === 9 || intent === "payment_methods" || intent === "insurance_network") {
     await replyToPatientWithButtons(
       from,
@@ -8441,6 +8454,19 @@ async function handlePromoOfferReply(from, text, intent) {
     await setConversationHumanMode(from, true, "promo_human_request");
     setMemoryHumanMode(from, true);
     await replyToPatient(from, getIntentResponse("direct_contact"));
+    return;
+  }
+
+  if (intent === "promo_validity") {
+    await replyToPatientWithButtons(
+      from,
+      getIntentResponse("promo_validity"),
+      [
+        { id: "promo_schedule", title: "Agendar" },
+        { id: "promo_includes", title: "Que incluye" },
+        { id: "talk_human", title: "Humano" }
+      ]
+    );
     return;
   }
 
@@ -10043,6 +10069,9 @@ function getIntentResponse(intent) {
     promotion: config.promotionDetails
       ? `🎁 Si, contamos con paquete promocional en ${formatMoney(config.promotionPrice)} MXN.\n\nIncluye:\n${config.promotionDetails}\n\n¿Quieres revisar horarios disponibles?`
       : `🎁 Si, contamos con paquete promocional en ${formatMoney(config.promotionPrice)} MXN.\n\nPara confirmarte exactamente que incluye segun el servicio que necesitas, puedo ayudarte a agendar o pasarte con una persona del consultorio.\n\n¿Quieres revisar horarios disponibles?`,
+    promo_validity: config.promotionValidityText
+      ? `📅 ${config.promotionValidityText}`
+      : "📅 Por el momento la promocion no tiene fecha de vencimiento, esta disponible de forma continua.",
     payment_methods: "💵 Por el momento aceptamos efectivo o transferencia bancaria.\n\nNo contamos con pago con tarjeta por ahora.",
     insurance_network: "🏥 La cita puede registrarse como particular o por red medica/aseguradora.\n\nSi vienes por red medica, el consultorio confirma los datos necesarios al registrar tu cita.",
     schedule_appointment: "😊 Claro, te ayudo a agendar tu cita.\n\n¿Me compartes tu nombre completo?",

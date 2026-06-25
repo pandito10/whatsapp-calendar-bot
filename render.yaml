@@ -148,6 +148,8 @@ services:
         value: 1000
       - key: PROMOTION_PRICE
         value: 1200
+      - key: PROMOTION_VALIDITY_TEXT
+        sync: false
       - key: CLINIC_ADDRESS
         sync: false
       - key: INCLUDE_SENSITIVE_APPOINTMENT_NOTES

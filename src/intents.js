@@ -38,6 +38,7 @@ export function detectIntent(value) {
       "confirmada", "confirmar cita", "ya quedo", "quedo confirmada",
       "me confirmas", "tengo cita", "mi cita esta confirmada"
     ])],
+    ["promo_validity", () => isPromoValidityQuestion(text)],
     ["promo_schedule", () => isPromoScheduleQuestion(text)],
     ["schedule_appointment", () => hasAny(text, [
       "agendar", "hacer cita", "sacar cita", "reservar", "quiero una cita",
@@ -239,7 +240,8 @@ function normalizeWhatsAppWord(word) {
     cooreo: "correo",
     correeo: "correo",
     coreo: "correo",
-    gmail: "gmail"
+    gmail: "gmail",
+    asta: "hasta"
   };
   return dictionary[word] ?? word;
 }
@@ -412,6 +414,12 @@ function isFeaturedPromoQuestion(text) {
   if (/^(?:informes|info|mas info|informacion)$/.test(text)) return true;
 
   return false;
+}
+
+function isPromoValidityQuestion(text) {
+  const asksUntilWhen = /\b(?:hasta cuando|hasta que fecha|cuando termina|cuando acaba|cuando se acaba|cuando vence|fecha limite|fecha de vencimiento|cuando deja de estar|cuando ya no|vigencia)\b/.test(text);
+  if (!asksUntilWhen) return false;
+  return /\b(?:promocion|promosion|promo|paquete|oferta)\b/.test(text) || hasAny(text, ["1200", "chequeo"]);
 }
 
 function isPromoScheduleQuestion(text) {
