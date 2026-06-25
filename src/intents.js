@@ -264,7 +264,7 @@ function isGreetingQuestion(text) {
 }
 
 function isConversationClosing(text) {
-  return /^(?:gracias|muchas gracias|ok gracias|okay gracias|listo gracias|perfecto gracias|esta bien gracias|sale gracias|va gracias|ya gracias|no gracias|por ahora no|seria todo|eso es todo|listo|ok|okay|va|sale|perfecto|todo bien|muchas gracias eso es todo|gracias eso seria todo)$/.test(text) ||
+  return /^(?:gracias|muchas gracias|ok gracias|okay gracias|listo gracias|perfecto gracias|esta bien gracias|sale gracias|va gracias|ya gracias|no gracias|por ahora no|seria todo|eso es todo|listo|ok|okay|va|sale|perfecto|todo bien|esta bien|si esta bien|si esta correcto|todo esta bien|ok esta bien|okay esta bien|de acuerdo|entendido|quedo bien|queda bien|asi esta bien|muchas gracias eso es todo|gracias eso seria todo)$/.test(text) ||
     /\b(?:ya tengo|ya quedo|ya esta)\s+(?:mi\s+)?cita\b.*\b(?:gracias|listo|perfecto|ok|sale)\b/.test(text);
 }
 

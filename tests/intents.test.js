@@ -95,6 +95,10 @@ test("prioriza urgencia medica", () => {
 
 test("detecta cierres sin seguir empujando el flujo", () => {
   assert.equal(detectIntent("todo bien").intent, "closing");
+  assert.equal(detectIntent("Sí está bien").intent, "closing");
+  assert.equal(detectIntent("está bien").intent, "closing");
+  assert.equal(detectIntent("de acuerdo").intent, "closing");
+  assert.equal(detectIntent("quedó bien").intent, "closing");
   assert.equal(detectIntent("ya tengo mi cita gracias").intent, "closing");
 });
 
