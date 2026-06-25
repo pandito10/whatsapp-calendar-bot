@@ -1295,6 +1295,61 @@ function handleInboxScript(res) {
     };
   }
 
+  function getInboxScrollStorageKey() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("refresh");
+    return "inboxScrollState:" + url.pathname + "?" + url.searchParams.toString();
+  }
+
+  function saveInboxScrollState(state = captureScrollState()) {
+    try {
+      window.sessionStorage?.setItem(getInboxScrollStorageKey(), JSON.stringify({
+        savedAt: Date.now(),
+        state
+      }));
+    } catch {
+      // Scroll persistence is a convenience; the inbox still works without storage.
+    }
+  }
+
+  function restoreSavedInboxScrollState() {
+    try {
+      const raw = window.sessionStorage?.getItem(getInboxScrollStorageKey());
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      if (!parsed?.state || Date.now() - Number(parsed.savedAt || 0) > 10 * 60 * 1000) return false;
+      restoreScrollState(parsed.state);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function bindScrollPersistence() {
+    let timer;
+    const scheduleSave = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => saveInboxScrollState(), 120);
+    };
+    window.addEventListener("scroll", scheduleSave, { passive: true });
+    [
+      "aside",
+      ".chat",
+      ".messages",
+      ".patient-panel",
+      ".conversation-panels-body",
+      ".template-body",
+      ".mobile-info-grid",
+      ".crm-command-tags",
+      ".crm-command-actions",
+      ".quick-replies"
+    ].forEach((selector) => {
+      document.querySelectorAll(selector).forEach((node) => {
+        node.addEventListener("scroll", scheduleSave, { passive: true });
+      });
+    });
+  }
+
   function restoreScrollState(state) {
     if (!state) return;
     state.containers.forEach(({ selector, positions }) => {
@@ -1323,6 +1378,18 @@ function handleInboxScript(res) {
     if (!messages) return false;
     const distanceFromBottom = messages.scrollHeight - messages.scrollTop - messages.clientHeight;
     return distanceFromBottom > 180;
+  }
+
+  function userIsReadingPage() {
+    if (!document.querySelector(".messages")) return false;
+    const scrollingElement = document.scrollingElement || document.documentElement;
+    const pageCanScroll = scrollingElement.scrollHeight - scrollingElement.clientHeight > 240;
+    if (pageCanScroll && scrollingElement.scrollTop > 120) return true;
+    const chat = document.querySelector(".chat");
+    if (chat && chat.scrollTop > 120) return true;
+    const panels = document.querySelector(".conversation-panels-body");
+    if (panels && panels.scrollTop > 80) return true;
+    return false;
   }
 
   async function refreshInboxContent() {
@@ -1375,6 +1442,7 @@ function handleInboxScript(res) {
       }
     }
     restoreScrollState(scrollState);
+    saveInboxScrollState(scrollState);
   }
 
   function bindSmartRefresh() {
@@ -1412,6 +1480,11 @@ function handleInboxScript(res) {
         updateRefreshStatus("Pausado: cambios sin guardar");
         return;
       }
+      if (userIsReadingOldMessages() || userIsReadingPage()) {
+        updateRefreshStatus("Pausado: estas leyendo");
+        saveInboxScrollState();
+        return;
+      }
       if (elapsedSeconds < Math.ceil(refreshMs / 1000)) {
         updateRefreshStatus("Actualizado hace " + elapsedSeconds + "s");
         return;
@@ -1422,9 +1495,8 @@ function handleInboxScript(res) {
           updateRefreshStatus(userIsReadingOldMessages() ? "Actualizado sin moverte" : "Actualizado ahora");
         })
         .catch(() => {
-          const url = new URL(window.location.href);
-          url.searchParams.set("refresh", String(Date.now()));
-          window.location.replace(url.toString());
+          lastRefresh = Date.now();
+          updateRefreshStatus("No se pudo actualizar");
         });
     }, 5000);
   }
@@ -1433,13 +1505,18 @@ function handleInboxScript(res) {
     applyInboxViewState();
     bindInboxDynamicActions();
     bindSmartRefresh();
-    scrollMessagesToBottom();
+    bindScrollPersistence();
+    if (!restoreSavedInboxScrollState()) scrollMessagesToBottom();
   }
 
   window.addEventListener("DOMContentLoaded", initInbox);
-  window.addEventListener("load", scrollMessagesToBottom);
-  window.addEventListener("pageshow", scrollMessagesToBottom);
-  setTimeout(scrollMessagesToBottom, 80);
+  window.addEventListener("load", () => {
+    if (!restoreSavedInboxScrollState()) scrollMessagesToBottom();
+  });
+  window.addEventListener("pageshow", restoreSavedInboxScrollState);
+  setTimeout(() => {
+    if (!restoreSavedInboxScrollState()) scrollMessagesToBottom();
+  }, 80);
 })();`);
 }
 

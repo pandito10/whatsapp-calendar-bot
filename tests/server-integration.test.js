@@ -135,6 +135,10 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxScriptText, /Nuevo mensaje recibido/);
     assert.match(inboxScriptText, /captureScrollState/);
     assert.match(inboxScriptText, /restoreScrollState/);
+    assert.match(inboxScriptText, /saveInboxScrollState/);
+    assert.match(inboxScriptText, /restoreSavedInboxScrollState/);
+    assert.match(inboxScriptText, /bindScrollPersistence/);
+    assert.match(inboxScriptText, /userIsReadingPage/);
     assert.match(inboxScriptText, /windowDistanceFromBottom/);
     assert.match(inboxScriptText, /refreshInboxContent/);
     assert.match(inboxScriptText, /bindDirtyForms/);
@@ -148,7 +152,10 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxScriptText, /hasOpenWorkPanel/);
     assert.match(inboxScriptText, /Auto refresh apagado/);
     assert.match(inboxScriptText, /Pausado: cambios sin guardar/);
+    assert.match(inboxScriptText, /Pausado: estas leyendo/);
     assert.match(inboxScriptText, /Actualizado sin moverte/);
+    assert.match(inboxScriptText, /No se pudo actualizar/);
+    assert.doesNotMatch(inboxScriptText, /window\.location\.replace\(url\.toString\(\)\)/);
 
     const debug = await fetch("http://127.0.0.1:32131/debug/config", { headers: { Cookie: inboxCookie } });
     assert.equal(debug.status, 200);
