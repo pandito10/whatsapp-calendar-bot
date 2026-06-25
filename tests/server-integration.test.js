@@ -124,6 +124,9 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxScriptText, /bindInboxSoundControls/);
     assert.match(inboxScriptText, /playInboxNotificationSound/);
     assert.match(inboxScriptText, /Nuevo mensaje recibido/);
+    assert.match(inboxScriptText, /captureScrollState/);
+    assert.match(inboxScriptText, /restoreScrollState/);
+    assert.match(inboxScriptText, /windowDistanceFromBottom/);
     assert.match(inboxScriptText, /refreshInboxContent/);
     assert.match(inboxScriptText, /bindDirtyForms/);
     assert.match(inboxScriptText, /bindChatScrollButtons/);

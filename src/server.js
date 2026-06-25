@@ -1255,6 +1255,59 @@ function handleInboxScript(res) {
     return Boolean((composer && composer.value.trim()) || (attachment && attachment.files && attachment.files.length > 0) || anyFile);
   }
 
+  function captureScrollState() {
+    const scrollingElement = document.scrollingElement || document.documentElement;
+    const selectors = [
+      "aside",
+      ".chat",
+      ".patient-panel",
+      ".conversation-panels-body",
+      ".template-body",
+      ".mobile-info-grid",
+      ".crm-command-tags",
+      ".crm-command-actions",
+      ".quick-replies"
+    ];
+    return {
+      windowX: window.scrollX,
+      windowY: window.scrollY,
+      windowDistanceFromBottom: Math.max(
+        0,
+        scrollingElement.scrollHeight - scrollingElement.scrollTop - scrollingElement.clientHeight
+      ),
+      containers: selectors.map((selector) => ({
+        selector,
+        positions: Array.from(document.querySelectorAll(selector)).map((node) => ({
+          top: node.scrollTop,
+          left: node.scrollLeft
+        }))
+      }))
+    };
+  }
+
+  function restoreScrollState(state) {
+    if (!state) return;
+    state.containers.forEach(({ selector, positions }) => {
+      document.querySelectorAll(selector).forEach((node, index) => {
+        const position = positions[index];
+        if (!position) return;
+        node.scrollTop = position.top;
+        node.scrollLeft = position.left;
+      });
+    });
+    const restoreWindow = () => {
+      const scrollingElement = document.scrollingElement || document.documentElement;
+      const preserveBottom = state.windowDistanceFromBottom <= 180;
+      const nextY = preserveBottom
+        ? Math.max(0, scrollingElement.scrollHeight - scrollingElement.clientHeight - state.windowDistanceFromBottom)
+        : state.windowY;
+      window.scrollTo(state.windowX, nextY);
+    };
+    restoreWindow();
+    window.requestAnimationFrame(restoreWindow);
+    window.setTimeout(restoreWindow, 80);
+  }
+
   function userIsReadingOldMessages() {
     const messages = document.querySelector(".messages");
     if (!messages) return false;
@@ -1264,6 +1317,7 @@ function handleInboxScript(res) {
 
   async function refreshInboxContent() {
     const previousSignal = readInboxSignal();
+    const scrollState = captureScrollState();
     const url = new URL(window.location.href);
     url.searchParams.set("refresh", String(Date.now()));
 
@@ -1310,6 +1364,7 @@ function handleInboxScript(res) {
         refreshedMessages.scrollTop = refreshedMessages.scrollHeight;
       }
     }
+    restoreScrollState(scrollState);
   }
 
   function bindSmartRefresh() {
