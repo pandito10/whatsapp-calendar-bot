@@ -34,3 +34,20 @@ test("health reporta problema si la base requerida no esta disponible", () => {
   assert.ok(health.problems.includes("database_required_unavailable"));
   assert.equal(isOperationallyUnhealthy(health), true);
 });
+
+test("health marca degradado si Google Calendar configurado falla en reconciliacion", () => {
+  const health = buildOperationalHealth({
+    db: { ok: true, status: "ok" },
+    calendarReconciliation: {
+      at: "2026-06-25T18:40:18.554Z",
+      result: { checked: 0, orphaned: 0, errors: 1 }
+    }
+  });
+
+  assert.equal(health.app, "degraded");
+  assert.equal(health.ready, false);
+  assert.equal(health.checks.google, "error");
+  assert.ok(health.problems.includes("google_calendar_access_error"));
+  assert.ok(health.warnings.some((warning) => warning.includes("GOOGLE_REFRESH_TOKEN")));
+  assert.equal(isOperationallyUnhealthy(health), true);
+});
