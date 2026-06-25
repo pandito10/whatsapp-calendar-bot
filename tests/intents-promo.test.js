@@ -50,6 +50,27 @@ test("detecta featured_promo desde respuestas cortas de anuncios", () => {
   assert.equal(detectIntent("paquete 1200").intent, "featured_promo");
 });
 
+test("detecta featured_promo desde leads reales de anuncios", () => {
+  assert.equal(detectIntent("me podria brindar informacion").intent, "featured_promo");
+  assert.equal(detectIntent("me puedes dar mas informacion").intent, "featured_promo");
+  assert.equal(detectIntent("vi su publicacion").intent, "featured_promo");
+  assert.equal(detectIntent("me salio el anuncio").intent, "featured_promo");
+  assert.equal(detectIntent("quisiera informacion").intent, "featured_promo");
+});
+
+test("detecta featured_promo desde preguntas de que incluye", () => {
+  assert.equal(detectIntent("que contiene la promo").intent, "featured_promo");
+  assert.equal(detectIntent("que trae el chequeo").intent, "featured_promo");
+  assert.equal(detectIntent("que viene incluido").intent, "featured_promo");
+  assert.equal(detectIntent("en que consiste").intent, "featured_promo");
+});
+
+test("normaliza errores comunes de leads de promo", () => {
+  assert.equal(detectIntent("informasion de la promosion").intent, "featured_promo");
+  assert.equal(detectIntent("me intereza el pakete").intent, "featured_promo");
+  assert.equal(detectIntent("chekeo ginecologico completoo").intent, "featured_promo");
+});
+
 test("detecta promo_schedule cuando quieren agendar la promocion", () => {
   assert.equal(detectIntent("quiero agendar la promo").intent, "promo_schedule");
   assert.equal(detectIntent("apartar el paquete de 1200").intent, "promo_schedule");

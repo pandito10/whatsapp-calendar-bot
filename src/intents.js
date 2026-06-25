@@ -187,16 +187,34 @@ function normalizeWhatsAppWord(word) {
     condicion: "condiciones",
     presentarce: "presentarse",
     recomendasion: "recomendacion",
+    informasion: "informacion",
+    informasionn: "informacion",
+    informacionn: "informacion",
+    inf: "info",
+    interesada: "interesa",
+    interesado: "interesa",
+    interezada: "interesa",
+    interezado: "interesa",
+    intereza: "interesa",
+    interesaada: "interesa",
     prmocion: "promocion",
     promoicon: "promocion",
     promoion: "promocion",
     promcion: "promocion",
     promosion: "promocion",
+    promosiones: "promocion",
     paqutte: "paquete",
     pquete: "paquete",
     pakete: "paquete",
     paqete: "paquete",
     paq: "paquete",
+    chekeo: "chequeo",
+    cheqeo: "chequeo",
+    chequeoo: "chequeo",
+    ginecologicoo: "ginecologico",
+    ginecologicoa: "ginecologico",
+    ginecologicaa: "ginecologica",
+    completoo: "completo",
     docotra: "doctora",
     dctora: "doctora",
     dcotora: "doctora",
@@ -353,21 +371,37 @@ function isFeaturedPromoQuestion(text) {
   // Specific promo campaign triggers
   if (hasAny(text, [
     "vi el anuncio", "vi la promo", "vi la publicacion", "vi el post",
+    "vi su anuncio", "vi su publicacion", "vi una publicacion",
+    "me salio el anuncio", "me salio su anuncio", "vengo del anuncio",
     "facebook", "instagram", "meta ads", "meta ad",
-    "me interesa la promo", "me interesa el paquete",
+    "me interesa la promo", "me interesa el paquete", "me interesa informacion",
+    "me podria brindar informacion", "me podrias brindar informacion",
+    "me das informacion", "me puedes dar informacion", "me puedes dar mas informacion",
+    "me mandas informacion", "me puedes mandar informacion",
+    "me envias informacion", "me puedes enviar informacion", "quiero mas informacion",
+    "quiero saber mas", "quisiera informacion", "ocupo informacion",
     "chequeo ginecologico", "chequeo completo", "paquete ginecologico",
+    "chequeo ginecologico completo", "chequeo integral", "revision completa",
+    "consulta completa", "paquete completo", "paquete integral",
     "consulta con ultrasonido", "papanicolaou precio", "ultrasonido precio",
     "el de 1200", "los 1200", "cuanto incluye", "que incluye el paquete",
     "informacion de la promo", "info de la promo",
     "promocion del anuncio", "paquete del anuncio", "chequeo de 1200",
-    "promo 1200", "paquete 1200", "consulta de 1200", "chequeo completo 1200"
+    "promo 1200", "promocion 1200", "paquete 1200", "consulta de 1200",
+    "chequeo completo 1200", "que incluye la promo", "que trae la promo",
+    "que contiene la promo", "que tiene la promo", "que incluye promocion",
+    "que incluye el chequeo", "que trae el chequeo", "que contiene el paquete"
   ])) return true;
 
-  if (/^(?:me interesa|quiero informacion|quiero info|mas informacion|mas info|informacion|info)$/.test(text)) return true;
+  if (/^(?:me interesa|interesa|quiero informacion|quiero info|mas informacion|mas info|informacion|info|informes|precio|costo)$/.test(text)) return true;
+
+  if (
+    /\b(?:me|nos)\s+(?:podria|podrias|puede|puedes|pasa|pasas|da|das|dar|manda|mandas|mandar|envia|envias|enviar|brinda|brindas)\s+(?:mas\s+)?(?:info|informacion|informes)\b/.test(text)
+  ) return true;
 
   // "que incluye / que trae / de que se trata" without a specific non-promo service = asking about promo
   if (
-    /\b(?:que incluye|que trae|que tiene|de que se trata|en que consiste|que contiene)\b/.test(text) &&
+    /\b(?:que incluye|que trae|que tiene|de que trata|de que se trata|en que consiste|que contiene|que viene incluido|que lleva)\b/.test(text) &&
     !/\b(?:ultrasonido|papanicolaou|colposcopia|prenatal|consulta general)\b/.test(text)
   ) return true;
 
