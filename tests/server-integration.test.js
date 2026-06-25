@@ -133,6 +133,9 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxScriptText, /bindInboxSoundControls/);
     assert.match(inboxScriptText, /playInboxNotificationSound/);
     assert.match(inboxScriptText, /data-sound-test/);
+    assert.match(inboxScriptText, /createDynamicsCompressor/);
+    assert.match(inboxScriptText, /exponentialRampToValueAtTime\(0\.9/);
+    assert.match(inboxScriptText, /oscillator\.type = "square"/);
     assert.match(inboxScriptText, /Prueba de sonido enviada/);
     assert.match(inboxScriptText, /Nuevo mensaje recibido/);
     assert.match(inboxScriptText, /captureScrollState/);

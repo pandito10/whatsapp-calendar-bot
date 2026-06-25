@@ -1018,19 +1018,32 @@ function handleInboxScript(res) {
     const audio = ensureInboxSoundContext();
     if (!audio) return;
     const now = audio.currentTime;
-    const gain = audio.createGain();
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.42, now + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.82);
-    gain.connect(audio.destination);
+    const masterGain = audio.createGain();
+    masterGain.gain.setValueAtTime(0.0001, now);
+    masterGain.gain.exponentialRampToValueAtTime(0.9, now + 0.02);
+    masterGain.gain.setValueAtTime(0.9, now + 0.78);
+    masterGain.gain.exponentialRampToValueAtTime(0.0001, now + 1.08);
 
-    [880, 1175, 880].forEach((frequency, index) => {
+    const compressor = typeof audio.createDynamicsCompressor === "function" ? audio.createDynamicsCompressor() : null;
+    if (compressor) {
+      compressor.threshold.setValueAtTime(-18, now);
+      compressor.knee.setValueAtTime(18, now);
+      compressor.ratio.setValueAtTime(8, now);
+      compressor.attack.setValueAtTime(0.002, now);
+      compressor.release.setValueAtTime(0.18, now);
+      masterGain.connect(compressor);
+      compressor.connect(audio.destination);
+    } else {
+      masterGain.connect(audio.destination);
+    }
+
+    [988, 1568, 988, 1568].forEach((frequency, index) => {
       const oscillator = audio.createOscillator();
-      oscillator.type = "triangle";
-      oscillator.frequency.setValueAtTime(frequency, now + index * 0.2);
-      oscillator.connect(gain);
-      oscillator.start(now + index * 0.2);
-      oscillator.stop(now + index * 0.2 + 0.22);
+      oscillator.type = "square";
+      oscillator.frequency.setValueAtTime(frequency, now + index * 0.18);
+      oscillator.connect(masterGain);
+      oscillator.start(now + index * 0.18);
+      oscillator.stop(now + index * 0.18 + 0.14);
     });
   }
 
