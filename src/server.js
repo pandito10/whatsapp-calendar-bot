@@ -4535,6 +4535,11 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       gap: 12px;
       align-items: start;
     }
+    .crm-command-top-actions {
+      display: grid;
+      gap: 7px;
+      justify-items: end;
+    }
     .crm-command-eyebrow {
       display: block;
       color: #4a6a8a;
@@ -4598,11 +4603,18 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       padding: 8px 11px;
       font-size: 12px;
     }
-    body.compact-cards .crm-command {
-      margin: 8px 20px 0;
-      padding: 10px 12px;
+    .compact-card-close {
+      align-self: start;
+      justify-self: end;
+      padding: 7px 10px;
+      font-size: 11px;
+      border-radius: 999px;
+      box-shadow: none;
+      white-space: nowrap;
     }
-    body.compact-cards .crm-command p,
+    body.compact-cards .crm-command,
+    body.compact-cards .conversation-panels,
+    body.compact-cards .composer-email-action,
     body.compact-cards .crm-smart-actions,
     body.compact-cards .patient-signal-strip {
       display: none;
@@ -6127,7 +6139,10 @@ function renderCrmCommandCenter(selected, { csrf, selectedPhone, selectedStatus,
         <strong>${escapeHtml(action.title)}</strong>
         <p>${escapeHtml(action.detail)}</p>
       </div>
-      <span class="temperature-pill ${escapeHtml(temperature.className)}">${escapeHtml(temperature.label)}</span>
+      <div class="crm-command-top-actions">
+        <span class="temperature-pill ${escapeHtml(temperature.className)}">${escapeHtml(temperature.label)}</span>
+        <button type="button" class="button-secondary compact-card-close view-toggle" data-toggle-compact-cards aria-pressed="false">Minimizar</button>
+      </div>
     </div>
     <div class="crm-command-footer">
       <div class="crm-command-tags">
