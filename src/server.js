@@ -7218,6 +7218,12 @@ async function handleIncomingText(from, text, options = {}) {
       return;
     }
 
+    if (isEmailCorrectionNotice(normalized)) {
+      await setPatientSession(from, session);
+      await replyToPatient(from, "Claro 😊 Mandame el correo correcto y actualizo la cita antes de confirmarla.");
+      return;
+    }
+
     if (parsed.preferredDateText) {
       await setPatientSession(from, {
         ...session,
@@ -8439,6 +8445,10 @@ function isSafeActiveSessionFaqIntent(intent) {
 }
 
 function shouldLetAppointmentFlowUseReply(text, intent, session) {
+  if (session?.step === "collectingPaymentType") {
+    return ["insurance_network", "payment_methods"].includes(intent) || isLikelyPaymentTypeChoice(text);
+  }
+
   if (session?.step !== "collectingService") return false;
   if (!["promotion", "featured_promo", "medical_services"].includes(intent)) return false;
 
@@ -8451,6 +8461,20 @@ function isLikelyServiceChoice(text) {
     /^(?:promo|promocion|paquete|paquete promocional|1200)\s*$/.test(text) ||
     /^(?:ultrasonido|ultra|papanicolaou|papanicolau|papanicolao|colposcopia|colposkopia|colpo|control prenatal|embarazo|otro|otro motivo|otro motivo general)\s*$/.test(text) ||
     /\b(?:quiero|necesito|ocupo|voy por|agendar|hacer|sacar|reservar)\b.*\b(?:consulta|cita|promo|promocion|ultrasonido|papanicolaou|colposcopia|control prenatal)\b/.test(text)
+  );
+}
+
+function isLikelyPaymentTypeChoice(text) {
+  return (
+    /^(?:particular|privado|privada|red medica|red médica|red|aseguradora|aseguradoras|seguro|gastos medicos|gastos médicos|axa|gnp|metlife|bupa|seguros monterrey|monterrey)\s*$/.test(text) ||
+    /\b(?:vengo|voy|es|sera|seria|consulta|cita)\b.*\b(?:particular|privado|privada|red medica|red médica|aseguradora|seguro|gastos medicos|gastos médicos)\b/.test(text)
+  );
+}
+
+function isEmailCorrectionNotice(text) {
+  return (
+    /\b(?:correo|email|mail|gmail)\b/.test(text) &&
+    /\b(?:mal|equivocado|equivocada|incorrecto|incorrecta|corregir|corrige|correccion|cambiar|cambio|puse mal|esta mal|lo puse mal)\b/.test(text)
   );
 }
 
