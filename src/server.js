@@ -1099,11 +1099,12 @@ function handleInboxScript(res) {
   }
 
   function applyInboxViewState() {
+    const hasSelection = document.body.classList.contains("has-selection");
     const states = {
-      chatFocus: getInboxStorage("inboxChatFocus") === "on",
+      chatFocus: hasSelection && getInboxStorage("inboxChatFocus") === "on",
       compactCards: getInboxStorage("inboxCompactCards") === "on",
-      hideSidebar: getInboxStorage("inboxHideSidebar") === "on",
-      hidePatientPanel: getInboxStorage("inboxHidePatientPanel") === "on"
+      hideSidebar: hasSelection && getInboxStorage("inboxHideSidebar") === "on",
+      hidePatientPanel: hasSelection && getInboxStorage("inboxHidePatientPanel") === "on"
     };
     document.body.classList.toggle("chat-focus", states.chatFocus);
     document.body.classList.toggle("compact-cards", states.compactCards);
@@ -5661,6 +5662,16 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       body.compact-cards .conversation-panels,
       body.compact-cards .mobile-patient-sheet {
         display: none;
+      }
+      body.no-selection main > aside:not(.patient-panel) {
+        display: block !important;
+      }
+      body.no-selection .chat,
+      body.no-selection .patient-panel {
+        display: none !important;
+      }
+      body.no-selection .metric-strip {
+        display: flex !important;
       }
       .knowledge { display: none; }
     }

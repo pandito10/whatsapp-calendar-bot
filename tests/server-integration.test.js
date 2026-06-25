@@ -102,6 +102,8 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxHtml, /<span>Sin responder<\/span>/);
     assert.match(inboxHtml, /body\.chat-focus/);
     assert.match(inboxHtml, /body\.compact-cards/);
+    assert.match(inboxHtml, /body\.no-selection main > aside:not\(\.patient-panel\)[\s\S]*display: block !important;/);
+    assert.match(inboxHtml, /body\.no-selection \.metric-strip[\s\S]*display: flex !important;/);
     assert.match(inboxHtml, /@media \(max-width: 780px\)[\s\S]*\.metric-strip \{[\s\S]*display: flex;/);
     assert.match(inboxHtml, /\.results-email-modal:target/);
     assert.doesNotMatch(inboxHtml, /http-equiv="refresh"/);
@@ -148,6 +150,7 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxScriptText, /inboxCompactCards/);
     assert.match(inboxScriptText, /inboxHideSidebar/);
     assert.match(inboxScriptText, /inboxHidePatientPanel/);
+    assert.match(inboxScriptText, /const hasSelection = document\.body\.classList\.contains\("has-selection"\)/);
     assert.match(inboxScriptText, /hasDirtyForm/);
     assert.match(inboxScriptText, /hasOpenWorkPanel/);
     assert.match(inboxScriptText, /Auto refresh apagado/);
