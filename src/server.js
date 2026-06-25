@@ -1,5 +1,6 @@
 import http from "node:http";
 import crypto from "node:crypto";
+import zlib from "node:zlib";
 import { URL } from "node:url";
 import { readFile } from "node:fs/promises";
 import { understandMessage, transcribeAudio } from "./ai.js";
@@ -275,6 +276,7 @@ const serviceOptionRows = [
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
+    enableResponseCompression(req, res);
     setSecurityHeaders(res);
 
     if (!checkRateLimit(req, url)) {
@@ -10298,6 +10300,41 @@ function isValidWebhookSignature(req, rawBody) {
     signatureHeader: req.headers["x-hub-signature-256"],
     rawBody
   });
+}
+
+const COMPRESSIBLE_CONTENT_TYPE = /^(text\/|application\/javascript|application\/json)/i;
+
+function enableResponseCompression(req, res) {
+  if (!/\bgzip\b/.test(String(req.headers["accept-encoding"] ?? ""))) return;
+
+  const originalWriteHead = res.writeHead.bind(res);
+  const originalEnd = res.end.bind(res);
+  let pendingStatus;
+
+  res.writeHead = function patchedWriteHead(statusCode, headers) {
+    pendingStatus = statusCode;
+    if (headers) Object.entries(headers).forEach(([key, value]) => res.setHeader(key, value));
+    return res;
+  };
+
+  res.end = function patchedEnd(chunk, encoding, callback) {
+    const isBodyChunk = typeof chunk === "string" || Buffer.isBuffer(chunk);
+    if (isBodyChunk) {
+      const contentType = String(res.getHeader("Content-Type") ?? "");
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, typeof encoding === "string" ? encoding : "utf-8");
+      if (!res.getHeader("Content-Encoding") && buffer.length >= 512 && COMPRESSIBLE_CONTENT_TYPE.test(contentType)) {
+        const compressed = zlib.gzipSync(buffer);
+        res.setHeader("Content-Encoding", "gzip");
+        res.setHeader("Content-Length", compressed.length);
+        if (pendingStatus !== undefined) originalWriteHead(pendingStatus);
+        return originalEnd(compressed, callback);
+      }
+      if (pendingStatus !== undefined) originalWriteHead(pendingStatus);
+      return originalEnd(buffer, callback);
+    }
+    if (pendingStatus !== undefined) originalWriteHead(pendingStatus);
+    return originalEnd(chunk, encoding, callback);
+  };
 }
 
 function setSecurityHeaders(res) {
