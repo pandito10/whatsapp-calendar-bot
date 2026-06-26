@@ -81,11 +81,19 @@ test("detecta cancelar, reagendar y humano", () => {
   assert.equal(detectIntent("necesito otra hora para mi cita").intent, "reschedule_appointment");
   assert.equal(detectIntent("ocupo hablar con alguien").intent, "direct_contact");
   assert.equal(detectIntent("me pasas con una asesora").intent, "direct_contact");
+  assert.equal(detectIntent("quiero hablar con la doctora").intent, "direct_contact");
 });
 
 test("detecta paciente nueva con variaciones reales", () => {
   assert.equal(detectIntent("soy nueva").intent, "new_patient");
   assert.equal(detectIntent("voy por primera vez").intent, "new_patient");
+});
+
+test("detecta informacion de la doctora sin mandar a fallback", () => {
+  assert.equal(detectIntent("Como se llama el doctor").intent, "doctor_info");
+  assert.equal(detectIntent("como se llama la doctora").intent, "doctor_info");
+  assert.equal(detectIntent("quien es la ginecologa").intent, "doctor_info");
+  assert.equal(detectIntent("Dra Blanca Carranza").intent, "doctor_info");
 });
 
 test("prioriza urgencia medica", () => {
@@ -100,6 +108,7 @@ test("detecta cierres sin seguir empujando el flujo", () => {
   assert.equal(detectIntent("de acuerdo").intent, "closing");
   assert.equal(detectIntent("quedó bien").intent, "closing");
   assert.equal(detectIntent("ya tengo mi cita gracias").intent, "closing");
+  assert.equal(detectIntent("Gracias 😊").intent, "closing");
 });
 
 test("marca desconocidos con categoria aproximada", () => {

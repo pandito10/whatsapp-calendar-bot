@@ -63,6 +63,7 @@ export function detectIntent(value) {
       "duracion", "cuanto dura", "cuanto tiempo dura", "cuanto tiempo es",
       "cuanto tardan", "tardan", "40 minutos"
     ])],
+    ["doctor_info", () => isDoctorInfoQuestion(text)],
     ["new_patient", () => hasAny(text, [
       "primera vez", "paciente nueva", "primera consulta", "nunca he ido",
       "nuevo paciente", "nueva paciente", "es mi primera vez", "soy nueva",
@@ -284,8 +285,21 @@ function isGreetingQuestion(text) {
 }
 
 function isConversationClosing(text) {
-  return /^(?:gracias|muchas gracias|ok gracias|okay gracias|listo gracias|perfecto gracias|esta bien gracias|sale gracias|va gracias|ya gracias|no gracias|por ahora no|seria todo|eso es todo|listo|ok|okay|va|sale|perfecto|todo bien|esta bien|si esta bien|si esta correcto|todo esta bien|ok esta bien|okay esta bien|de acuerdo|entendido|quedo bien|queda bien|asi esta bien|muchas gracias eso es todo|gracias eso seria todo)$/.test(text) ||
-    /\b(?:ya tengo|ya quedo|ya esta)\s+(?:mi\s+)?cita\b.*\b(?:gracias|listo|perfecto|ok|sale)\b/.test(text);
+  const cleanText = text.replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  return /^(?:gracias|muchas gracias|ok gracias|okay gracias|listo gracias|perfecto gracias|esta bien gracias|sale gracias|va gracias|ya gracias|no gracias|por ahora no|seria todo|eso es todo|listo|ok|okay|va|sale|perfecto|todo bien|esta bien|si esta bien|si esta correcto|todo esta bien|ok esta bien|okay esta bien|de acuerdo|entendido|quedo bien|queda bien|asi esta bien|muchas gracias eso es todo|gracias eso seria todo)$/.test(cleanText) ||
+    /\b(?:ya tengo|ya quedo|ya esta)\s+(?:mi\s+)?cita\b.*\b(?:gracias|listo|perfecto|ok|sale)\b/.test(cleanText);
+}
+
+function isDoctorInfoQuestion(text) {
+  if (/\b(?:hablar|pasame|pasa|quiero hablar|contactar|llamar)\b.*\b(?:doctora|doctor|dra|dr)\b/.test(text)) {
+    return false;
+  }
+
+  return (
+    /\b(?:como se llama|nombre|quien es|quien atiende|quien consulta|que doctora|que doctor)\b.*\b(?:doctora|doctor|dra|dr|ginecologa|ginecologo)\b/.test(text) ||
+    /\b(?:doctora|doctor|dra|dr|ginecologa|ginecologo)\b.*\b(?:como se llama|nombre|quien es|quien atiende)\b/.test(text) ||
+    /\b(?:dra|doctora)\s+blanca\s+carranza\b/.test(text)
+  );
 }
 
 function isCancellationRequest(text) {

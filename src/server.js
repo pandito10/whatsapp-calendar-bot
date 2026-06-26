@@ -8625,6 +8625,15 @@ async function sendFaqResponseWithButtons(from, intent, answer) {
     return;
   }
 
+  if (intent === "doctor_info") {
+    await replyToPatientWithButtons(from, answer, [
+      { id: "promo_schedule", title: "Agendar" },
+      { id: "promo_includes", title: "Que incluye" },
+      { id: "location", title: "Ubicacion" }
+    ]);
+    return;
+  }
+
   if (intent === "medical_services") {
     await replyToPatientWithButtons(from, answer, [
       { id: "promo_schedule", title: "Agendar" },
@@ -8646,6 +8655,12 @@ async function sendLocationResponse(to) {
 }
 
 async function handlePromoOfferReply(from, text, intent) {
+  if (intent === "closing") {
+    await deletePatientSession(from);
+    await replyToPatient(from, getIntentResponse("closing"));
+    return;
+  }
+
   if (
     text === "agendar promo" ||
     intent === "promo_schedule" ||
@@ -8701,6 +8716,11 @@ async function handlePromoOfferReply(from, text, intent) {
         { id: "talk_human", title: "Humano" }
       ]
     );
+    return;
+  }
+
+  if (intent === "doctor_info") {
+    await sendFaqResponseWithButtons(from, "doctor_info", getIntentResponse("doctor_info"));
     return;
   }
 
@@ -9155,7 +9175,8 @@ function isSafeActiveSessionFaqIntent(intent) {
     "appointment_duration",
     "medical_services",
     "invoice",
-    "contact_info"
+    "contact_info",
+    "doctor_info"
   ]).has(intent);
 }
 
@@ -10413,6 +10434,7 @@ function getIntentResponse(intent) {
     schedule_appointment: "😊 Claro, te ayudo a agendar tu cita.\n\n¿Me compartes tu nombre completo?",
     check_availability: "🕒 Claro. ¿Para que dia te gustaria revisar disponibilidad?\n\nPuedes decirme, por ejemplo: hoy, manana, viernes o una fecha especifica.",
     closing: "😊 Con gusto. Si necesitas algo mas, aqui estoy para ayudarte.",
+    doctor_info: "La consulta la atiende la Dra. Blanca Carranza 😊\n\nPuedo ayudarte a agendar, explicarte la promocion o pasarte la ubicacion del consultorio.",
     appointment_preparation: [
       "⏱️ Cada cita dura aproximadamente 40 minutos.",
       "",

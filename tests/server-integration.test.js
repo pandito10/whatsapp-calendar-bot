@@ -400,6 +400,49 @@ test("FAQ administrativa en flujo activo responde y permite continuar la cita", 
   }
 });
 
+test("flujo de promocion responde doctora y cierra con gracias", async () => {
+  const appSecret = "app-secret-test";
+  const patientPhone = "5214778811555";
+  const app = await startServer(32145, {
+    ...baseEnv,
+    NODE_ENV: "test",
+    WHATSAPP_APP_SECRET: appSecret,
+    REQUIRE_WEBHOOK_SIGNATURE: "true",
+    ALLOW_UNSIGNED_WEBHOOKS: "false",
+    WHATSAPP_SEND_DRY_RUN: "true"
+  });
+
+  async function sendText(id, text) {
+    const payload = buildTextPayload({ from: patientPhone, id, text });
+    const response = await fetch("http://127.0.0.1:32145/webhook/123456789012345678901234567890", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Hub-Signature-256": signPayload(appSecret, payload)
+      },
+      body: payload
+    });
+    assert.equal(response.status, 200);
+  }
+
+  try {
+    await sendText("wamid.doctor-info-1", "informes");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*555/g, 1);
+    await sendText("wamid.doctor-info-2", "Como se llama el doctor");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*555/g, 2);
+    await sendText("wamid.doctor-info-3", "Gracias 😊");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*555/g, 3);
+
+    const inboxCookie = await loginInbox(32145, baseEnv.INBOX_PASSWORD);
+    const inboxHtml = await (await fetch(`http://127.0.0.1:32145/inbox?phone=${patientPhone}`, { headers: { Cookie: inboxCookie } })).text();
+    assert.match(inboxHtml, /Dra\. Blanca Carranza/);
+    assert.match(inboxHtml, /Si necesitas algo mas/);
+    assert.doesNotMatch(inboxHtml, /Te ayudo[\s\S]*Quieres agendar la promocion, ver que incluye o hablar con una persona\?/);
+  } finally {
+    await app.stop();
+  }
+});
+
 test("respuesta particular en flujo activo avanza a pedir fecha y no dispara FAQ de red medica", async () => {
   const appSecret = "app-secret-test";
   const patientPhone = "5214778811777";
