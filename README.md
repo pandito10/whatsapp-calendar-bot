@@ -380,7 +380,18 @@ WHATSAPP_RESCHEDULE_TEMPLATE=reagenda_cita
 WHATSAPP_TEMPLATE_LANGUAGE=es_MX
 ```
 
-Los templates actuales reciben dos variables en el cuerpo: nombre del paciente y fecha/hora de la cita. Si tu template usa otro orden o mas variables, ajusta `sendReminder` antes de activarlo.
+Variables que usa cada plantilla:
+
+| Plantilla | Variables |
+| --- | --- |
+| `retomar_conversacion` | `{{1}}` nombre corto |
+| `resultados_enviados_correo` | `{{1}}` nombre corto, `{{2}}` correo enmascarado |
+| `recordatorio_cita_24h` | `{{1}}` nombre, `{{2}}` fecha/hora |
+| `recordatorio_cita_2h` | `{{1}}` nombre, `{{2}}` hora |
+| `cancelacion_cita` | `{{1}}` nombre |
+| `reagenda_cita` | `{{1}}` nombre corto |
+
+Si tu template usa otro orden o mas variables, ajusta `buildInboxMetaTemplate` y/o `sendReminder` antes de activarlo.
 
 Para pacientes reales, manten `ENABLE_REMINDER_WORKER=false` hasta tener templates aprobados y probados. Los recordatorios a pacientes con templates quedan como segunda fase operativa segura.
 
@@ -395,13 +406,23 @@ Plantillas sugeridas para crear en Meta Business Manager:
 
 Desde el inbox aparece una seccion "Plantillas Meta". Si la ventana de 24 horas ya cerro, usa esos botones en lugar de texto libre. Si una plantilla aparece como "Falta ...", primero crea y aprueba la plantilla en Meta y luego coloca el nombre exacto en Render.
 
+Primero puedes revisar lo que se va a mandar a Meta, sin crear nada:
+
+```bash
+WHATSAPP_BUSINESS_ACCOUNT_ID=tu_waba_id \
+WHATSAPP_TOKEN=tu_token_con_management \
+node scripts/create-whatsapp-templates.js --dry-run
+```
+
 Si tienes un token con permiso `whatsapp_business_management`, puedes crear las plantillas sugeridas con:
 
 ```bash
 WHATSAPP_BUSINESS_ACCOUNT_ID=tu_waba_id \
-WHATSAPP_ACCESS_TOKEN=tu_token_con_management \
+WHATSAPP_TOKEN=tu_token_con_management \
 node scripts/create-whatsapp-templates.js
 ```
+
+`WHATSAPP_ACCESS_TOKEN` todavia funciona como fallback legacy, pero usa `WHATSAPP_TOKEN` para evitar confusiones con el token activo del bot.
 
 Despues de que Meta las apruebe, en Render configura los nombres exactos:
 
@@ -579,6 +600,7 @@ WHATSAPP_REMINDER_TEMPLATE_24H=
 WHATSAPP_REMINDER_TEMPLATE_2H=
 WHATSAPP_REENGAGEMENT_TEMPLATE=
 WHATSAPP_RESULTS_EMAIL_TEMPLATE=
+WHATSAPP_CANCELLATION_TEMPLATE=
 WHATSAPP_RESCHEDULE_TEMPLATE=
 WHATSAPP_TEMPLATE_LANGUAGE=es_MX
 ```

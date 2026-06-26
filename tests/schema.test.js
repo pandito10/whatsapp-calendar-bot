@@ -19,6 +19,7 @@ test("indice unico de citas confirmadas solo bloquea slots con google_event_id",
 test("render y README documentan plantillas Meta operativas", () => {
   const renderYaml = readFileSync(`${repoRoot}/render.yaml`, "utf8");
   const readme = readFileSync(`${repoRoot}/README.md`, "utf8");
+  const templateScript = readFileSync(`${repoRoot}/scripts/create-whatsapp-templates.js`, "utf8");
 
   for (const key of [
     "WHATSAPP_REENGAGEMENT_TEMPLATE",
@@ -34,8 +35,16 @@ test("render y README documentan plantillas Meta operativas", () => {
   }
 
   assert.match(readme, /scripts\/create-whatsapp-templates\.js/);
+  assert.match(readme, /WHATSAPP_TOKEN=tu_token_con_management/);
+  assert.match(readme, /--dry-run/);
+  assert.match(readme, /Variables que usa cada plantilla/);
   assert.match(readme, /cancelacion_cita/);
   assert.match(readme, /reagenda_cita/);
+
+  assert.match(templateScript, /WHATSAPP_TOKEN/);
+  assert.match(templateScript, /WHATSAPP_ACCESS_TOKEN/);
+  assert.match(templateScript, /--dry-run/);
+  assert.match(templateScript, /printRenderEnvChecklist/);
 });
 
 test("schema incluye CRM persistente de pacientes", () => {

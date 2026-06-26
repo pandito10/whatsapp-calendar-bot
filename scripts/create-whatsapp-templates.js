@@ -1,17 +1,25 @@
 #!/usr/bin/env node
 // scripts/create-whatsapp-templates.js
 // Crea las plantillas operativas seguras en WhatsApp Business Cloud API.
-// Uso: WHATSAPP_BUSINESS_ACCOUNT_ID=xxx WHATSAPP_ACCESS_TOKEN=yyy node scripts/create-whatsapp-templates.js
+// Uso:
+//   WHATSAPP_BUSINESS_ACCOUNT_ID=xxx WHATSAPP_TOKEN=yyy node scripts/create-whatsapp-templates.js
+//   WHATSAPP_BUSINESS_ACCOUNT_ID=xxx WHATSAPP_TOKEN=yyy node scripts/create-whatsapp-templates.js --dry-run
 
-const { WHATSAPP_BUSINESS_ACCOUNT_ID, WHATSAPP_ACCESS_TOKEN } = process.env;
+const { WHATSAPP_BUSINESS_ACCOUNT_ID, WHATSAPP_TOKEN, WHATSAPP_ACCESS_TOKEN } = process.env;
+const WHATSAPP_MANAGEMENT_TOKEN = WHATSAPP_TOKEN || WHATSAPP_ACCESS_TOKEN;
+const tokenSource = WHATSAPP_TOKEN ? "WHATSAPP_TOKEN" : "WHATSAPP_ACCESS_TOKEN";
+const dryRun = process.argv.includes("--dry-run");
 
 if (!WHATSAPP_BUSINESS_ACCOUNT_ID) {
   console.error("❌  Falta WHATSAPP_BUSINESS_ACCOUNT_ID");
   process.exit(1);
 }
-if (!WHATSAPP_ACCESS_TOKEN) {
-  console.error("❌  Falta WHATSAPP_ACCESS_TOKEN  (necesita permiso whatsapp_business_management)");
+if (!WHATSAPP_MANAGEMENT_TOKEN) {
+  console.error("❌  Falta WHATSAPP_TOKEN  (necesita permiso whatsapp_business_management)");
   process.exit(1);
+}
+if (WHATSAPP_TOKEN && WHATSAPP_ACCESS_TOKEN && WHATSAPP_TOKEN !== WHATSAPP_ACCESS_TOKEN) {
+  console.warn("⚠️  WHATSAPP_TOKEN y WHATSAPP_ACCESS_TOKEN existen y son distintos. Usare WHATSAPP_TOKEN.");
 }
 
 const ENDPOINT = `https://graph.facebook.com/v25.0/${WHATSAPP_BUSINESS_ACCOUNT_ID}/message_templates`;
@@ -150,7 +158,7 @@ async function createTemplate(template) {
   const response = await fetch(ENDPOINT, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${WHATSAPP_ACCESS_TOKEN}`,
+      Authorization: `Bearer ${WHATSAPP_MANAGEMENT_TOKEN}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify(template)
@@ -167,7 +175,16 @@ async function createTemplate(template) {
 }
 
 async function main() {
-  console.log(`\n📋  Creando ${TEMPLATES.length} plantillas en cuenta ${maskIdentifier(WHATSAPP_BUSINESS_ACCOUNT_ID)}...\n`);
+  console.log(`\n📋  ${dryRun ? "Revisando" : "Creando"} ${TEMPLATES.length} plantillas en cuenta ${maskIdentifier(WHATSAPP_BUSINESS_ACCOUNT_ID)} con ${tokenSource}...\n`);
+
+  if (dryRun) {
+    for (const template of TEMPLATES) {
+      console.log(`  • ${template.name} (${template.category}, ${template.language})`);
+      console.log(`    ${template.components.find((component) => component.type === "BODY")?.text ?? ""}`);
+    }
+    printRenderEnvChecklist();
+    return;
+  }
 
   const results = [];
 
@@ -208,9 +225,21 @@ async function main() {
   if (created.length > 0) {
     console.log("\n⏱️  Las plantillas UTILITY suelen aprobarse en minutos.");
     console.log("   Verifica su estado en: https://business.facebook.com/wa/manage/message-templates/");
+    printRenderEnvChecklist();
   }
 
   console.log("");
+}
+
+function printRenderEnvChecklist() {
+  console.log("\nVariables para Render cuando Meta las apruebe:");
+  console.log("  WHATSAPP_REENGAGEMENT_TEMPLATE=retomar_conversacion");
+  console.log("  WHATSAPP_RESULTS_EMAIL_TEMPLATE=resultados_enviados_correo");
+  console.log("  WHATSAPP_REMINDER_TEMPLATE_24H=recordatorio_cita_24h");
+  console.log("  WHATSAPP_REMINDER_TEMPLATE_2H=recordatorio_cita_2h");
+  console.log("  WHATSAPP_CANCELLATION_TEMPLATE=cancelacion_cita");
+  console.log("  WHATSAPP_RESCHEDULE_TEMPLATE=reagenda_cita");
+  console.log("  WHATSAPP_TEMPLATE_LANGUAGE=es_MX");
 }
 
 function maskIdentifier(value) {
