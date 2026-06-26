@@ -122,6 +122,8 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(toolsHtml, /data-sound-label="yesno"/);
     assert.match(toolsHtml, /data-sound-test/);
     assert.match(toolsHtml, /Probar sonido fuerte/);
+    assert.match(toolsHtml, /alerta fuerte doble/);
+    assert.match(toolsHtml, /permiso de notificaciones/);
 
     const inboxScript = await fetch("http://127.0.0.1:32131/inbox.js");
     assert.equal(inboxScript.status, 200);
@@ -132,10 +134,15 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxScriptText, /bindSmartRefresh/);
     assert.match(inboxScriptText, /bindInboxSoundControls/);
     assert.match(inboxScriptText, /playInboxNotificationSound/);
+    assert.match(inboxScriptText, /requestInboxNotificationPermission/);
+    assert.match(inboxScriptText, /showInboxBrowserNotification/);
+    assert.match(inboxScriptText, /alertInboxNewPatientMessage/);
+    assert.match(inboxScriptText, /new window\.Notification/);
     assert.match(inboxScriptText, /data-sound-test/);
     assert.match(inboxScriptText, /createDynamicsCompressor/);
     assert.match(inboxScriptText, /exponentialRampToValueAtTime\(0\.9/);
     assert.match(inboxScriptText, /oscillator\.type = "square"/);
+    assert.match(inboxScriptText, /double: true/);
     assert.match(inboxScriptText, /Prueba de sonido enviada/);
     assert.match(inboxScriptText, /Nuevo mensaje recibido/);
     assert.match(inboxScriptText, /captureScrollState/);

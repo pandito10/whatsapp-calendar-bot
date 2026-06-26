@@ -1045,6 +1045,9 @@ function handleInboxScript(res) {
       oscillator.start(now + index * 0.18);
       oscillator.stop(now + index * 0.18 + 0.14);
     });
+    if (options.double) {
+      window.setTimeout(() => playInboxNotificationSound({ force: true }), 1180);
+    }
   }
 
   function readInboxSignal() {
@@ -1056,6 +1059,35 @@ function handleInboxScript(res) {
     };
   }
 
+  function requestInboxNotificationPermission() {
+    if (!("Notification" in window)) return;
+    if (window.Notification.permission === "default") {
+      window.Notification.requestPermission().catch(() => {});
+    }
+  }
+
+  function showInboxBrowserNotification() {
+    if (!("Notification" in window) || window.Notification.permission !== "granted") return;
+    try {
+      const notification = new window.Notification("Nuevo mensaje en el inbox", {
+        body: "Hay un paciente esperando respuesta.",
+        tag: "whatsapp-calendar-bot-inbox"
+      });
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+      };
+    } catch {
+      // Some mobile browsers do not allow web notifications from regular tabs.
+    }
+  }
+
+  function alertInboxNewPatientMessage() {
+    playInboxNotificationSound({ double: true });
+    showInboxBrowserNotification();
+    updateRefreshStatus("Nuevo mensaje recibido");
+  }
+
   function bindInboxSoundControls() {
     updateInboxSoundControls();
     document.querySelectorAll("[data-sound-toggle]").forEach((button) => {
@@ -1064,7 +1096,8 @@ function handleInboxScript(res) {
         setInboxStorage("inboxSoundEnabled", enabled ? "on" : "off");
         if (enabled) {
           ensureInboxSoundContext();
-          playInboxNotificationSound();
+          requestInboxNotificationPermission();
+          playInboxNotificationSound({ double: true });
           updateRefreshStatus("Sonido activado");
         } else {
           updateRefreshStatus("Sonido apagado");
@@ -1076,7 +1109,8 @@ function handleInboxScript(res) {
       button.addEventListener("click", () => {
         setInboxStorage("inboxSoundEnabled", "on");
         ensureInboxSoundContext();
-        playInboxNotificationSound({ force: true });
+        requestInboxNotificationPermission();
+        playInboxNotificationSound({ force: true, double: true });
         updateInboxSoundControls();
         updateRefreshStatus("Prueba de sonido enviada");
       });
@@ -1466,8 +1500,7 @@ function handleInboxScript(res) {
 
     const nextSignal = readInboxSignal();
     if (nextSignal.patientMessages > previousSignal.patientMessages) {
-      playInboxNotificationSound();
-      updateRefreshStatus("Nuevo mensaje recibido");
+      alertInboxNewPatientMessage();
     }
 
     const refreshedMessages = document.querySelector(".messages");
@@ -6419,12 +6452,12 @@ function renderCancelDaySection(csrf) {
 function renderInboxSoundSection() {
   return `<div class="diagnostics-card" style="margin-top:0">
     <h2>Sonido de nuevos mensajes</h2>
-    <p>Activalo una vez en este celular o computadora. Cuando entre un mensaje nuevo con el inbox abierto, sonara una alerta fuerte.</p>
+    <p>Activalo una vez en este celular o computadora. Cuando entre un mensaje nuevo con el inbox abierto, sonara una alerta fuerte doble y, si el navegador lo permite, tambien mostrara una notificacion.</p>
     <div class="template-grid">
       <button class="button-secondary sound-toggle warn" type="button" data-sound-toggle data-sound-label="yesno" aria-pressed="false">Sonido: No</button>
       <button type="button" data-sound-test>Probar sonido fuerte</button>
     </div>
-    <p class="tiny-help">En iPhone y Chrome el sonido solo puede activarse despues de tocar un boton.</p>
+    <p class="tiny-help">En iPhone y Chrome el sonido solo puede activarse despues de tocar un boton. Si aparece permiso de notificaciones, acepta para recibir avisos del inbox.</p>
   </div>`;
 }
 
