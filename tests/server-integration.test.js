@@ -443,6 +443,45 @@ test("flujo de promocion responde doctora y cierra con gracias", async () => {
   }
 });
 
+test("solicitud de persona pausa el bot sin prometer ayuda automatica", async () => {
+  const appSecret = "app-secret-test";
+  const patientPhone = "5214778811666";
+  const app = await startServer(32146, {
+    ...baseEnv,
+    NODE_ENV: "test",
+    WHATSAPP_APP_SECRET: appSecret,
+    REQUIRE_WEBHOOK_SIGNATURE: "true",
+    ALLOW_UNSIGNED_WEBHOOKS: "false",
+    WHATSAPP_SEND_DRY_RUN: "true"
+  });
+
+  try {
+    const payload = buildTextPayload({
+      from: patientPhone,
+      id: "wamid.human-handoff-1",
+      text: "quiero hablar con una persona"
+    });
+    const response = await fetch("http://127.0.0.1:32146/webhook/123456789012345678901234567890", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Hub-Signature-256": signPayload(appSecret, payload)
+      },
+      body: payload
+    });
+    assert.equal(response.status, 200);
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*666/g, 1);
+
+    const inboxCookie = await loginInbox(32146, baseEnv.INBOX_PASSWORD);
+    const inboxHtml = await (await fetch(`http://127.0.0.1:32146/inbox?phone=${patientPhone}`, { headers: { Cookie: inboxCookie } })).text();
+    assert.match(inboxHtml, /bot quedara en pausa/i);
+    assert.match(inboxHtml, /Modo humano activo/);
+    assert.doesNotMatch(inboxHtml, /Mientras tanto, tambien puedo ayudarte automaticamente/);
+  } finally {
+    await app.stop();
+  }
+});
+
 test("respuesta particular en flujo activo avanza a pedir fecha y no dispara FAQ de red medica", async () => {
   const appSecret = "app-secret-test";
   const patientPhone = "5214778811777";

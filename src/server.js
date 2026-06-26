@@ -10464,7 +10464,7 @@ function getIntentResponse(intent) {
     patient_results:
       `${RESULTS_PRIVACY_TEXT}\n\nYa deje tu solicitud marcada para revision en el inbox.\n\n${MEDICAL_URGENCY_TEXT}`,
     direct_contact:
-      "Claro 😊 Ya deje esta conversacion para revision del consultorio.\n\nMientras tanto, tambien puedo ayudarte automaticamente con citas, horarios, ubicacion, costos, promo, pagos, preparacion o resultados.\n\nSi es una urgencia medica, acude a urgencias o llama a los servicios de emergencia de tu localidad.",
+      "Claro 😊 Ya deje esta conversacion para revision del consultorio.\n\nUna persona del equipo te respondera por aqui en cuanto pueda. El bot quedara en pausa para no interrumpir esta conversacion.\n\nSi es una urgencia medica, acude a urgencias o llama a los servicios de emergencia de tu localidad.",
     appointment_requirements:
       "Para tu cita, te recomendamos llevar identificacion y, si tienes, estudios o recetas anteriores relacionados con tu consulta.\n\nSi tu cita incluye Papanicolaou o paquete de promocion, tambien se recomienda no estar en periodo menstrual, no tener relaciones sexuales, no realizar duchas vaginales y no aplicar ovulos o cremas vaginales durante las 48 horas previas.",
     late_arrival:
