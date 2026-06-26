@@ -7584,8 +7584,18 @@ async function handleIncomingText(from, text, options = {}) {
     return;
   }
 
+  if (existing && existing.humanHandoffOffered && isHumanHandoffRequest(normalized, detectedIntent.intent)) {
+    await activateHumanHandoff(from, "patient_request_confirmed");
+    return;
+  }
+
+  if (existing?.step === "confirmingHumanHandoff") {
+    const handled = await handleBotFirstHandoffChoice(from, normalized, detectedIntent.intent);
+    if (handled) return;
+  }
+
   if (existing?.step === "promoOffer") {
-    await handlePromoOfferReply(from, normalized, detectedIntent.intent);
+    await handlePromoOfferReply(from, normalized, detectedIntent.intent, existing);
     return;
   }
 
@@ -7697,9 +7707,7 @@ async function handleIncomingText(from, text, options = {}) {
   }
 
   if (detectedIntent.intent === "direct_contact") {
-    await setConversationHumanMode(from, true, "patient_request");
-    setMemoryHumanMode(from, true);
-    await replyToPatient(from, getIntentResponse("direct_contact"));
+    await offerBotFirstHumanHandoff(from, existing);
     return;
   }
 
@@ -8565,9 +8573,7 @@ async function handleMenuOption(from, text, intent = detectIntent(text).intent) 
   }
 
   if (option === 11 || intent === "direct_contact") {
-    await setConversationHumanMode(from, true, "patient_request");
-    setMemoryHumanMode(from, true);
-    await replyToPatient(from, getIntentResponse("direct_contact"));
+    await offerBotFirstHumanHandoff(from);
     return true;
   }
 
@@ -8654,7 +8660,7 @@ async function sendLocationResponse(to) {
   ]);
 }
 
-async function handlePromoOfferReply(from, text, intent) {
+async function handlePromoOfferReply(from, text, intent, session = undefined) {
   if (intent === "closing") {
     await deletePatientSession(from);
     await replyToPatient(from, getIntentResponse("closing"));
@@ -8700,9 +8706,7 @@ async function handlePromoOfferReply(from, text, intent) {
   }
 
   if (intent === "direct_contact" || text === "quiero hablar con una persona") {
-    await setConversationHumanMode(from, true, "promo_human_request");
-    setMemoryHumanMode(from, true);
-    await replyToPatient(from, getIntentResponse("direct_contact"));
+    await offerBotFirstHumanHandoff(from, session);
     return;
   }
 
@@ -8766,6 +8770,94 @@ async function handlePatientResultsRequest(from) {
     ]
   );
   await notifyResultsRequest(from);
+}
+
+function isHumanHandoffRequest(text, intent) {
+  if (intent === "direct_contact") return true;
+  return /^(?:persona|humano|humana|asesora|asesor|recepcion|recepcionista|hablar con persona|hablar con una persona|quiero hablar con una persona|quiero hablar con alguien|necesito a una persona)$/.test(text);
+}
+
+async function activateHumanHandoff(from, reason = "patient_request_confirmed") {
+  await addConversationTags(from, ["Humano requerido"]);
+  await setConversationHumanMode(from, true, reason);
+  setMemoryHumanMode(from, true);
+  await deletePatientSession(from);
+  await replyToPatient(from, getIntentResponse("direct_contact"));
+}
+
+async function offerBotFirstHumanHandoff(from, session = undefined) {
+  const handoffOfferedAt = new Date().toISOString();
+  const hasActiveFlow = Boolean(session && session.step && session.step !== "confirmingHumanHandoff");
+  const updatedSession = hasActiveFlow
+    ? { ...session, humanHandoffOffered: true, humanHandoffOfferedAt: handoffOfferedAt }
+    : {
+        from,
+        step: "confirmingHumanHandoff",
+        humanHandoffOffered: true,
+        humanHandoffOfferedAt: handoffOfferedAt
+      };
+
+  await setPatientSession(from, updatedSession);
+  await addConversationTags(from, ["Ayuda solicitada"]);
+
+  if (hasActiveFlow) {
+    await replyToPatientWithButtons(
+      from,
+      [
+        "Claro 😊 Antes de pasarte con una persona, puedo intentar resolverlo por aqui.",
+        "",
+        "Toca Continuar para seguir el paso actual, Nuevo inicio para empezar de cero o Persona si de verdad necesitas apoyo del consultorio."
+      ].join("\n"),
+      [
+        { id: "active_continue", title: "Continuar" },
+        { id: "active_restart", title: "Nuevo inicio" },
+        { id: "confirm_to_human", title: "Persona" }
+      ]
+    );
+    return;
+  }
+
+  await replyToPatientWithButtons(
+    from,
+    [
+      "Claro 😊 Antes de pasarte con una persona, puedo intentar resolverlo por aqui.",
+      "",
+      "Puedo ayudarte a agendar, revisar horarios, explicar la promo, ubicacion, costos, pagos, preparacion o resultados.",
+      "",
+      "Si aun necesitas recepcion, toca Persona."
+    ].join("\n"),
+    [
+      { id: "promo_schedule", title: "Agendar" },
+      { id: "main_menu", title: "Ver opciones" },
+      { id: "confirm_to_human", title: "Persona" }
+    ]
+  );
+}
+
+async function handleBotFirstHandoffChoice(from, text, intent) {
+  if (isHumanHandoffRequest(text, intent)) {
+    await activateHumanHandoff(from, "patient_request_confirmed");
+    return true;
+  }
+
+  if (intent === "closing") {
+    await deletePatientSession(from);
+    await replyToPatient(from, getIntentResponse("closing"));
+    return true;
+  }
+
+  if (isResetCommand(text) || intent === "greeting" || text === "menu") {
+    await deletePatientSession(from);
+    await sendMainMenuToPatient(from);
+    return true;
+  }
+
+  await deletePatientSession(from);
+  const handled = await handleMenuOption(from, text, intent);
+  if (handled) return true;
+
+  await sendFallbackMenuToPatient(from);
+  return true;
 }
 
 function menuOptionNumber(text) {
@@ -9711,7 +9803,7 @@ function setMemoryTags(phoneNumber, tags) {
 function suggestTagsFromText(text, intent) {
   const tags = [];
   if (intent === "medical_urgent" || /urgente|emergencia|sangrado|dolor fuerte|me duele mucho/.test(text)) tags.push("Urgente", "Humano requerido");
-  if (intent === "direct_contact") tags.push("Humano requerido");
+  if (intent === "direct_contact") tags.push("Ayuda solicitada");
   if (intent === "patient_results" || /resultado|resultados|diagnostico|diagnosticos|examen|examenes|analisis|mis estudios/.test(text)) tags.push("Resultados", "Humano requerido");
   if (intent === "reschedule_appointment") tags.push("Reagendar");
   if (intent === "cancel_appointment") tags.push("Cancelar");
@@ -9992,10 +10084,7 @@ async function handleRescheduleConfirmation(from, normalized, session) {
     return;
   }
   if (option === 3 || detectIntent(normalized).intent === "direct_contact") {
-    await setConversationHumanMode(from, true, "reschedule_request");
-    setMemoryHumanMode(from, true);
-    await deletePatientSession(from);
-    await replyToPatient(from, getIntentResponse("direct_contact"));
+    await offerBotFirstHumanHandoff(from, session);
     return;
   }
   if (!isAffirmativeConfirmation(normalized) && option !== 1) {
@@ -10034,10 +10123,7 @@ async function handleWaitlistConfirmation(from, normalized, session) {
   }
 
   if (option === 3 || detectIntent(normalized).intent === "direct_contact") {
-    await setConversationHumanMode(from, true, "waitlist_request");
-    setMemoryHumanMode(from, true);
-    await deletePatientSession(from);
-    await replyToPatient(from, getIntentResponse("direct_contact"));
+    await offerBotFirstHumanHandoff(from, session);
     return;
   }
 
