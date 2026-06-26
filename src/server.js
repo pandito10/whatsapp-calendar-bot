@@ -9067,6 +9067,19 @@ async function handleActiveSessionFaqQuestion(from, text, intent, session) {
   const answer = buildActiveSessionFaqAnswer(intent);
   if (!answer) return false;
 
+  if (isAwaitingPaymentType(session) && ["payment_methods", "insurance_network"].includes(intent)) {
+    await setPatientSession(from, { ...session, step: "collectingPaymentType" });
+    await replyWithPaymentButtons(
+      from,
+      [
+        answer,
+        "",
+        "Para seguir con tu registro, elige si vienes particular o por red medica/aseguradora."
+      ].join("\n")
+    );
+    return true;
+  }
+
   await replyWithActiveSessionButtons(
     from,
     [
@@ -9098,8 +9111,18 @@ function isSafeActiveSessionFaqIntent(intent) {
   ]).has(intent);
 }
 
+function isAwaitingPaymentType(session) {
+  return Boolean(
+    session?.name &&
+      (session.email || session.emailSkipped) &&
+      session.firstVisit &&
+      session.reason &&
+      !session.paymentType
+  );
+}
+
 function shouldLetAppointmentFlowUseReply(text, intent, session) {
-  if (session?.step === "collectingPaymentType") {
+  if (session?.step === "collectingPaymentType" || isAwaitingPaymentType(session)) {
     return intent === "insurance_network" || isLikelyPaymentTypeChoice(text);
   }
 
@@ -9319,26 +9342,31 @@ async function continueActiveSession(from, session) {
   }
 
   if (!session.name) {
+    await setPatientSession(from, { ...session, step: "collecting" });
     await replyToPatient(from, "😊 Claro, seguimos. ¿Me compartes tu nombre completo?");
     return;
   }
 
   if (!session.email) {
+    await setPatientSession(from, { ...session, step: "collectingEmail" });
     await replyToPatient(from, `📩 Gracias, ${session.name}. ¿Me compartes tu correo electronico para enviarte la confirmacion de Google Calendar?`);
     return;
   }
 
   if (!session.firstVisit) {
+    await setPatientSession(from, { ...session, step: "collectingFirstVisit" });
     await replyWithFirstVisitButtons(from, "📝 ¿Es tu primera vez con nosotros?");
     return;
   }
 
   if (!session.reason) {
+    await setPatientSession(from, { ...session, step: "collectingService" });
     await replyWithServiceOptions(from, "Gracias 😊 ¿Que servicio o motivo general quieres agendar?");
     return;
   }
 
   if (!session.paymentType) {
+    await setPatientSession(from, { ...session, step: "collectingPaymentType" });
     await replyWithPaymentButtons(from, "💳 ¿Tu consulta es particular o por parte de alguna red medica/aseguradora?");
     return;
   }
@@ -9349,6 +9377,7 @@ async function continueActiveSession(from, session) {
   }
 
   if (!session.preferredDateText) {
+    await setPatientSession(from, { ...session, step: session.availabilityOnly ? "collectingDateOnly" : "collecting" });
     await replyWithDateOptions(from, `📅 Gracias, ${session.name}. ¿Que dia te gustaria la cita?`);
     return;
   }

@@ -427,7 +427,7 @@ test("respuesta particular en flujo activo avanza a pedir fecha y no dispara FAQ
     const inboxCookie = await loginInbox(32143, baseEnv.INBOX_PASSWORD);
     const inboxHtml = await (await fetch(`http://127.0.0.1:32143/inbox?phone=${patientPhone}`, { headers: { Cookie: inboxCookie } })).text();
     assert.match(inboxHtml, /Por el momento aceptamos efectivo o transferencia/);
-    assert.match(inboxHtml, /Me falta saber si vienes particular o por red medica/);
+    assert.match(inboxHtml, /Para seguir con tu registro, elige si vienes particular o por red medica\/aseguradora/);
     assert.match(inboxHtml, /Que dia te gustaria la cita/);
     const networkInfoCount = inboxHtml.match(/La cita puede registrarse como particular o por red medica\/aseguradora/g)?.length ?? 0;
     assert.equal(networkInfoCount, 1);
