@@ -1158,13 +1158,18 @@ function handleInboxScript(res) {
 
   function applyInboxViewState() {
     const hasSelection = document.body.classList.contains("has-selection");
-    if (hasSelection && getInboxStorage("inboxCompactDefaultV2") !== "applied") {
-      setInboxStorage("inboxCompactCards", "on");
-      setInboxStorage("inboxCompactDefaultV2", "applied");
-    }
     const mobileChatDefault = hasSelection && isMobileInboxViewport();
+    if (hasSelection && getInboxStorage("inboxCompactDefaultV3") !== "applied") {
+      setInboxStorage("inboxCompactCards", "on");
+      if (mobileChatDefault) {
+        setInboxStorage("inboxChatFocus", "on");
+        setInboxStorage("inboxHideSidebar", "on");
+        setInboxStorage("inboxHidePatientPanel", "on");
+      }
+      setInboxStorage("inboxCompactDefaultV3", "applied");
+    }
     const states = {
-      chatFocus: hasSelection && getInboxToggleState("inboxChatFocus", false),
+      chatFocus: hasSelection && getInboxToggleState("inboxChatFocus", mobileChatDefault),
       compactCards: getInboxToggleState("inboxCompactCards", hasSelection || mobileChatDefault),
       hideSidebar: hasSelection && getInboxToggleState("inboxHideSidebar", false),
       hidePatientPanel: hasSelection && getInboxToggleState("inboxHidePatientPanel", false)
@@ -3452,6 +3457,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     body.chat-focus .conversation-tools > * {
       display: none !important;
     }
+    body.chat-focus .conversation-tools .mobile-back,
     body.chat-focus .conversation-tools [data-toggle-chat-focus] {
       display: inline-flex !important;
     }

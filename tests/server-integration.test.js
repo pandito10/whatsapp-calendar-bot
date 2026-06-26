@@ -158,12 +158,14 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxScriptText, /bindInboxViewControls/);
     assert.match(inboxScriptText, /inboxChatFocus/);
     assert.match(inboxScriptText, /inboxCompactCards/);
-    assert.match(inboxScriptText, /inboxCompactDefaultV2/);
+    assert.match(inboxScriptText, /inboxCompactDefaultV3/);
     assert.match(inboxScriptText, /inboxHideSidebar/);
     assert.match(inboxScriptText, /inboxHidePatientPanel/);
     assert.match(inboxScriptText, /isMobileInboxViewport/);
     assert.match(inboxScriptText, /storageValue === null && defaultOn|return defaultOn/);
     assert.match(inboxScriptText, /mobileChatDefault/);
+    assert.match(inboxScriptText, /setInboxStorage\("inboxChatFocus", "on"\)/);
+    assert.match(inboxHtml, /body\.chat-focus \.conversation-tools \.mobile-back/);
     assert.match(inboxScriptText, /button\.getAttribute\("aria-pressed"\) === "true"/);
     assert.match(inboxScriptText, /const hasSelection = document\.body\.classList\.contains\("has-selection"\)/);
     assert.match(inboxScriptText, /hasDirtyForm/);
