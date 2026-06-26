@@ -410,13 +410,65 @@ test("respuesta particular en flujo activo avanza a pedir fecha y no dispara FAQ
     await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*777/g, 4);
     await sendText("wamid.payment-flow-5", "Consulta");
     await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*777/g, 5);
-    await sendText("wamid.payment-flow-6", "Particular");
+    await sendText("wamid.payment-flow-6", "aceptan tarjeta?");
     await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*777/g, 6);
+    await sendText("wamid.payment-flow-7", "Particular");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*777/g, 7);
 
     const inboxCookie = await loginInbox(32143, baseEnv.INBOX_PASSWORD);
     const inboxHtml = await (await fetch(`http://127.0.0.1:32143/inbox?phone=${patientPhone}`, { headers: { Cookie: inboxCookie } })).text();
+    assert.match(inboxHtml, /Por el momento aceptamos efectivo o transferencia/);
+    assert.match(inboxHtml, /Me falta saber si vienes particular o por red medica/);
     assert.match(inboxHtml, /Que dia te gustaria la cita/);
-    assert.doesNotMatch(inboxHtml, /La cita puede registrarse como particular o por red medica\/aseguradora/);
+    const networkInfoCount = inboxHtml.match(/La cita puede registrarse como particular o por red medica\/aseguradora/g)?.length ?? 0;
+    assert.equal(networkInfoCount, 1);
+  } finally {
+    await app.stop();
+  }
+});
+
+test("correccion de correo en flujo activo retoma el registro sin reiniciar", async () => {
+  const appSecret = "app-secret-test";
+  const patientPhone = "5214778811888";
+  const app = await startServer(32144, {
+    ...baseEnv,
+    NODE_ENV: "test",
+    WHATSAPP_APP_SECRET: appSecret,
+    REQUIRE_WEBHOOK_SIGNATURE: "true",
+    ALLOW_UNSIGNED_WEBHOOKS: "false",
+    WHATSAPP_SEND_DRY_RUN: "true"
+  });
+
+  async function sendText(id, text) {
+    const payload = buildTextPayload({ from: patientPhone, id, text });
+    const response = await fetch("http://127.0.0.1:32144/webhook/123456789012345678901234567890", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Hub-Signature-256": signPayload(appSecret, payload)
+      },
+      body: payload
+    });
+    assert.equal(response.status, 200);
+  }
+
+  try {
+    await sendText("wamid.email-fix-1", "quiero una cita");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*888/g, 1);
+    await sendText("wamid.email-fix-2", "Ines Carranza");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*888/g, 2);
+    await sendText("wamid.email-fix-3", "correo.mal@gmail.com");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*888/g, 3);
+    await sendText("wamid.email-fix-4", "disculpa mi correo lo puse mal");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*888/g, 4);
+    await sendText("wamid.email-fix-5", "correo.correcto@gmail.com");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*888/g, 6);
+
+    const inboxCookie = await loginInbox(32144, baseEnv.INBOX_PASSWORD);
+    const inboxHtml = await (await fetch(`http://127.0.0.1:32144/inbox?phone=${patientPhone}`, { headers: { Cookie: inboxCookie } })).text();
+    assert.match(inboxHtml, /Pasame el correo correcto/);
+    assert.match(inboxHtml, /actualice el correo a c\*\*\*@gmail\.com/);
+    assert.match(inboxHtml, /Es tu primera vez con nosotros/);
   } finally {
     await app.stop();
   }

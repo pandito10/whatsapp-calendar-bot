@@ -79,6 +79,19 @@ test("parser local extrae correo corregido durante confirmacion", async () => {
   assert.equal(result.email, "paciente.correcto@gmail.com");
 });
 
+test("parser local no confunde tarjeta con tipo de consulta", async () => {
+  const result = await understandMessage("aceptan tarjeta?", { step: "collectingPaymentType" });
+  assert.equal(result.paymentType, undefined);
+});
+
+test("parser local entiende particular y red medica como tipo de consulta", async () => {
+  const privateResult = await understandMessage("particular", { step: "collectingPaymentType" });
+  assert.equal(privateResult.paymentType, "Particular");
+
+  const networkResult = await understandMessage("red medica", { step: "collectingPaymentType" });
+  assert.equal(networkResult.paymentType, "Red Medica");
+});
+
 test("parser local convierte respuesta generica de servicio en consulta", async () => {
   const result = await understandMessage("Una cita", { step: "collectingService" });
   assert.equal(result.reason, "Consulta");

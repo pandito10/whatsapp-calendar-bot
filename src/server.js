@@ -7395,6 +7395,16 @@ async function handleIncomingText(from, text, options = {}) {
 
   const existing = await getPatientSession(from);
 
+  if (existing?.step === "correctingEmail") {
+    await handleEmailCorrectionReply(from, text, existing);
+    return;
+  }
+
+  if (existing && isEmailCorrectionNotice(normalized)) {
+    await startOrApplyEmailCorrection(from, text, existing);
+    return;
+  }
+
   if (await maybeProtectExistingAppointmentFromScheduling(from, normalized, detectedIntent.intent)) {
     return;
   }
@@ -7559,6 +7569,11 @@ async function handleIncomingText(from, text, options = {}) {
 
   if (!existing && normalized === "manana") {
     await sendMananDisambiguationButtons(from);
+    return;
+  }
+
+  if (!existing && isStandaloneAppointmentAck(normalized)) {
+    await handleStandaloneAppointmentAck(from);
     return;
   }
 
@@ -8969,7 +8984,7 @@ function isSafeActiveSessionFaqIntent(intent) {
 
 function shouldLetAppointmentFlowUseReply(text, intent, session) {
   if (session?.step === "collectingPaymentType") {
-    return ["insurance_network", "payment_methods"].includes(intent) || isLikelyPaymentTypeChoice(text);
+    return intent === "insurance_network" || isLikelyPaymentTypeChoice(text);
   }
 
   if (session?.step !== "collectingService") return false;
@@ -8999,6 +9014,64 @@ function isEmailCorrectionNotice(text) {
     /\b(?:correo|email|mail|gmail)\b/.test(text) &&
     /\b(?:mal|equivocado|equivocada|incorrecto|incorrecta|corregir|corrige|correccion|cambiar|cambio|puse mal|esta mal|lo puse mal)\b/.test(text)
   );
+}
+
+function extractEmailFromText(value) {
+  const match = String(value ?? "").match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match ? match[0].toLowerCase() : undefined;
+}
+
+async function startOrApplyEmailCorrection(from, text, session) {
+  const correctedEmail = extractEmailFromText(text);
+  if (correctedEmail && isValidPatientEmail(correctedEmail)) {
+    await applyEmailCorrection(from, session, correctedEmail);
+    return;
+  }
+
+  await setPatientSession(from, {
+    ...session,
+    step: "correctingEmail",
+    emailCorrectionReturnStep: session.step ?? "collecting"
+  });
+  await replyToPatient(
+    from,
+    "Claro 😊 Pasame el correo correcto y lo actualizo antes de seguir con tu registro."
+  );
+}
+
+async function handleEmailCorrectionReply(from, text, session) {
+  const correctedEmail = extractEmailFromText(text);
+  if (!correctedEmail || !isValidPatientEmail(correctedEmail)) {
+    await replyToPatient(
+      from,
+      "No alcanzo a leer un correo valido. Mandamelo asi, por ejemplo: nombre@gmail.com"
+    );
+    return;
+  }
+
+  await applyEmailCorrection(from, session, correctedEmail);
+}
+
+async function applyEmailCorrection(from, session, correctedEmail) {
+  const { emailCorrectionReturnStep: returnStep, ...rest } = session;
+  const updated = {
+    ...rest,
+    email: correctedEmail,
+    emailSkipped: false,
+    step: returnStep && returnStep !== "correctingEmail" ? returnStep : "collecting"
+  };
+  await setPatientSession(from, updated);
+
+  if (updated.step === "confirmingAppointment" && updated.pendingSlot) {
+    await replyToPatient(
+      from,
+      `Listo, actualice el correo a ${maskEmail(correctedEmail)} 😊\n\n${buildAppointmentReviewMessage({ ...updated, slot: updated.pendingSlot })}`
+    );
+    return;
+  }
+
+  await replyToPatient(from, `Listo, actualice el correo a ${maskEmail(correctedEmail)} 😊`);
+  await continueActiveSession(from, updated);
 }
 
 function buildActiveSessionFaqAnswer(intent) {
@@ -10317,11 +10390,37 @@ function isVagueActiveSessionReply(text) {
 }
 
 function isAffirmativeConfirmation(text) {
-  return /^(?:si|sí|confirmo|confirmar|correcto|asi esta bien|esta bien|ok|okay|va|sale|adelante)$/.test(text);
+  return /^(?:si|sí|confirmo|confirmar|correcto|si esta bien|si correcto|si todo bien|todo bien|todo correcto|asi esta bien|asi esta correcto|esta bien|ok|okay|va|sale|adelante)$/.test(text);
 }
 
 function isNegativeConfirmation(text) {
   return /^(?:no|nel|mejor no|no confirmar|cambiar|otro horario|otra fecha|no gracias)$/.test(text);
+}
+
+function isStandaloneAppointmentAck(text) {
+  return /^(?:si esta bien|si correcto|todo bien|todo correcto|esta bien gracias|perfecto gracias|listo gracias)$/.test(text);
+}
+
+async function handleStandaloneAppointmentAck(from) {
+  let cita;
+  try {
+    cita = await getLatestConfirmedCitaByPhone(from);
+  } catch (error) {
+    logSafeError("Could not load cita for standalone acknowledgement", error);
+  }
+
+  if (cita?.slotStart) {
+    await replyToPatient(
+      from,
+      `Perfecto 😊 Tu cita sigue registrada para ${formatAppointmentFull(cita.slotStart)}. Si necesitas cambiarla o cancelarla, escribeme por aqui.`
+    );
+    return;
+  }
+
+  await replyToPatient(
+    from,
+    "Perfecto 😊 Si necesitas agendar, revisar horarios, cancelar o hablar con una persona, aqui estoy para ayudarte."
+  );
 }
 
 

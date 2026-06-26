@@ -102,7 +102,7 @@ export function detectIntent(value) {
       "pasa a una persona", "quiero hablar con una persona", "hablar con persona",
       "asesora", "secretaria", "no me entiendes", "me atiende alguien",
       "persona real", "atencion personalizada"
-    ])],
+    ]) || /^(?:persona|humano|humana|asesora|recepcion|recepcionista)$/.test(text)],
     ["greeting", () => isGreetingQuestion(text) || isGeneralMenuQuestion(text)],
     ["closing", () => isConversationClosing(text)]
   ];

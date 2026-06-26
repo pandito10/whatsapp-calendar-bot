@@ -269,9 +269,11 @@ function parseFirstVisit(text, session) {
 
 function parsePaymentType(text, session) {
   if (session?.paymentType) return undefined;
-  if (/\b(?:particular|privado|efectivo|tarjeta)\b/.test(text)) return "Particular";
+  if (/\b(?:particular|privado|privada)\b/.test(text)) return "Particular";
   const network = text.match(/\b(?:seguro|aseguradora|red medica|red médica|gastos medicos|gastos médicos|axa|gnp|metlife|bupa|seguros monterrey|monterrey)\b/);
   if (network) return cleanSentence(network[0]);
+  if (/^(?:persona|humano|humana|recepcion|asesora)$/.test(text)) return undefined;
+  if (/\b(?:tarjeta|credito|debito|transferencia|efectivo|pago|deposito)\b/.test(text)) return undefined;
   if (session?.step === "collectingPaymentType") return cleanSentence(text);
   return undefined;
 }
