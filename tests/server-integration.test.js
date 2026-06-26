@@ -468,7 +468,7 @@ test("correccion de correo en flujo activo retoma el registro sin reiniciar", as
     await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*888/g, 2);
     await sendText("wamid.email-fix-3", "correo.mal@gmail.com");
     await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*888/g, 3);
-    await sendText("wamid.email-fix-4", "disculpa mi correo lo puse mal");
+    await sendText("wamid.email-fix-4", "lo puse mal");
     await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*888/g, 4);
     await sendText("wamid.email-fix-5", "correo.correcto@gmail.com");
     await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*888/g, 6);

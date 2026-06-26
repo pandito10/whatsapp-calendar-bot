@@ -7516,7 +7516,7 @@ async function handleIncomingText(from, text, options = {}) {
     return;
   }
 
-  if (existing && isEmailCorrectionNotice(normalized)) {
+  if (existing && isEmailCorrectionNotice(normalized, existing)) {
     await startOrApplyEmailCorrection(from, text, existing);
     return;
   }
@@ -7846,7 +7846,7 @@ async function handleIncomingText(from, text, options = {}) {
       return;
     }
 
-    if (isEmailCorrectionNotice(normalized)) {
+    if (isEmailCorrectionNotice(normalized, session)) {
       await setPatientSession(from, session);
       await replyToPatient(from, "Claro 😊 Mandame el correo correcto y actualizo la cita antes de confirmarla.");
       return;
@@ -9125,11 +9125,26 @@ function isLikelyPaymentTypeChoice(text) {
   );
 }
 
-function isEmailCorrectionNotice(text) {
-  return (
-    /\b(?:correo|email|mail|gmail)\b/.test(text) &&
-    /\b(?:mal|equivocado|equivocada|incorrecto|incorrecta|corregir|corrige|correccion|cambiar|cambio|puse mal|esta mal|lo puse mal)\b/.test(text)
+function isEmailCorrectionContext(session) {
+  return Boolean(
+    session?.email ||
+      ["collectingEmail", "correctingEmail", "confirmingAppointment"].includes(session?.step)
   );
+}
+
+function isEmailCorrectionNotice(text, session = undefined) {
+  const mentionsEmail = /\b(?:correo|email|mail|gmail)\b/.test(text);
+  const explicitCorrection =
+    /\b(?:mal|equivocado|equivocada|incorrecto|incorrecta|corregir|corrige|correccion|cambiar|cambio|puse mal|esta mal|lo puse mal|me equivoque|error|erroneo|lo escribi mal|lo mande mal|lo di mal)\b/.test(
+      text
+    );
+  const implicitCorrection =
+    /\b(?:lo|la|ese|eso|este|esta)\s+(?:puse|escribi|mande|di)\s+mal\b/.test(text) ||
+    /\b(?:me equivoque|esta mal|esta incorrecto|tiene error|quedo mal|quedo incorrecto)\b/.test(
+      text
+    );
+
+  return (mentionsEmail && explicitCorrection) || (isEmailCorrectionContext(session) && implicitCorrection);
 }
 
 function extractEmailFromText(value) {
