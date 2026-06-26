@@ -1124,10 +1124,14 @@ function handleInboxScript(res) {
 
   function applyInboxViewState() {
     const hasSelection = document.body.classList.contains("has-selection");
+    if (hasSelection && getInboxStorage("inboxCompactDefaultV2") !== "applied") {
+      setInboxStorage("inboxCompactCards", "on");
+      setInboxStorage("inboxCompactDefaultV2", "applied");
+    }
     const mobileChatDefault = hasSelection && isMobileInboxViewport();
     const states = {
       chatFocus: hasSelection && getInboxToggleState("inboxChatFocus", false),
-      compactCards: getInboxToggleState("inboxCompactCards", mobileChatDefault),
+      compactCards: getInboxToggleState("inboxCompactCards", hasSelection || mobileChatDefault),
       hideSidebar: hasSelection && getInboxToggleState("inboxHideSidebar", false),
       hidePatientPanel: hasSelection && getInboxToggleState("inboxHidePatientPanel", false)
     };
@@ -5316,6 +5320,17 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       white-space: nowrap;
     }
     .conversation-tools form { display: inline-flex; }
+    body.compact-cards .conversation-tools form,
+    body.compact-cards .conversation-tools [data-toggle-sidebar],
+    body.compact-cards .conversation-tools [data-toggle-patient-panel],
+    body.compact-cards .conversation-tools [data-copy-phone],
+    body.compact-cards .conversation-tools a[target="_blank"] {
+      display: none;
+    }
+    body.compact-cards .conversation-tools {
+      flex-wrap: nowrap;
+      padding-bottom: 6px;
+    }
     .error-banner {
       margin: 14px 24px 0;
       padding: 12px 14px;

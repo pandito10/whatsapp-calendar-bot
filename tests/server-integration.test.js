@@ -151,6 +151,7 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxScriptText, /bindInboxViewControls/);
     assert.match(inboxScriptText, /inboxChatFocus/);
     assert.match(inboxScriptText, /inboxCompactCards/);
+    assert.match(inboxScriptText, /inboxCompactDefaultV2/);
     assert.match(inboxScriptText, /inboxHideSidebar/);
     assert.match(inboxScriptText, /inboxHidePatientPanel/);
     assert.match(inboxScriptText, /isMobileInboxViewport/);
@@ -167,6 +168,7 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxScriptText, /No se pudo actualizar/);
     assert.match(inboxScriptText, /distanceFromBottom/);
     assert.match(inboxHtml, /body\.compact-cards \.conversation-tools form/);
+    assert.match(inboxHtml, /body\.compact-cards \.conversation-tools \[data-copy-phone\]/);
     assert.doesNotMatch(inboxScriptText, /window\.location\.replace\(url\.toString\(\)\)/);
 
     const debug = await fetch("http://127.0.0.1:32131/debug/config", { headers: { Cookie: inboxCookie } });
