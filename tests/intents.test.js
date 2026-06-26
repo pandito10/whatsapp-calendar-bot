@@ -102,6 +102,12 @@ test("detecta cierres sin seguir empujando el flujo", () => {
   assert.equal(detectIntent("ya tengo mi cita gracias").intent, "closing");
 });
 
+test("detecta pregunta por el nombre del doctor", () => {
+  assert.equal(detectIntent("Como se llama el doctor").intent, "doctor_name");
+  assert.equal(detectIntent("quien es la doctora").intent, "doctor_name");
+  assert.equal(detectIntent("cual es el nombre de la doctora").intent, "doctor_name");
+});
+
 test("marca desconocidos con categoria aproximada", () => {
   const result = detectIntent("me interesa saber del taller azul");
   assert.equal(result.intent, "fallback");

@@ -8474,6 +8474,19 @@ async function handlePromoOfferReply(from, text, intent) {
     return;
   }
 
+  if (intent === "doctor_name") {
+    await replyToPatientWithButtons(
+      from,
+      getIntentResponse("doctor_name"),
+      [
+        { id: "promo_schedule", title: "Agendar" },
+        { id: "promo_includes", title: "Que incluye" },
+        { id: "talk_human", title: "Humano" }
+      ]
+    );
+    return;
+  }
+
   if (isNegativeConfirmation(text)) {
     await deletePatientSession(from);
     await replyToPatient(from, "Sin problema 😊 Si luego quieres agendar la promocion o resolver una duda, aqui estoy.");
@@ -10139,6 +10152,7 @@ function getIntentResponse(intent) {
       "",
       "Lo mejor es que una persona del consultorio confirme si conviene realizarlo o reagendar."
     ].join("\n"),
+    doctor_name: "👩‍⚕️ Te atiende la Dra. Blanca Carranza.",
     contact_info: [
       "Por este medio podemos ayudarte con citas, ubicacion, costos y dudas generales 😊",
       "",

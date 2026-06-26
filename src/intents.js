@@ -94,6 +94,7 @@ export function detectIntent(value) {
       "puedo llevar a mi mama", "puedo ir con alguien"
     ])],
     ["invoice", () => hasAny(text, ["factura", "facturan", "facturar", "recibo", "comprobante"])],
+    ["doctor_name", () => isDoctorNameQuestion(text)],
     ["contact_info", () => isContactInfoQuestion(text)],
     ["direct_contact", () => hasAny(text, [
       "hablar con alguien", "hablar con la doctora", "recepcion",
@@ -439,6 +440,14 @@ function isRecentSexBeforeExamQuestion(text) {
     "tuve relaciones con", "si tuve relaciones"
   ]);
   return mentionsSex;
+}
+
+function isDoctorNameQuestion(text) {
+  return (
+    /\b(?:como se llama|cual es el nombre|quien es)\b.*\b(?:doctor|doctora|medico|medica|ginecologo|ginecologa)\b/.test(text) ||
+    /\b(?:nombre)\b.*\b(?:doctor|doctora|medico|medica)\b/.test(text) ||
+    /^(?:como se llama la doctora|como se llama el doctor|quien es la doctora|quien es el doctor)$/.test(text)
+  );
 }
 
 function isContactInfoQuestion(text) {
