@@ -256,6 +256,39 @@ test("detecta modo humano, cita agendada y ventana de 24 horas", () => {
   );
 });
 
+test("cita confirmada no se oculta por fallback posterior a gracias", () => {
+  const status = getConversationStatus(
+    conversation({
+      tags: ["Bot no entendio", "Promo $1200"],
+      appointment: { status: "confirmed", patientName: "Dulce", slotStart: "2030-07-01T23:20:00.000Z" },
+      messages: [
+        { sender: "bot", body: "✅ Listo, Dulce. Tu cita quedo agendada para miercoles, 1 de julio de 2030, 5:20 p.m.", timestamp: "2030-06-17T17:00:00.000Z" },
+        { sender: "patient", body: "Gracias 😊", timestamp: "2030-06-17T17:10:00.000Z" },
+        { sender: "bot", body: "Perdon, no entendi bien.\n\n¿Con que te ayudo?", timestamp: "2030-06-17T17:11:00.000Z" }
+      ]
+    }),
+    now
+  );
+
+  assert.equal(status.key, "confirmed");
+  assert.equal(status.label, "Cita agendada");
+});
+
+test("confirmacion visible en chat marca agendada aunque la ficha de cita tarde en cargar", () => {
+  const item = conversation({
+    tags: ["Bot no entendio"],
+    messages: [
+      { sender: "bot", body: "✅ Listo, Ana. Tu cita quedo agendada para jueves, 20 de junio de 2030, 4:40 p.m.", timestamp: "2030-06-17T17:00:00.000Z" },
+      { sender: "patient", body: "Gracias", timestamp: "2030-06-17T17:05:00.000Z" },
+      { sender: "bot", body: "Perdon, no entendi bien.", timestamp: "2030-06-17T17:06:00.000Z" }
+    ]
+  });
+
+  assert.equal(getConversationStatus(item, now).key, "confirmed");
+  assert.equal(filterInboxConversations([item], "", "confirmed", now).length, 1);
+  assert.equal(buildInboxStats([item], now).confirmed, 1);
+});
+
 test("sugiere acciones CRM seguras segun estado de la conversacion", () => {
   const results = conversation({
     tags: ["Resultados", "Humano requerido"],

@@ -68,6 +68,7 @@ export function getConversationStatus(conversation, nowMs = Date.now()) {
   const urgentResolved = tags.has("urgente resuelto") || tags.has("urgencia resuelta");
   const caseResolved = tags.has("resuelto") || tags.has("caso resuelto") || tags.has("cerrado");
   const pendingUrgentText = last?.sender === "patient" && /urgente|emergencia|sangrado|dolor fuerte|dolor intenso|me siento muy mal|desmayo/.test(lastPatientText);
+  const confirmedAppointment = hasConfirmedAppointment(conversation);
 
   if (tags.has("urgente") || (!urgentResolved && pendingUrgentText)) {
     return { key: "urgent", label: "Urgente", className: "urgent", priority: 1 };
@@ -75,10 +76,6 @@ export function getConversationStatus(conversation, nowMs = Date.now()) {
 
   if (caseResolved && last?.sender !== "patient") {
     return { key: "resolved", label: "Resuelto", className: "resolved", priority: 10 };
-  }
-
-  if (tags.has("bot no entendio") || hasRecentFallback(conversation)) {
-    return { key: "misunderstood", label: "Bot no entendio", className: "misunderstood", priority: 2 };
   }
 
   if (tags.has("resultados")) {
@@ -99,6 +96,14 @@ export function getConversationStatus(conversation, nowMs = Date.now()) {
 
   if (sessionStep === "confirmingCancellation" || tags.has("cancelar")) {
     return { key: "cancel", label: "Cancelar", className: "cancel", priority: 4 };
+  }
+
+  if (confirmedAppointment && last?.sender !== "patient" && isClosingInboxText(lastPatientText)) {
+    return { key: "confirmed", label: "Cita agendada", className: "confirmed", priority: 8 };
+  }
+
+  if (tags.has("bot no entendio") || hasRecentFallback(conversation)) {
+    return { key: "misunderstood", label: "Bot no entendio", className: "misunderstood", priority: 2 };
   }
 
   if (windowState.key === "closing") {
@@ -127,7 +132,7 @@ export function getConversationStatus(conversation, nowMs = Date.now()) {
     return { key: "followup", label: "Nuevo mensaje", className: "followup", priority: 6 };
   }
 
-  if (conversation?.appointment?.status === "confirmed") {
+  if (confirmedAppointment) {
     return { key: "confirmed", label: "Cita agendada", className: "confirmed", priority: 8 };
   }
 
@@ -194,7 +199,7 @@ export function filterInboxConversations(list, query = "", filter = "all", nowMs
       (filter === "pending" && ["followup", "misunderstood", "awaiting_confirmation", "urgent", "results", "closing_window", "expired_window", "stuck"].includes(status.key)) ||
       (filter === "followup" && conversation.messages?.at(-1)?.sender === "patient") ||
       (filter === "waiting" && status.className === "waiting") ||
-      (filter === "confirmed" && conversation.appointment?.status === "confirmed") ||
+      (filter === "confirmed" && hasConfirmedAppointment(conversation)) ||
       (filter === "human" && conversation.botPaused) ||
       (filter === "no_appointment" && !conversation.appointment) ||
       (filter === "new_patient" && normalizeText(conversation.appointment?.firstVisit ?? "") === "si") ||
@@ -208,7 +213,7 @@ export function buildInboxStats(list, nowMs = Date.now()) {
     (stats, conversation) => {
       const status = getConversationStatus(conversation, nowMs);
       stats.total += 1;
-      if (conversation.appointment?.status === "confirmed") stats.confirmed += 1;
+      if (hasConfirmedAppointment(conversation)) stats.confirmed += 1;
       if (["followup", "misunderstood", "awaiting_confirmation", "urgent", "closing_window", "expired_window", "stuck"].includes(status.key)) {
         stats.followup += 1;
       }
@@ -628,6 +633,29 @@ function normalizeAppointments(conversation) {
   return conversation?.appointment ? [conversation.appointment] : [];
 }
 
+function hasConfirmedAppointment(conversation) {
+  return normalizeAppointments(conversation).some((appointment) => appointment?.status === "confirmed") ||
+    hasAppointmentConfirmationMessage(conversation);
+}
+
+function hasAppointmentConfirmationMessage(conversation) {
+  const recentMessages = [...(conversation?.messages ?? [])].slice(-20).reverse();
+  for (const message of recentMessages) {
+    if (message?.sender !== "bot") continue;
+    const body = normalizeText(message?.body ?? "");
+    if (/\b(?:tu cita|cita)\s+(?:fue|ha sido|quedo|queda)?\s*(?:cancelada|cancelado)\b/.test(body)) {
+      return false;
+    }
+    if (
+      /\b(?:tu cita|cita)\s+(?:quedo|queda|fue)\s+(?:agendada|confirmada|registrada)\b/.test(body) ||
+      /\blisto\b.*\btu cita\b.*\b(?:agendada|confirmada|registrada)\b/.test(body)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function findFirstTouch(conversation, appointments) {
   const times = [
     conversation?.updatedAt,
@@ -658,7 +686,7 @@ function buildPatientRiskFlags(conversation, counts) {
   if (counts.cancelledCount >= 2) flags.push("Varias cancelaciones");
   if (counts.failedCount > 0) flags.push("Citas fallidas para revisar");
   if (counts.noShowCount > 0) flags.push("No asistio antes");
-  if (counts.appointmentCount === 0) flags.push("Sin cita confirmada");
+  if (counts.appointmentCount === 0 && !hasAppointmentConfirmationMessage(conversation)) flags.push("Sin cita confirmada");
   return flags;
 }
 
@@ -698,6 +726,14 @@ function hasRecentFallback(conversation) {
   return [...(conversation?.messages ?? [])]
     .slice(-5)
     .some((message) => message.sender === "bot" && /no entendi|no logre entender|preguntas no reconocidas/i.test(message.body ?? ""));
+}
+
+function isClosingInboxText(text) {
+  const cleanText = String(text ?? "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return /^(?:gracias|muchas gracias|ok gracias|okay gracias|listo gracias|perfecto gracias|esta bien gracias|sale gracias|va gracias|ya gracias|gracias eso seria todo|eso es todo|listo|ok|okay|va|sale|perfecto|todo bien|esta bien|si esta bien|de acuerdo|entendido)$/.test(cleanText);
 }
 
 function getLastPatientMessage(conversation) {
