@@ -518,6 +518,7 @@ test("inbox/send bloquea cualquier adjunto por WhatsApp", async () => {
     assert.match(loginHtml, /Preparacion/);
     assert.match(loginHtml, /Plantillas Meta/);
     assert.match(loginHtml, /Falta WHATSAPP_REENGAGEMENT_TEMPLATE/);
+    assert.match(loginHtml, /WHATSAPP_REENGAGEMENT_TEMPLATE=retomar_conversacion/);
     assert.match(loginHtml, /Respuestas sugeridas/);
     assert.match(loginHtml, /Senales rapidas del paciente/);
     assert.match(loginHtml, /Checklist recepcion/);
@@ -526,6 +527,7 @@ test("inbox/send bloquea cualquier adjunto por WhatsApp", async () => {
     assert.match(loginHtml, /Venta estimada/);
     assert.match(loginHtml, /Reagendar cita/);
     assert.match(loginHtml, /Falta WHATSAPP_RESCHEDULE_TEMPLATE/);
+    assert.match(loginHtml, /WHATSAPP_RESCHEDULE_TEMPLATE=reagenda_cita/);
     assert.match(loginHtml, /Correo/);
     assert.match(loginHtml, /Riesgo/);
     assert.doesNotMatch(loginHtml, /name="attachment"/);

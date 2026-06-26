@@ -4591,8 +4591,46 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
     }
     .template-grid form { display: flex; min-width: 0; }
     .template-grid button { width: 100%; }
+    .template-card {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 0;
+      min-height: 100%;
+      border: 1px solid #cfe1f7;
+      border-radius: 14px;
+      padding: 10px;
+      background: #f8fbff;
+    }
+    .template-card.ready {
+      border-color: #bbf7d0;
+      background: #f0fdf4;
+    }
+    .template-card strong {
+      display: block;
+      color: #0d3d72;
+      font-size: 12px;
+    }
+    .template-card code {
+      display: block;
+      overflow-wrap: anywhere;
+      color: #1e3a8a;
+      font-size: 11px;
+      font-weight: 800;
+      background: rgba(255,255,255,.78);
+      border: 1px solid #dbeafe;
+      border-radius: 9px;
+      padding: 6px 7px;
+    }
+    .template-card small {
+      color: #4a6a8a;
+      font-size: 11px;
+      line-height: 1.35;
+    }
     .template-missing {
       display: flex;
+      flex-direction: column;
+      gap: 4px;
       align-items: center;
       min-height: 40px;
       border: 1px dashed #cfe1f7;
@@ -6804,39 +6842,59 @@ function renderInboxMetaTemplateActions(conversation, selectedPhone, csrf) {
   const appointment = conversation.appointment;
   const emailRecipient = resolveResultsEmailRecipient({ appointment, conversation });
   const hasEmail = isValidPatientEmail(emailRecipient.email);
+  const fallbackName = firstName(getConversationDisplayName(conversation)) || "Paciente";
+  const patientName = appointment?.patientName ?? fallbackName;
+  const patientFirstName = firstName(patientName) || "Paciente";
+  const slotLabel = appointment?.slotStart ? formatAppointmentFull(appointment.slotStart) : "fecha y hora de la cita";
+  const emailPreview = hasEmail ? maskEmail(emailRecipient.email) : "correo confirmado";
   const actions = [
     {
       type: "reengagement",
       label: "Retomar chat",
       configured: Boolean(config.whatsappReengagementTemplate),
-      missing: "Falta WHATSAPP_REENGAGEMENT_TEMPLATE"
+      missing: "Falta WHATSAPP_REENGAGEMENT_TEMPLATE",
+      expectedName: "retomar_conversacion",
+      envVar: "WHATSAPP_REENGAGEMENT_TEMPLATE",
+      variables: [`{{1}} nombre: ${patientFirstName}`]
     },
     {
       type: "results_email",
       label: "Aviso resultados por correo",
       configured: Boolean(config.whatsappResultsEmailTemplate),
       visible: hasEmail,
-      missing: "Falta WHATSAPP_RESULTS_EMAIL_TEMPLATE"
+      missing: "Falta WHATSAPP_RESULTS_EMAIL_TEMPLATE",
+      expectedName: "resultados_enviados_correo",
+      envVar: "WHATSAPP_RESULTS_EMAIL_TEMPLATE",
+      variables: [`{{1}} nombre: ${patientFirstName}`, `{{2}} correo: ${emailPreview}`]
     },
     {
       type: "appointment_reminder",
       label: "Recordatorio cita",
       configured: Boolean(config.whatsappReminderTemplate24h),
       visible: Boolean(appointment?.slotStart),
-      missing: "Falta WHATSAPP_REMINDER_TEMPLATE_24H"
+      missing: "Falta WHATSAPP_REMINDER_TEMPLATE_24H",
+      expectedName: "recordatorio_cita_24h",
+      envVar: "WHATSAPP_REMINDER_TEMPLATE_24H",
+      variables: [`{{1}} nombre: ${patientName}`, `{{2}} cita: ${slotLabel}`]
     },
     {
       type: "cancellation",
       label: "Cancelacion cita",
       configured: Boolean(config.whatsappCancellationTemplate),
       visible: Boolean(appointment?.slotStart),
-      missing: "Falta WHATSAPP_CANCELLATION_TEMPLATE"
+      missing: "Falta WHATSAPP_CANCELLATION_TEMPLATE",
+      expectedName: "cancelacion_cita",
+      envVar: "WHATSAPP_CANCELLATION_TEMPLATE",
+      variables: [`{{1}} nombre: ${patientName}`]
     },
     {
       type: "reschedule",
       label: "Reagendar cita",
       configured: Boolean(config.whatsappRescheduleTemplate),
-      missing: "Falta WHATSAPP_RESCHEDULE_TEMPLATE"
+      missing: "Falta WHATSAPP_RESCHEDULE_TEMPLATE",
+      expectedName: "reagenda_cita",
+      envVar: "WHATSAPP_RESCHEDULE_TEMPLATE",
+      variables: [`{{1}} nombre: ${patientName}`]
     }
   ].filter((action) => action.visible !== false);
 
@@ -6858,15 +6916,25 @@ function renderInboxMetaTemplateActions(conversation, selectedPhone, csrf) {
 }
 
 function renderInboxMetaTemplateButton(action, selectedPhone, csrf) {
+  const details = `<strong>${escapeHtml(action.label)}</strong>
+    <code>${escapeHtml(action.envVar)}=${escapeHtml(action.expectedName)}</code>
+    <small>${escapeHtml((action.variables ?? []).join(" · "))}</small>`;
+
   if (!action.configured) {
-    return `<div class="template-missing">${escapeHtml(action.label)}: ${escapeHtml(action.missing)}</div>`;
+    return `<div class="template-card">
+      <div class="template-missing">${escapeHtml(action.label)}: ${escapeHtml(action.missing)}</div>
+      ${details}
+    </div>`;
   }
-  return `<form method="post" action="/inbox/send-template">
-    <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
-    <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
-    <input name="template" type="hidden" value="${escapeHtml(action.type)}">
-    <button type="submit">${escapeHtml(action.label)}</button>
-  </form>`;
+  return `<div class="template-card ready">
+    ${details}
+    <form method="post" action="/inbox/send-template">
+      <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+      <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+      <input name="template" type="hidden" value="${escapeHtml(action.type)}">
+      <button type="submit">Enviar ${escapeHtml(action.label)}</button>
+    </form>
+  </div>`;
 }
 
 function renderResultsEmailSection(conversation, selectedPhone, csrf) {
