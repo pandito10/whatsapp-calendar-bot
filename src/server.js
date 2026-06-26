@@ -1111,13 +1111,25 @@ function handleInboxScript(res) {
     }
   }
 
+  function isMobileInboxViewport() {
+    return Boolean(window.matchMedia?.("(max-width: 780px)")?.matches);
+  }
+
+  function getInboxToggleState(storageKey, defaultOn = false) {
+    const storageValue = getInboxStorage(storageKey);
+    if (storageValue === "on") return true;
+    if (storageValue === "off") return false;
+    return defaultOn;
+  }
+
   function applyInboxViewState() {
     const hasSelection = document.body.classList.contains("has-selection");
+    const mobileChatDefault = hasSelection && isMobileInboxViewport();
     const states = {
-      chatFocus: hasSelection && getInboxStorage("inboxChatFocus") === "on",
-      compactCards: getInboxStorage("inboxCompactCards") === "on",
-      hideSidebar: hasSelection && getInboxStorage("inboxHideSidebar") === "on",
-      hidePatientPanel: hasSelection && getInboxStorage("inboxHidePatientPanel") === "on"
+      chatFocus: hasSelection && getInboxToggleState("inboxChatFocus", false),
+      compactCards: getInboxToggleState("inboxCompactCards", mobileChatDefault),
+      hideSidebar: hasSelection && getInboxToggleState("inboxHideSidebar", false),
+      hidePatientPanel: hasSelection && getInboxToggleState("inboxHidePatientPanel", false)
     };
     document.body.classList.toggle("chat-focus", states.chatFocus);
     document.body.classList.toggle("compact-cards", states.compactCards);
@@ -1148,7 +1160,7 @@ function handleInboxScript(res) {
     controls.forEach(([selector, storageKey]) => {
       document.querySelectorAll(selector).forEach((button) => {
         button.addEventListener("click", () => {
-          const enabled = getInboxStorage(storageKey) === "on";
+          const enabled = button.getAttribute("aria-pressed") === "true";
           setInboxStorage(storageKey, enabled ? "off" : "on");
           applyInboxViewState();
           if (selector === "[data-toggle-chat-focus]" || selector === "[data-toggle-compact-cards]") {
@@ -1286,6 +1298,7 @@ function handleInboxScript(res) {
     const selectors = [
       "aside",
       ".chat",
+      ".messages",
       ".patient-panel",
       ".conversation-panels-body",
       ".template-body",
@@ -1305,7 +1318,8 @@ function handleInboxScript(res) {
         selector,
         positions: Array.from(document.querySelectorAll(selector)).map((node) => ({
           top: node.scrollTop,
-          left: node.scrollLeft
+          left: node.scrollLeft,
+          distanceFromBottom: Math.max(0, node.scrollHeight - node.scrollTop - node.clientHeight)
         }))
       }))
     };
@@ -1372,7 +1386,10 @@ function handleInboxScript(res) {
       document.querySelectorAll(selector).forEach((node, index) => {
         const position = positions[index];
         if (!position) return;
-        node.scrollTop = position.top;
+        const preserveBottom = Number(position.distanceFromBottom) <= 180;
+        node.scrollTop = preserveBottom
+          ? Math.max(0, node.scrollHeight - node.clientHeight - Number(position.distanceFromBottom || 0))
+          : position.top;
         node.scrollLeft = position.left;
       });
     });
@@ -5487,6 +5504,16 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       }
       .conversation-tools form { display: flex; flex: 0 0 auto; min-width: 0; }
       .conversation-tools .tag-form { display: none; }
+      body.compact-cards .conversation-tools form,
+      body.compact-cards .conversation-tools [data-toggle-sidebar],
+      body.compact-cards .conversation-tools [data-toggle-patient-panel],
+      body.compact-cards .conversation-tools [data-copy-phone],
+      body.compact-cards .conversation-tools a[target="_blank"] {
+        display: none;
+      }
+      body.compact-cards .conversation-tools {
+        padding-bottom: 6px;
+      }
       .results-email-modal {
         padding: 10px;
         align-items: end;
@@ -5516,7 +5543,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       }
       .chat-title { order: 0; flex: 0 0 auto; }
       .crm-command {
-        order: 1;
+        order: 3;
         margin: 8px 10px 0;
         padding: 10px;
         border-radius: 16px;
@@ -5555,7 +5582,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
         white-space: nowrap;
       }
       .patient-signal-strip {
-        order: 2;
+        order: 4;
         display: flex;
         overflow-x: auto;
         gap: 7px;
@@ -5569,15 +5596,15 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
         padding: 8px 9px;
       }
       .messages {
-        order: 3;
+        order: 1;
         padding: 10px;
-        flex: 1 1 58dvh;
-        min-height: min(430px, 58dvh);
+        flex: 1 1 auto;
+        min-height: 0;
         scroll-margin-top: 150px;
       }
       .mobile-patient-sheet,
       .conversation-panels {
-        order: 4;
+        order: 5;
         flex: 0 0 auto;
       }
       .appointment-card { margin: 6px 10px 0; }
@@ -5613,7 +5640,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       .appointment-grid { grid-template-columns: 1fr; }
       .bubble { max-width: 92%; }
       .composer {
-        order: 5;
+        order: 2;
         padding: 10px;
         padding-bottom: max(10px, env(safe-area-inset-bottom));
       }

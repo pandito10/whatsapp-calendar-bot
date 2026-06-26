@@ -153,6 +153,10 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxScriptText, /inboxCompactCards/);
     assert.match(inboxScriptText, /inboxHideSidebar/);
     assert.match(inboxScriptText, /inboxHidePatientPanel/);
+    assert.match(inboxScriptText, /isMobileInboxViewport/);
+    assert.match(inboxScriptText, /storageValue === null && defaultOn|return defaultOn/);
+    assert.match(inboxScriptText, /mobileChatDefault/);
+    assert.match(inboxScriptText, /button\.getAttribute\("aria-pressed"\) === "true"/);
     assert.match(inboxScriptText, /const hasSelection = document\.body\.classList\.contains\("has-selection"\)/);
     assert.match(inboxScriptText, /hasDirtyForm/);
     assert.match(inboxScriptText, /hasOpenWorkPanel/);
@@ -161,6 +165,8 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxScriptText, /Pausado: estas leyendo/);
     assert.match(inboxScriptText, /Actualizado sin moverte/);
     assert.match(inboxScriptText, /No se pudo actualizar/);
+    assert.match(inboxScriptText, /distanceFromBottom/);
+    assert.match(inboxHtml, /body\.compact-cards \.conversation-tools form/);
     assert.doesNotMatch(inboxScriptText, /window\.location\.replace\(url\.toString\(\)\)/);
 
     const debug = await fetch("http://127.0.0.1:32131/debug/config", { headers: { Cookie: inboxCookie } });
