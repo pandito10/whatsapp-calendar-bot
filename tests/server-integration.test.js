@@ -648,6 +648,59 @@ test("no se en tipo de consulta explica particular o red medica sin pasar a huma
   }
 });
 
+test("dejeme checo cuando en fecha no repite todo el bloque de opciones", async () => {
+  const appSecret = "app-secret-test";
+  const patientPhone = "5214778811993";
+  const app = await startServer(32149, {
+    ...baseEnv,
+    NODE_ENV: "test",
+    WHATSAPP_APP_SECRET: appSecret,
+    REQUIRE_WEBHOOK_SIGNATURE: "true",
+    ALLOW_UNSIGNED_WEBHOOKS: "false",
+    WHATSAPP_SEND_DRY_RUN: "true"
+  });
+
+  async function sendText(id, text) {
+    const payload = buildTextPayload({ from: patientPhone, id, text });
+    const response = await fetch("http://127.0.0.1:32149/webhook/123456789012345678901234567890", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Hub-Signature-256": signPayload(appSecret, payload)
+      },
+      body: payload
+    });
+    assert.equal(response.status, 200);
+  }
+
+  try {
+    await sendText("wamid.date-pause-1", "quiero una cita");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*993/g, 1);
+    await sendText("wamid.date-pause-2", "Maria De La Luz Mejia Alvarez");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*993/g, 2);
+    await sendText("wamid.date-pause-3", "maria@example.com");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*993/g, 3);
+    await sendText("wamid.date-pause-4", "Si");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*993/g, 4);
+    await sendText("wamid.date-pause-5", "Promocion");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*993/g, 5);
+    await sendText("wamid.date-pause-6", "Particular");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*993/g, 6);
+    await sendText("wamid.date-pause-7", "Dejeme checo cuando");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*993/g, 7);
+
+    const inboxCookie = await loginInbox(32149, baseEnv.INBOX_PASSWORD);
+    const inboxHtml = await (await fetch(`http://127.0.0.1:32149/inbox?phone=${patientPhone}`, { headers: { Cookie: inboxCookie } })).text();
+    assert.match(inboxHtml, /Tomate tu tiempo/);
+    assert.match(inboxHtml, /No voy a mover ni confirmar nada hasta que elijas horario/);
+    assert.match(inboxHtml, /Ver fechas/);
+    const datePromptCount = inboxHtml.match(/Que dia te gustaria la cita/g)?.length ?? 0;
+    assert.equal(datePromptCount, 1);
+  } finally {
+    await app.stop();
+  }
+});
+
 test("correccion de correo en flujo activo retoma el registro sin reiniciar", async () => {
   const appSecret = "app-secret-test";
   const patientPhone = "5214778811888";

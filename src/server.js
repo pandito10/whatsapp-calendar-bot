@@ -9340,6 +9340,24 @@ async function handleSmartActiveSessionReply(from, text, intent, session) {
     return true;
   }
 
+  if (isPatientCheckingScheduleLater(text) && isWaitingForDateOrSlot(session)) {
+    await replyToPatientWithButtons(
+      from,
+      [
+        "Claro 😊 Tomate tu tiempo.",
+        "",
+        "Cuando tengas una fecha, escribeme el dia o toca Ver fechas para ver otra vez las opciones.",
+        "",
+        "No voy a mover ni confirmar nada hasta que elijas horario."
+      ].join("\n"),
+      [
+        { id: "active_continue", title: "Ver fechas" },
+        { id: "active_restart", title: "Nuevo inicio" }
+      ]
+    );
+    return true;
+  }
+
   if (isSlotChangeRequest(text) && ["confirmingAppointment", "choosingSlot", "choosingAvailabilitySlot"].includes(session.step)) {
     await resetSlotSelection(from, session);
     await replyWithDateOptions(from, "Claro 😊 No muevo nada todavia. ¿Que otra fecha quieres revisar?");
@@ -9388,6 +9406,21 @@ async function handleSmartActiveSessionReply(from, text, intent, session) {
 
 function isPaymentTypeUnsure(text) {
   return /^(?:no se|nose|no se cual|no se que poner|no entiendo|cual es|cual pongo|que pongo|no estoy segura|no estoy seguro|me confundi|me confundo)$/.test(text);
+}
+
+function isPatientCheckingScheduleLater(text) {
+  return (
+    /\b(?:dejeme|dejame|deja me|permitame|permiteme|ahorita|al rato|luego)\b.*\b(?:checo|checar|reviso|revisar|veo|ver|confirmo|pregunto)\b/.test(text) ||
+    /\b(?:checo|checar|reviso|revisar|veo|ver)\b.*\b(?:cuando|fecha|dia|horario|hora)\b/.test(text) ||
+    /\b(?:lo veo y te digo|lo reviso y te digo|deja reviso|deja checo)\b/.test(text)
+  );
+}
+
+function isWaitingForDateOrSlot(session) {
+  return Boolean(
+    ["collectingDateOnly", "choosingSlot", "choosingAvailabilitySlot"].includes(session?.step) ||
+      (session?.name && session?.reason && session?.paymentType && !session?.preferredDateText)
+  );
 }
 
 function isSlotChangeRequest(text) {
