@@ -5382,16 +5382,69 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       white-space: nowrap;
     }
     .conversation-tools form { display: inline-flex; }
-    body.compact-cards .conversation-tools form,
-    body.compact-cards .conversation-tools [data-toggle-sidebar],
-    body.compact-cards .conversation-tools [data-toggle-patient-panel],
-    body.compact-cards .conversation-tools [data-copy-phone],
-    body.compact-cards .conversation-tools a[target="_blank"] {
+    .action-drawer {
+      flex: 0 0 auto;
+      position: relative;
+    }
+    .action-drawer summary {
+      list-style: none;
+      cursor: pointer;
+      border: 1px solid #9fc5ef;
+      border-radius: 999px;
+      background: #ffffff;
+      color: var(--brand-dark);
+      box-shadow: 0 8px 18px rgba(13, 61, 114, 0.08);
+      padding: 8px 11px;
+      font-size: 12px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+    .action-drawer summary::-webkit-details-marker { display: none; }
+    .action-drawer[open] summary {
+      background: #eaf3ff;
+      border-color: #60a5fa;
+    }
+    .action-drawer-grid {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      z-index: 30;
+      width: min(520px, calc(100vw - 32px));
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 12px;
+      border: 1px solid #bfd6f0;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.98);
+      box-shadow: 0 22px 52px rgba(15, 23, 42, 0.18);
+    }
+    .action-drawer-grid form {
+      display: inline-flex;
+      min-width: 0;
+    }
+    .action-drawer-grid .tag-form {
+      flex: 1 1 260px;
+      display: flex;
+      gap: 8px;
+    }
+    .action-drawer-grid .tag-form input[name="tags"] {
+      min-width: 160px;
+    }
+    body.compact-cards .conversation-tools > form,
+    body.compact-cards .conversation-tools > [data-toggle-sidebar],
+    body.compact-cards .conversation-tools > [data-toggle-patient-panel],
+    body.compact-cards .conversation-tools > [data-copy-phone],
+    body.compact-cards .conversation-tools > a[target="_blank"] {
       display: none;
     }
     body.compact-cards .conversation-tools {
       flex-wrap: nowrap;
       padding-bottom: 6px;
+    }
+    .conversation-tools:has(.action-drawer[open]) {
+      overflow: visible;
+      flex-wrap: wrap;
     }
     .error-banner {
       margin: 14px 24px 0;
@@ -5619,11 +5672,29 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       }
       .conversation-tools form { display: flex; flex: 0 0 auto; min-width: 0; }
       .conversation-tools .tag-form { display: none; }
-      body.compact-cards .conversation-tools form,
-      body.compact-cards .conversation-tools [data-toggle-sidebar],
-      body.compact-cards .conversation-tools [data-toggle-patient-panel],
-      body.compact-cards .conversation-tools [data-copy-phone],
-      body.compact-cards .conversation-tools a[target="_blank"] {
+      .action-drawer {
+        position: static;
+      }
+      .action-drawer-grid {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        top: auto;
+        bottom: calc(env(safe-area-inset-bottom, 0px) + 92px);
+        width: auto;
+        max-height: 48dvh;
+        overflow: auto;
+        align-content: flex-start;
+      }
+      .action-drawer-grid .tag-form {
+        display: flex;
+        flex: 1 1 100%;
+      }
+      body.compact-cards .conversation-tools > form,
+      body.compact-cards .conversation-tools > [data-toggle-sidebar],
+      body.compact-cards .conversation-tools > [data-toggle-patient-panel],
+      body.compact-cards .conversation-tools > [data-copy-phone],
+      body.compact-cards .conversation-tools > a[target="_blank"] {
         display: none;
       }
       body.compact-cards .conversation-tools {
@@ -5934,52 +6005,57 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
                   <button type="button" class="button-secondary" data-scroll-chat>Leer chat</button>
                   <button type="button" class="button-secondary view-toggle" data-toggle-chat-focus aria-pressed="false">Modo lectura</button>
                   <button type="button" class="button-secondary view-toggle" data-toggle-compact-cards aria-pressed="false">Minimizar paneles</button>
-                  <button type="button" class="button-secondary view-toggle" data-toggle-sidebar aria-pressed="false">Ocultar pacientes</button>
-                  <button type="button" class="button-secondary view-toggle" data-toggle-patient-panel aria-pressed="false">Ocultar ficha</button>
                   <a class="button-link" href="#send-file-email" data-open-results-email>📤 Archivo al correo</a>
                   <a class="button-link button-secondary" href="/inbox?${buildInboxQuery({ q: url.searchParams.get("q"), filter })}">Cerrar conversacion</a>
-                  <a class="button-link button-secondary" href="https://wa.me/${encodeURIComponent(selectedPhone)}" target="_blank" rel="noreferrer">Abrir WhatsApp</a>
-                  <button type="button" class="button-secondary" data-copy-phone="${escapeHtml(selectedPhone)}">Copiar telefono</button>
-                  <form method="post" action="/inbox/resolve-conversation">
-                    <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
-                    <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
-                    <button type="submit" onclick="return confirm('¿Marcar esta conversacion como resuelta? Si la paciente escribe de nuevo, volvera a pendientes.')">Marcar resuelto</button>
-                  </form>
-                  ${
-                    selected.botPaused
-                      ? `<form method="post" action="/inbox/release"><input name="csrf" type="hidden" value="${escapeHtml(csrf)}"><input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}"><button type="submit">Devolver al bot</button></form>`
-                      : `<form method="post" action="/inbox/takeover"><input name="csrf" type="hidden" value="${escapeHtml(csrf)}"><input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}"><button class="button-danger" type="submit">Tomar conversacion</button></form>`
-                  }
-                  <form method="post" action="/inbox/reprompt">
-                    <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
-                    <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
-                    <button type="submit">Reenviar paso actual</button>
-                  </form>
-                  <form method="post" action="/inbox/reset-session">
-                    <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
-                    <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
-                    <button class="button-danger" type="submit" onclick="return confirm('¿Reiniciar el flujo del bot para este paciente?')">Reiniciar flujo</button>
-                  </form>
-                  <form method="post" action="/inbox/repair-bot">
-                    <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
-                    <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
-                    <button class="button-danger" type="submit" onclick="return confirm('¿Arreglar el bot para esta conversacion? Esto reinicia el flujo, libera apartados temporales y manda el menu inicial.')">Arreglar bot</button>
-                  </form>
-                  ${
-                    selectedStatus.key === "urgent"
-                      ? `<form method="post" action="/inbox/resolve-urgent">
-                          <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
-                          <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
-                          <button type="submit">Marcar urgente resuelto</button>
-                        </form>`
-                      : ""
-                  }
-                  <form class="tag-form" method="post" action="/inbox/tags">
-                    <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
-                    <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
-                    <input name="tags" maxlength="300" value="${escapeHtml((selected.tags ?? []).join(", "))}" placeholder="Etiquetas">
-                    <button type="submit">Guardar etiquetas</button>
-                  </form>
+                  <details class="action-drawer">
+                    <summary>Mas acciones CRM</summary>
+                    <div class="action-drawer-grid">
+                      <button type="button" class="button-secondary view-toggle" data-toggle-sidebar aria-pressed="false">Ocultar pacientes</button>
+                      <button type="button" class="button-secondary view-toggle" data-toggle-patient-panel aria-pressed="false">Ocultar ficha</button>
+                      <a class="button-link button-secondary" href="https://wa.me/${encodeURIComponent(selectedPhone)}" target="_blank" rel="noreferrer">Abrir WhatsApp</a>
+                      <button type="button" class="button-secondary" data-copy-phone="${escapeHtml(selectedPhone)}">Copiar telefono</button>
+                      <form method="post" action="/inbox/resolve-conversation">
+                        <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                        <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                        <button type="submit" onclick="return confirm('¿Marcar esta conversacion como resuelta? Si la paciente escribe de nuevo, volvera a pendientes.')">Marcar resuelto</button>
+                      </form>
+                      ${
+                        selected.botPaused
+                          ? `<form method="post" action="/inbox/release"><input name="csrf" type="hidden" value="${escapeHtml(csrf)}"><input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}"><button type="submit">Devolver al bot</button></form>`
+                          : `<form method="post" action="/inbox/takeover"><input name="csrf" type="hidden" value="${escapeHtml(csrf)}"><input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}"><button class="button-danger" type="submit">Tomar conversacion</button></form>`
+                      }
+                      <form method="post" action="/inbox/reprompt">
+                        <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                        <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                        <button type="submit">Reenviar paso actual</button>
+                      </form>
+                      <form method="post" action="/inbox/reset-session">
+                        <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                        <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                        <button class="button-danger" type="submit" onclick="return confirm('¿Reiniciar el flujo del bot para este paciente?')">Reiniciar flujo</button>
+                      </form>
+                      <form method="post" action="/inbox/repair-bot">
+                        <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                        <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                        <button class="button-danger" type="submit" onclick="return confirm('¿Arreglar el bot para esta conversacion? Esto reinicia el flujo, libera apartados temporales y manda el menu inicial.')">Arreglar bot</button>
+                      </form>
+                      ${
+                        selectedStatus.key === "urgent"
+                          ? `<form method="post" action="/inbox/resolve-urgent">
+                              <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                              <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                              <button type="submit">Marcar urgente resuelto</button>
+                            </form>`
+                          : ""
+                      }
+                      <form class="tag-form" method="post" action="/inbox/tags">
+                        <input name="csrf" type="hidden" value="${escapeHtml(csrf)}">
+                        <input name="phone" type="hidden" value="${escapeHtml(selectedPhone)}">
+                        <input name="tags" maxlength="300" value="${escapeHtml((selected.tags ?? []).join(", "))}" placeholder="Etiquetas">
+                        <button type="submit">Guardar etiquetas</button>
+                      </form>
+                    </div>
+                  </details>
                 </div>`
               : ""
           }
