@@ -229,6 +229,7 @@ const interactiveReplyMap = {
   first_visit_no: "no",
   payment_private: "particular",
   payment_network: "red medica",
+  payment_unsure: "no se si es particular o red medica",
   payment_human: "quiero hablar con una persona",
   active_continue: "continuar",
   active_restart: "empezar de nuevo",
@@ -7599,6 +7600,10 @@ async function handleIncomingText(from, text, options = {}) {
     return;
   }
 
+  if (existing && await handleSmartActiveSessionReply(from, normalized, detectedIntent.intent, existing)) {
+    return;
+  }
+
   if (existing && detectedIntent.intent === "greeting") {
     await replyWithActiveSessionButtons(from, buildActiveSessionGreeting(existing));
     return;
@@ -7727,6 +7732,10 @@ async function handleIncomingText(from, text, options = {}) {
   }
 
   if (detectedIntent.intent === "closing" && existing?.step !== "confirmingAppointment") {
+    if (!existing && isStandaloneAppointmentAck(normalized)) {
+      await handleStandaloneAppointmentAck(from);
+      return;
+    }
     await deletePatientSession(from);
     await replyToPatient(from, getIntentResponse("closing"));
     return;
@@ -9208,7 +9217,7 @@ async function replyWithPaymentButtons(to, body) {
   await replyToPatientWithButtons(to, body, [
     { id: "payment_private", title: "Particular" },
     { id: "payment_network", title: "Red medica" },
-    { id: "payment_human", title: "Persona" }
+    { id: "payment_unsure", title: "No se" }
   ]);
 }
 
@@ -9307,6 +9316,86 @@ function isLikelyPaymentTypeChoice(text) {
     /^(?:particular|privado|privada|red medica|red médica|red|aseguradora|aseguradoras|seguro|gastos medicos|gastos médicos|axa|gnp|metlife|bupa|seguros monterrey|monterrey)\s*$/.test(text) ||
     /\b(?:vengo|voy|es|sera|seria|consulta|cita)\b.*\b(?:particular|privado|privada|red medica|red médica|aseguradora|seguro|gastos medicos|gastos médicos)\b/.test(text)
   );
+}
+
+async function handleSmartActiveSessionReply(from, text, intent, session) {
+  if (!session) return false;
+  if (["confirmingHumanHandoff", "promoOffer", "confirmingCancellation", "confirmingReschedule", "waitlistOffer"].includes(session.step)) {
+    return false;
+  }
+
+  if ((session.step === "collectingPaymentType" || isAwaitingPaymentType(session)) && isPaymentTypeUnsure(text)) {
+    await setPatientSession(from, { ...session, step: "collectingPaymentType" });
+    await replyWithPaymentButtons(
+      from,
+      [
+        "No pasa nada 😊",
+        "",
+        "Si pagas directamente en consultorio, elige Particular.",
+        "Si vienes por aseguradora o red medica, elige Red medica.",
+        "",
+        "Con eso seguimos tu registro sin pasarte a humano todavia."
+      ].join("\n")
+    );
+    return true;
+  }
+
+  if (isSlotChangeRequest(text) && ["confirmingAppointment", "choosingSlot", "choosingAvailabilitySlot"].includes(session.step)) {
+    await resetSlotSelection(from, session);
+    await replyWithDateOptions(from, "Claro 😊 No muevo nada todavia. ¿Que otra fecha quieres revisar?");
+    return true;
+  }
+
+  if (intent === "closing") {
+    if (session.step === "confirmingAppointment") {
+      if (isAffirmativeConfirmation(text)) return false;
+      await replyToPatientWithButtons(
+        from,
+        [
+          "Con gusto 😊",
+          "",
+          "Solo para no dejar una cita falsa: todavia necesito que confirmes si esos datos estan correctos.",
+          "",
+          "Responde SI para agendarla o NO para elegir otro horario."
+        ].join("\n"),
+        [
+          { id: "appointment_confirm_yes", title: "Si, confirmar" },
+          { id: "appointment_change_time", title: "Cambiar horario" },
+          { id: "appointment_cancel_review", title: "Cancelar" }
+        ]
+      );
+      return true;
+    }
+
+    await replyWithActiveSessionButtons(
+      from,
+      [
+        "Con gusto 😊",
+        "",
+        buildActiveSessionResumePrompt(session)
+      ].join("\n")
+    );
+    return true;
+  }
+
+  if (isNeedHelpWithCurrentStep(text)) {
+    await continueActiveSession(from, session);
+    return true;
+  }
+
+  return false;
+}
+
+function isPaymentTypeUnsure(text) {
+  return /^(?:no se|nose|no se cual|no se que poner|no entiendo|cual es|cual pongo|que pongo|no estoy segura|no estoy seguro|me confundi|me confundo)$/.test(text);
+}
+
+function isSlotChangeRequest(text) {
+  return /\b(?:otro horario|otra hora|otra fecha|otro dia|cambiar horario|cambiar fecha|mejor otro|no puedo ese|no puedo esa|no me acomoda|no puedo a esa hora)\b/.test(text);
+}
+
+function isNeedHelpWithCurrentStep(text) {
+  return /^(?:que sigue|que hago|como le hago|como sigo|no entiendo|ayuda|me perdi|me confundi|no se que poner|cual pongo)$/.test(text);
 }
 
 function isEmailCorrectionContext(session) {

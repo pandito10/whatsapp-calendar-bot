@@ -556,6 +556,98 @@ test("respuesta particular en flujo activo avanza a pedir fecha y no dispara FAQ
   }
 });
 
+test("gracias dentro de flujo activo retoma el paso y no cae en fallback", async () => {
+  const appSecret = "app-secret-test";
+  const patientPhone = "5214778811991";
+  const app = await startServer(32147, {
+    ...baseEnv,
+    NODE_ENV: "test",
+    WHATSAPP_APP_SECRET: appSecret,
+    REQUIRE_WEBHOOK_SIGNATURE: "true",
+    ALLOW_UNSIGNED_WEBHOOKS: "false",
+    WHATSAPP_SEND_DRY_RUN: "true"
+  });
+
+  async function sendText(id, text) {
+    const payload = buildTextPayload({ from: patientPhone, id, text });
+    const response = await fetch("http://127.0.0.1:32147/webhook/123456789012345678901234567890", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Hub-Signature-256": signPayload(appSecret, payload)
+      },
+      body: payload
+    });
+    assert.equal(response.status, 200);
+  }
+
+  try {
+    await sendText("wamid.active-thanks-1", "quiero una cita");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*991/g, 1);
+    await sendText("wamid.active-thanks-2", "gracias");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*991/g, 2);
+
+    const inboxCookie = await loginInbox(32147, baseEnv.INBOX_PASSWORD);
+    const inboxHtml = await (await fetch(`http://127.0.0.1:32147/inbox?phone=${patientPhone}`, { headers: { Cookie: inboxCookie } })).text();
+    assert.match(inboxHtml, /Con gusto/);
+    assert.match(inboxHtml, /Me falta tu nombre completo/);
+    assert.doesNotMatch(inboxHtml, /Perdon, no entendi bien/);
+  } finally {
+    await app.stop();
+  }
+});
+
+test("no se en tipo de consulta explica particular o red medica sin pasar a humano", async () => {
+  const appSecret = "app-secret-test";
+  const patientPhone = "5214778811992";
+  const app = await startServer(32148, {
+    ...baseEnv,
+    NODE_ENV: "test",
+    WHATSAPP_APP_SECRET: appSecret,
+    REQUIRE_WEBHOOK_SIGNATURE: "true",
+    ALLOW_UNSIGNED_WEBHOOKS: "false",
+    WHATSAPP_SEND_DRY_RUN: "true"
+  });
+
+  async function sendText(id, text) {
+    const payload = buildTextPayload({ from: patientPhone, id, text });
+    const response = await fetch("http://127.0.0.1:32148/webhook/123456789012345678901234567890", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Hub-Signature-256": signPayload(appSecret, payload)
+      },
+      body: payload
+    });
+    assert.equal(response.status, 200);
+  }
+
+  try {
+    await sendText("wamid.payment-unsure-1", "quiero una cita");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*992/g, 1);
+    await sendText("wamid.payment-unsure-2", "Marisol Rocha");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*992/g, 2);
+    await sendText("wamid.payment-unsure-3", "marisol@example.com");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*992/g, 3);
+    await sendText("wamid.payment-unsure-4", "Si");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*992/g, 4);
+    await sendText("wamid.payment-unsure-5", "Consulta");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*992/g, 5);
+    await sendText("wamid.payment-unsure-6", "no se");
+    await waitForOutputCount(app, /WhatsApp dry-run send to 52147\*\*\*\*992/g, 6);
+
+    const inboxCookie = await loginInbox(32148, baseEnv.INBOX_PASSWORD);
+    const inboxHtml = await (await fetch(`http://127.0.0.1:32148/inbox?phone=${patientPhone}`, { headers: { Cookie: inboxCookie } })).text();
+    assert.match(inboxHtml, /Si pagas directamente en consultorio, elige Particular/);
+    assert.match(inboxHtml, /Si vienes por aseguradora o red medica, elige Red medica/);
+    assert.match(inboxHtml, /Con eso seguimos tu registro sin pasarte a humano todavia/);
+    assert.match(inboxHtml, /3\. No se/);
+    assert.doesNotMatch(inboxHtml, /Modo humano activo/);
+  } finally {
+    await app.stop();
+  }
+});
+
 test("correccion de correo en flujo activo retoma el registro sin reiniciar", async () => {
   const appSecret = "app-secret-test";
   const patientPhone = "5214778811888";
