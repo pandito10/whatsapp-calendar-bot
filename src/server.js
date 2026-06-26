@@ -1162,14 +1162,14 @@ function handleInboxScript(res) {
   function applyInboxViewState() {
     const hasSelection = document.body.classList.contains("has-selection");
     const mobileChatDefault = hasSelection && isMobileInboxViewport();
-    if (hasSelection && getInboxStorage("inboxCompactDefaultV3") !== "applied") {
+    if (hasSelection && getInboxStorage("inboxCompactDefaultV4") !== "applied") {
       setInboxStorage("inboxCompactCards", "on");
       if (mobileChatDefault) {
         setInboxStorage("inboxChatFocus", "on");
         setInboxStorage("inboxHideSidebar", "on");
         setInboxStorage("inboxHidePatientPanel", "on");
       }
-      setInboxStorage("inboxCompactDefaultV3", "applied");
+      setInboxStorage("inboxCompactDefaultV4", "applied");
     }
     const states = {
       chatFocus: hasSelection && getInboxToggleState("inboxChatFocus", mobileChatDefault),
@@ -7736,6 +7736,9 @@ async function handleIncomingText(from, text, options = {}) {
       await handleStandaloneAppointmentAck(from);
       return;
     }
+    if (!existing && await handlePostAppointmentClosing(from, normalized)) {
+      return;
+    }
     await deletePatientSession(from);
     await replyToPatient(from, getIntentResponse("closing"));
     return;
@@ -7802,7 +7805,8 @@ async function handleIncomingText(from, text, options = {}) {
     if (detectedIntent.intent === "morning_hours" || detectedIntent.intent === "saturday") {
       await replyToPatientWithButtons(from, faqAnswer, [
         { id: "main_schedule", title: "Ver horarios" },
-        { id: "talk_human", title: "Hablar con persona" }
+        { id: "promo_schedule", title: "Agendar" },
+        { id: "main_menu", title: "Menu" }
       ]);
       return;
     }
@@ -8617,7 +8621,7 @@ async function sendFaqResponseWithButtons(from, intent, answer) {
     await replyToPatientWithButtons(from, answer, [
       { id: "promo_schedule", title: "Agendar" },
       { id: "promo_info", title: "Ver promo" },
-      { id: "talk_human", title: "Persona" }
+      { id: "main_location", title: "Ubicacion" }
     ]);
     return;
   }
@@ -8633,9 +8637,9 @@ async function sendFaqResponseWithButtons(from, intent, answer) {
 
   if (intent === "invoice") {
     await replyToPatientWithButtons(from, answer, [
-      { id: "talk_human", title: "Persona" },
       { id: "promo_schedule", title: "Agendar" },
-      { id: "main_payments", title: "Pagos" }
+      { id: "main_payments", title: "Pagos" },
+      { id: "main_menu", title: "Menu" }
     ]);
     return;
   }
@@ -8653,7 +8657,7 @@ async function sendFaqResponseWithButtons(from, intent, answer) {
     await replyToPatientWithButtons(from, answer, [
       { id: "promo_schedule", title: "Agendar" },
       { id: "promo_includes", title: "Que incluye" },
-      { id: "talk_human", title: "Persona" }
+      { id: "main_preparation", title: "Preparacion" }
     ]);
     return;
   }
@@ -8665,7 +8669,7 @@ async function sendLocationResponse(to) {
   await replyToPatientWithButtons(to, getIntentResponse("location"), [
     { id: "promo_schedule", title: "Agendar" },
     { id: "main_costs", title: "Costos" },
-    { id: "talk_human", title: "Persona" }
+    { id: "main_preparation", title: "Preparacion" }
   ]);
 }
 
@@ -8708,7 +8712,7 @@ async function handlePromoOfferReply(from, text, intent, session = undefined) {
       [
         { id: "promo_schedule", title: "Agendar" },
         { id: "promo_info", title: "Ver promo" },
-        { id: "talk_human", title: "Humano" }
+        { id: "main_location", title: "Ubicacion" }
       ]
     );
     return;
@@ -8726,7 +8730,7 @@ async function handlePromoOfferReply(from, text, intent, session = undefined) {
       [
         { id: "promo_schedule", title: "Agendar" },
         { id: "promo_includes", title: "Que incluye" },
-        { id: "talk_human", title: "Humano" }
+        { id: "main_preparation", title: "Preparacion" }
       ]
     );
     return;
@@ -8745,11 +8749,11 @@ async function handlePromoOfferReply(from, text, intent, session = undefined) {
 
   await replyToPatientWithButtons(
     from,
-    "Te ayudo 😊 ¿Quieres agendar la promocion, ver que incluye o hablar con una persona?",
+    "Te ayudo 😊 ¿Quieres agendar la promocion, ver que incluye o revisar la preparacion?",
     [
       { id: "promo_schedule", title: "Agendar" },
       { id: "promo_includes", title: "Que incluye" },
-      { id: "talk_human", title: "Humano" }
+      { id: "main_preparation", title: "Preparacion" }
     ]
   );
 }
@@ -10836,21 +10840,68 @@ function isNegativeConfirmation(text) {
 }
 
 function isStandaloneAppointmentAck(text) {
-  return /^(?:si esta bien|si correcto|todo bien|todo correcto|esta bien gracias|perfecto gracias|listo gracias)$/.test(text);
+  return /^(?:si esta bien|si correcto|todo bien|todo correcto|esta bien gracias|perfecto gracias|listo gracias|ok gracias|va gracias|sale gracias|muchas gracias|gracias)$/.test(text);
+}
+
+async function handlePostAppointmentClosing(from, text) {
+  if (!/^(?:gracias|muchas gracias|ok gracias|va gracias|sale gracias|perfecto|perfecto gracias|listo|listo gracias|si esta bien|esta bien gracias)$/.test(text)) {
+    return false;
+  }
+
+  let cita = conversations.get(from)?.appointment;
+  if (cita?.status && cita.status !== "confirmed") {
+    cita = null;
+  }
+
+  if (!cita?.slotStart) {
+    try {
+      cita = await getLatestConfirmedCitaByPhone(from);
+    } catch (error) {
+      logSafeError("Could not load cita for post-appointment closing", error);
+    }
+  }
+
+  if (!cita?.slotStart) return false;
+
+  await replyToPatientWithButtons(
+    from,
+    [
+      `Con gusto 😊 Tu cita sigue registrada para ${formatAppointmentFull(cita.slotStart)}.`,
+      "",
+      "Si necesitas cambiar algo, puedo ayudarte desde aqui."
+    ].join("\n"),
+    [
+      { id: "main_menu", title: "Menu" },
+      { id: "returning_reschedule", title: "Reagendar" },
+      { id: "returning_cancel", title: "Cancelar" }
+    ]
+  );
+  return true;
 }
 
 async function handleStandaloneAppointmentAck(from) {
-  let cita;
-  try {
-    cita = await getLatestConfirmedCitaByPhone(from);
-  } catch (error) {
-    logSafeError("Could not load cita for standalone acknowledgement", error);
+  let cita = conversations.get(from)?.appointment;
+  if (cita?.status && cita.status !== "confirmed") {
+    cita = null;
+  }
+
+  if (!cita?.slotStart) {
+    try {
+      cita = await getLatestConfirmedCitaByPhone(from);
+    } catch (error) {
+      logSafeError("Could not load cita for standalone acknowledgement", error);
+    }
   }
 
   if (cita?.slotStart) {
-    await replyToPatient(
+    await replyToPatientWithButtons(
       from,
-      `Perfecto 😊 Tu cita sigue registrada para ${formatAppointmentFull(cita.slotStart)}. Si necesitas cambiarla o cancelarla, escribeme por aqui.`
+      `Perfecto 😊 Tu cita sigue registrada para ${formatAppointmentFull(cita.slotStart)}. Si necesitas cambiarla o cancelarla, escribeme por aqui.`,
+      [
+        { id: "main_menu", title: "Menu" },
+        { id: "returning_reschedule", title: "Reagendar" },
+        { id: "returning_cancel", title: "Cancelar" }
+      ]
     );
     return;
   }

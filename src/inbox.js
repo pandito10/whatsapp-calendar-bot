@@ -98,7 +98,11 @@ export function getConversationStatus(conversation, nowMs = Date.now()) {
     return { key: "cancel", label: "Cancelar", className: "cancel", priority: 4 };
   }
 
-  if (confirmedAppointment && last?.sender !== "patient" && isClosingInboxText(lastPatientText)) {
+  if (confirmedAppointment && isClosingInboxText(lastPatientText)) {
+    return { key: "confirmed", label: "Cita agendada", className: "confirmed", priority: 8 };
+  }
+
+  if (confirmedAppointment && last?.sender !== "patient" && hasRecentFallback(conversation)) {
     return { key: "confirmed", label: "Cita agendada", className: "confirmed", priority: 8 };
   }
 
@@ -639,7 +643,7 @@ function hasConfirmedAppointment(conversation) {
 }
 
 function hasAppointmentConfirmationMessage(conversation) {
-  const recentMessages = [...(conversation?.messages ?? [])].slice(-20).reverse();
+  const recentMessages = [...(conversation?.messages ?? [])].reverse();
   for (const message of recentMessages) {
     if (message?.sender !== "bot") continue;
     const body = normalizeText(message?.body ?? "");

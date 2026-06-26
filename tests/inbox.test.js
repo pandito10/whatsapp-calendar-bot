@@ -289,6 +289,26 @@ test("confirmacion visible en chat marca agendada aunque la ficha de cita tarde 
   assert.equal(buildInboxStats([item], now).confirmed, 1);
 });
 
+test("cita confirmada sigue visible aunque la confirmacion quede lejos en el historial", () => {
+  const olderMessages = Array.from({ length: 30 }, (_, index) => ({
+    sender: index % 2 === 0 ? "patient" : "bot",
+    body: index % 2 === 0 ? `Mensaje paciente ${index}` : `Respuesta bot ${index}`,
+    timestamp: new Date(now - (35 - index) * 60_000).toISOString()
+  }));
+  const item = conversation({
+    tags: ["Bot no entendio", "Promo $1200"],
+    messages: [
+      { sender: "bot", body: "✅ Listo, Dulce. Tu cita quedo agendada para miercoles, 1 de julio de 2030, 5:20 p.m.", timestamp: "2030-06-17T16:00:00.000Z" },
+      ...olderMessages,
+      { sender: "patient", body: "Gracias 😊", timestamp: "2030-06-17T17:50:00.000Z" },
+      { sender: "bot", body: "Perdon, no entendi bien.", timestamp: "2030-06-17T17:51:00.000Z" }
+    ]
+  });
+
+  assert.equal(getConversationStatus(item, now).key, "confirmed");
+  assert.equal(buildInboxStats([item], now).confirmed, 1);
+});
+
 test("sugiere acciones CRM seguras segun estado de la conversacion", () => {
   const results = conversation({
     tags: ["Resultados", "Humano requerido"],

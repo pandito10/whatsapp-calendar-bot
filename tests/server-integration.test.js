@@ -168,7 +168,7 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(inboxScriptText, /bindInboxViewControls/);
     assert.match(inboxScriptText, /inboxChatFocus/);
     assert.match(inboxScriptText, /inboxCompactCards/);
-    assert.match(inboxScriptText, /inboxCompactDefaultV3/);
+    assert.match(inboxScriptText, /inboxCompactDefaultV4/);
     assert.match(inboxScriptText, /inboxHideSidebar/);
     assert.match(inboxScriptText, /inboxHidePatientPanel/);
     assert.match(inboxScriptText, /isMobileInboxViewport/);
