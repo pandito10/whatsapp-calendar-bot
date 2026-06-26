@@ -841,7 +841,9 @@ async function handleDebugConfig(req, url, res) {
         email: {
           configured: isEmailEnabled(),
           resendApiKeyConfigured: Boolean(config.resendApiKey),
-          resendFromEmailConfigured: Boolean(config.resendFromEmail)
+          resendFromEmailConfigured: Boolean(config.resendFromEmail),
+          resendFromEmailMasked: config.resendFromEmail ? maskEmail(config.resendFromEmail) : "",
+          verificationNote: buildEmailVerificationNote()
         },
         activeAppointmentLocks: activeLocks
       })
@@ -902,7 +904,7 @@ async function buildInboxDiagnostics() {
     {
       label: "Correo",
       ok: isEmailEnabled(),
-      detail: isEmailEnabled() ? "Resend configurado" : buildEmailConfigErrorMessage().replace(/^No se pudo enviar el correo: /, "")
+      detail: buildEmailDiagnosticsDetail()
     },
     {
       label: "Inbox",
@@ -1754,6 +1756,26 @@ function buildEmailConfigErrorMessage() {
   if (!config.resendApiKey) missing.push("RESEND_API_KEY");
   if (!config.resendFromEmail) missing.push("RESEND_FROM_EMAIL");
   return `No se pudo enviar el correo: falta configurar ${missing.join(" y ")} en Render.`;
+}
+
+function buildEmailDiagnosticsDetail() {
+  if (!isEmailEnabled()) {
+    return buildEmailConfigErrorMessage().replace(/^No se pudo enviar el correo: /, "");
+  }
+
+  const masked = maskEmail(config.resendFromEmail);
+  const verificationNote = buildEmailVerificationNote();
+  return `Resend configurado · remitente: ${masked}${verificationNote ? ` · ${verificationNote}` : ""}`;
+}
+
+function buildEmailVerificationNote() {
+  if (!config.resendFromEmail) return "";
+  const domain = String(config.resendFromEmail).split("@")[1]?.toLowerCase().trim();
+  if (!domain) return "revisa que RESEND_FROM_EMAIL sea un correo valido";
+  if (domain === "gmail.com" || domain === "hotmail.com" || domain === "outlook.com" || domain === "icloud.com") {
+    return "usa un dominio propio verificado en Resend";
+  }
+  return "si falla el envio, verifica este dominio en Resend > Domains y agrega sus DNS en Hostinger";
 }
 
 async function maybeSendResultsEmailWhatsAppNotice(phone, conversation, emailMasked) {
@@ -3047,7 +3069,7 @@ function renderInboxPage(list, selected, req, url, knowledgeSuggestions = [], di
       : sideTab === "reports"
         ? `${renderReceptionReport(list)}${renderDailyReportsSection(dailyReports, csrf)}`
         : sideTab === "tools"
-          ? `${renderTodayMetrics(list)}${renderInboxSoundSection()}${renderCancelDaySection(csrf)}`
+          ? `${renderTodayMetrics(list)}${renderEmailDeliverySection()}${renderInboxSoundSection()}${renderCancelDaySection(csrf)}`
           : patientsSidebar;
 
   const messages = selected
@@ -6464,6 +6486,26 @@ function renderInboxSoundSection() {
       <button type="button" data-sound-test>Probar sonido fuerte</button>
     </div>
     <p class="tiny-help">En iPhone y Chrome el sonido solo puede activarse despues de tocar un boton. Si aparece permiso de notificaciones, acepta para recibir avisos del inbox.</p>
+  </div>`;
+}
+
+function renderEmailDeliverySection() {
+  const enabled = isEmailEnabled();
+  const statusClass = enabled ? "confirmed" : "urgent";
+  const statusLabel = enabled ? "Configurado" : "Revisar";
+  const detail = buildEmailDiagnosticsDetail();
+
+  return `<div class="diagnostics-card" style="margin-top:0">
+    <div class="diagnostics-head">
+      <strong>Correo de resultados</strong>
+      <span class="tag ${statusClass}">${statusLabel}</span>
+    </div>
+    <p>${escapeHtml(detail)}</p>
+    <ol class="tiny-help" style="margin:8px 0 0 18px;padding:0">
+      <li>El archivo medico se manda solo por correo confirmado, no por WhatsApp.</li>
+      <li>Si Resend rechaza el envio, revisa que el dominio del remitente este verificado.</li>
+      <li>En Hostinger deben existir los DNS que muestra Resend en Domains.</li>
+    </ol>
   </div>`;
 }
 

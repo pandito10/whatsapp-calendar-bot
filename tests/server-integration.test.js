@@ -21,7 +21,12 @@ const baseEnv = {
 };
 
 test("inbox esta protegido y login carga sin conversaciones", async () => {
-  const app = await startServer(32131, { ...baseEnv, NODE_ENV: "test" });
+  const app = await startServer(32131, {
+    ...baseEnv,
+    NODE_ENV: "test",
+    RESEND_API_KEY: "resend-key-test",
+    RESEND_FROM_EMAIL: "resultados@ginecologiaintegralgto.com"
+  });
   try {
     const root = await fetch("http://127.0.0.1:32131/", { redirect: "manual" });
     assert.equal(root.status, 303);
@@ -117,6 +122,11 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     assert.match(reportsHtml, /Generar reporte ahora/);
 
     const toolsHtml = await (await fetch("http://127.0.0.1:32131/inbox?tab=tools", { headers: { Cookie: inboxCookie } })).text();
+    assert.match(toolsHtml, /Correo de resultados/);
+    assert.match(toolsHtml, /Resend configurado/);
+    assert.match(toolsHtml, /r\*\*\*@ginecologiaintegralgto\.com/);
+    assert.match(toolsHtml, /verificado/);
+    assert.doesNotMatch(toolsHtml, /resend-key-test/);
     assert.match(toolsHtml, /Sonido de nuevos mensajes/);
     assert.match(toolsHtml, /Sonido: No/);
     assert.match(toolsHtml, /data-sound-label="yesno"/);
@@ -195,6 +205,11 @@ test("inbox esta protegido y login carga sin conversaciones", async () => {
     });
     assert.equal(debugJson.whatsappTokenConflict, false);
     assert.equal(debugJson.whatsappPhoneNumberId, "1234...6789");
+    assert.equal(debugJson.email.configured, true);
+    assert.equal(debugJson.email.resendFromEmailMasked, "r***@ginecologiaintegralgto.com");
+    assert.match(debugJson.email.verificationNote, /Resend > Domains/);
+    assert.equal(JSON.stringify(debugJson).includes("resend-key-test"), false);
+    assert.equal(JSON.stringify(debugJson).includes("resultados@ginecologiaintegralgto.com"), false);
     assert.equal(debugJson.webhookDiagnostics.pathSecretEnabled, true);
     assert.equal(JSON.stringify(debugJson).includes("whatsapp-token-test"), false);
     assert.equal(JSON.stringify(debugJson).includes(baseEnv.INBOX_PASSWORD), false);
