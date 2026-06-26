@@ -180,6 +180,17 @@ Las acciones del inbox requieren sesion y CSRF. Los mensajes humanos se envian p
 El inbox ya no permite adjuntar fotos, videos, documentos ni PDFs por WhatsApp. Para cualquier archivo usa la accion **Enviar archivo por correo confirmado** en la ficha del paciente; envia PDF/JPG/PNG/WEBP al correo confirmado de la cita usando Resend. Supabase guarda solo una nota y metadata del envio, no el archivo completo.
 Si una conversacion queda en modo humano mas de `BOT_PAUSE_TIMEOUT_MINUTES`, el bot la libera automaticamente al recibir un nuevo mensaje.
 
+### Probar Resend antes de enviar resultados reales
+
+Antes de mandar estudios a una paciente, valida que Resend este activo y que el dominio ya este verificado. Este comando no usa datos de pacientes ni imprime secretos:
+
+```bash
+RESEND_TEST_TO_EMAIL=tu-correo@gmail.com npm run test:resend -- --dry-run
+RESEND_TEST_TO_EMAIL=tu-correo@gmail.com npm run test:resend
+```
+
+Si el comando dice que el dominio no esta verificado, entra a Resend > Domains, copia los DNS a Hostinger y presiona **Verify**. Si dice que `RESEND_API_KEY` no es valida, genera una llave nueva en Resend y actualizala en Render. El remitente debe ser un correo del dominio verificado, por ejemplo `resultados@ginecologiaintegralgto.com`.
+
 ### Solicitud de resultados o estudios
 
 El menu de WhatsApp incluye la opcion **Resultados**. Cuando una paciente la elige o escribe algo como "mis resultados", "mis estudios" o "mi diagnostico", el bot:
@@ -590,6 +601,7 @@ EXTERNAL_REQUEST_RETRIES=2
 INBOX_ALLOW_LEGACY_TOKEN_ACCESS=false
 INBOX_MEDIA_MAX_BYTES=16000000
 RESULTS_EMAIL_MAX_BYTES=10000000
+RESEND_TEST_TO_EMAIL=
 APPOINTMENT_BUFFER_MINUTES=0
 MIN_APPOINTMENT_ADVANCE_HOURS=0
 FORWARD_CONVERSATION_BODIES=false
